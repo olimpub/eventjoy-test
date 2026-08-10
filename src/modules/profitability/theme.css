@@ -1,0 +1,97 @@
+/* =========================================================================
+   PROFI-T-ABILITY — Brand Design Tokens & Typography
+   Alapja: PROFI-T-ABILITY Arculati és UI Kézikönyv
+   Megjegyzés: A "Helvetica Neue LT Pro" licencelt betűtípus nem elérhető a
+   projektben, ezért ingyenes, vizuálisan hasonló Google Font helyettesíti:
+   - Címek / kiemelt számok (93 Bold Condensed) -> 'Archivo Black' / 'Barlow Condensed' (800)
+   - Általános szövegek (45 Light)              -> 'Roboto' (300/400)
+   - Egyéb numerikus adatok (63 Medium Extended) -> 'Roboto Condensed' (500)
+   A CSS lánc végén mindig ott van a natív 'Helvetica Neue' / 'Arial' fallback is,
+   hátha a felhasználó gépén elérhető a hivatalos licencelt betűtípus.
+   ========================================================================= */
+
+:root {
+  /* === PTA Brand Colors === */
+  --pta-orange: #f68b29;
+  --pta-orange-dark: #ea580c;
+  --pta-dark: #2c2e32;
+  --pta-dark-2: #1c1d20;
+  --pta-white: #ffffff;
+
+  /* Player / Team colors */
+  --pta-red: #ff6060;
+  --pta-green: #28c76f;
+  --pta-blue: #2aa9ff;
+  --pta-yellow: #f2e74b;
+
+  /* Typography stacks */
+  --pta-font-display: 'Barlow Condensed', 'Archivo Black', 'Helvetica Neue', 'Helvetica Neue LT Pro', Arial, sans-serif;
+  --pta-font-body: 'Roboto', 'Helvetica Neue', 'Helvetica Neue LT Pro', Arial, sans-serif;
+  --pta-font-number: 'Roboto Condensed', 'Helvetica Neue', 'Helvetica Neue LT Pro', Arial, sans-serif;
+
+  --pta-radius: 20px;
+  --pta-radius-sm: 12px;
+}
+
+.pta-scope {
+  font-family: var(--pta-font-body);
+  font-weight: 300;
+  color: var(--pta-white);
+  background-color: var(--pta-dark);
+}
+
+.pta-scope .pta-display {
+  font-family: var(--pta-font-display);
+  font-weight: 800;
+  font-stretch: condensed;
+  letter-spacing: 0.01em;
+}
+
+.pta-scope .pta-number {
+  font-family: var(--pta-font-number);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.pta-scope .pta-body {
+  font-family: var(--pta-font-body);
+  font-weight: 300;
+}
+
+/* Glassmorphism panel base */
+.pta-scope .pta-glass {
+  background-color: rgba(44, 46, 50, 0.72);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.pta-scope .pta-glass-light {
+  background-color: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.pta-scope ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.pta-scope ::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.04);
+}
+.pta-scope ::-webkit-scrollbar-thumb {
+  background: rgba(246, 139, 41, 0.4);
+  border-radius: 10px;
+}
+.pta-scope ::-webkit-scrollbar-thumb:hover {
+  background: rgba(246, 139, 41, 0.6);
+}
+
+@keyframes pta-pulse-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(246, 139, 41, 0.5); }
+  50% { box-shadow: 0 0 0 8px rgba(246, 139, 41, 0); }
+}
+.pta-scope .pta-pulse {
+  animation: pta-pulse-glow 2s ease-in-out infinite;
+}

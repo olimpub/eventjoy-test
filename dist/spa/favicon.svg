@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- EventJoy Icon - Flat single-color version (best for favicon, small sizes) -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Calendar body (squircle) - flat blue -->
+  <rect x="56" y="96" width="400" height="380" rx="80" ry="80" fill="#0EA5E9"/>
+
+  <!-- Calendar binding rings -->
+  <rect x="148" y="56" width="24" height="80" rx="12" fill="#FFFFFF"/>
+  <rect x="340" y="56" width="24" height="80" rx="12" fill="#FFFFFF"/>
+
+  <!-- EJ Monogram: two E-bars + J -->
+  <rect x="148" y="200" width="110" height="36" rx="18" fill="#FFFFFF"/>
+  <rect x="148" y="300" width="110" height="36" rx="18" fill="#FFFFFF"/>
+  <path d="M 296 200 L 332 200 L 332 340 Q 332 372 300 372 Q 268 372 268 340 L 268 322 L 304 322 L 304 340 Q 304 344 308 344 Q 312 344 312 340 L 312 200 Z" fill="#FFFFFF"/>
+</svg>

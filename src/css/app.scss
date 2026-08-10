@@ -1,0 +1,188 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  background-color: #0F172A !important;
+  font-family: var(--font-sans) !important;
+}
+
+/* ---------- 1. Quasar SCSS Variables override ---------- */
+$primary   : #0EA5E9; /* Electric Blue */
+$secondary : #06B6D4; /* Cyan */
+$accent    : #14B8A6; /* Teal */
+$dark      : #0F172A; /* Midnight Navy */
+
+$positive  : #10B981; /* Success */
+$negative  : #EF4444; /* Error */
+$info      : #3B82F6; /* Info */
+$warning   : #F59E0B; /* Warning */
+
+/* ---------- 2. EventJoy Design Tokens (from globals.css) ---------- */
+:root {
+  /* === COLORS — Primary === */
+  --ej-primary: #0EA5E9;
+  --ej-primary-mid: #06B6D4;
+  --ej-primary-end: #14B8A6;
+  --ej-primary-hover: #0284C7;
+
+  /* === COLORS — Neutral === */
+  --ej-navy: #0F172A;
+  --ej-charcoal: #1E293B;
+  --ej-slate: #475569;
+  --ej-gray: #64748B;
+  --ej-light-gray: #94A3B8;
+  --ej-border: #E2E8F0;
+  --ej-bg: #F8FAFC;
+  --ej-white: #FFFFFF;
+
+  /* === COLORS — Semantic === */
+  --ej-success: #10B981;
+  --ej-warning: #F59E0B;
+  --ej-error: #EF4444;
+  --ej-info: #3B82F6;
+
+  /* === Brand Gradient === */
+  --ej-gradient: linear-gradient(135deg, #0EA5E9 0%, #06B6D4 50%, #14B8A6 100%);
+
+  /* === Typography === */
+  --font-sans: 'Poppins', 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Courier New', monospace;
+
+  /* === Spacing === */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+
+  /* === Border Radius === */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 24px;
+  --radius-squircle: 22%;
+  --radius-full: 9999px;
+
+  /* === Shadows === */
+  --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.1), 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 4px 6px rgba(15, 23, 42, 0.1), 0 2px 4px rgba(15, 23, 42, 0.06);
+  --shadow-lg: 0 10px 15px rgba(15, 23, 42, 0.1), 0 4px 6px rgba(15, 23, 42, 0.05);
+  --shadow-glow: 0 8px 24px rgba(14, 165, 233, 0.35);
+
+  /* === Transitions === */
+  --transition-fast: 150ms ease-out;
+  --transition-base: 200ms ease-out;
+  --transition-slow: 300ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Tailwind configuration bridge */
+@theme {
+  --color-brand-dark: #0F172A;
+  --color-brand-primary: #0EA5E9;
+  --color-brand-cyan: #06B6D4;
+  --color-brand-teal: #14B8A6;
+  --color-brand-yellow: #FFF76A;
+  --background-image-brand-gradient: var(--ej-gradient);
+}
+
+/* ---------- 3. Brand Wordmark Class ---------- */
+.ej-wordmark {
+  font-family: 'Poppins', 'Inter', system-ui, sans-serif;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+.ej-wordmark .event {
+  color: var(--ej-white);
+}
+.ej-wordmark .joy {
+  background: linear-gradient(135deg, var(--ej-primary-mid), var(--ej-primary-end));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* ---------- 4. Buttons (from globals.css) ---------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 16px;
+  padding: 12px 24px;
+  border-radius: var(--radius-md);
+  border: none;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all var(--transition-base);
+  white-space: nowrap;
+}
+.btn:focus-visible {
+  outline: 2px solid var(--ej-primary);
+  outline-offset: 2px;
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--ej-gradient) !important;
+  color: white !important;
+  box-shadow: 0 4px 12px rgba(14, 165, 233, 0.25);
+}
+.btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-glow) !important;
+}
+.btn-primary:active {
+  transform: translateY(0);
+}
+
+.btn-secondary {
+  background: var(--ej-white) !important;
+  color: var(--ej-primary) !important;
+  border: 2px solid var(--ej-primary) !important;
+}
+.btn-secondary:hover {
+  background: #F0F9FF !important;
+}
+
+.btn-ghost {
+  background: transparent !important;
+  color: #94A3B8 !important;
+}
+.btn-ghost:hover {
+  background: rgba(255, 255, 255, 0.05) !important;
+  color: white !important;
+}
+
+/* ---------- 5. Custom scrollbars and animations ---------- */
+.modern-scrollbar::-webkit-scrollbar {
+  height: 4px;
+  width: 4px;
+}
+.modern-scrollbar::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+}
+.modern-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(14, 165, 233, 0.3);
+  border-radius: 10px;
+}
+.modern-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(14, 165, 233, 0.5);
+}
+
+@keyframes bounce-subtle {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
+}
+.animate-bounce-subtle {
+  animation: bounce-subtle 2s ease-in-out infinite;
+}

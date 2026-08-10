@@ -1,0 +1,715 @@
+<template>
+  <q-layout view="lHh Lpr lFf">
+    <q-page-container>
+      <q-page class="flex items-center justify-center min-h-screen bg-brand-dark text-white relative overflow-hidden q-pa-md">
+
+        <!-- Ambient Animated Background Glows -->
+        <div class="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-0">
+          <div class="blob-1 absolute top-[-5%] left-[-5%] w-[60%] h-[60%] rounded-full mix-blend-screen" style="background: rgba(14,165,233,0.35); filter: blur(90px);"></div>
+          <div class="blob-2 absolute bottom-[-5%] right-[-5%] w-[70%] h-[70%] rounded-full mix-blend-screen" style="background: rgba(139,92,246,0.3); filter: blur(120px);"></div>
+        </div>
+
+        <!-- Login Card Wrapper -->
+        <div class="relative z-10 w-full max-w-md bg-[#0B0F19]/60 border border-white/10 rounded-[2.5rem] p-6 sm:p-8 shadow-2xl backdrop-blur-xl flex flex-col justify-start transition-all duration-500">
+          
+          <!-- Top Branding Logo -->
+          <div class="text-center q-mb-xl flex flex-col items-center">
+            <img src="~assets/eventjoy_logo_full_dark.svg" alt="EventJoy Logo" style="height: 42px; width: auto;" class="object-contain q-mb-md" />
+            <h1 style="font-size: 22px; font-weight: 800; color: #ffffff; letter-spacing: 0.02em; margin: 0; line-height: 1.2;">
+              {{ step === 'identity' ? 'Üdvözlünk az EventJoy-ban!' : (step === 'register' ? 'Hozd létre a fiókod' : 'Üdv újra!') }}
+            </h1>
+            <p style="font-size: 13px; color: #94A3B8; margin-top: 6px; margin-bottom: 0;">
+              {{ step === 'identity' ? 'Kérlek, add meg az azonosítód a folytatáshoz.' : (step === 'register' ? 'Úgy látjuk, új vagy nálunk! Állíts be egy jelszót.' : 'Kérlek, igazold a személyazonosságod.') }}
+            </p>
+          </div>
+
+          <!-- Form Container with Smooth Transitions -->
+          <div class="form-container min-h-[160px] relative overflow-hidden q-px-xs">
+            <Transition name="slide-fade" mode="out-in">
+              
+              <!-- 1. STEP: IDENTITY (EMAIL VAGY PHONE) -->
+              <div v-if="step === 'identity'" key="identity" class="flex flex-col gap-4">
+                
+                <!-- Típus választó (Email / Telefon) -->
+                <div style="display: flex; gap: 12px; margin-bottom: 20px; margin-top: 8px;">
+                  <button 
+                    @click.prevent="loginType = 'email'; identity = ''"
+                    :style="loginType === 'email' ? 'background: #0EA5E9; color: #FFFFFF; box-shadow: 0 4px 12px rgba(14,165,233,0.4); border: 1px solid transparent;' : 'background: rgba(255, 255, 255, 0.05); color: #FFFFFF; border: 1px solid rgba(255, 255, 255, 0.2);'"
+                    class="flex-1 py-3 px-4 rounded-full text-[14px] font-bold transition-all duration-300 flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <q-icon name="mail" size="18px" />
+                    <span>E-mail</span>
+                  </button>
+                  <button 
+                    @click.prevent="loginType = 'phone'; identity = ''"
+                    :style="loginType === 'phone' ? 'background: #0EA5E9; color: #FFFFFF; box-shadow: 0 4px 12px rgba(14,165,233,0.4); border: 1px solid transparent;' : 'background: rgba(255, 255, 255, 0.05); color: #FFFFFF; border: 1px solid rgba(255, 255, 255, 0.2);'"
+                    class="flex-1 py-3 px-4 rounded-full text-[14px] font-bold transition-all duration-300 flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <q-icon name="phone" size="18px" />
+                    <span>Telefon</span>
+                  </button>
+                </div>
+
+                <div class="input-group">
+                  <q-input 
+                    v-model="identity" 
+                    :label="loginType === 'email' ? 'E-mail cím' : 'Telefonszám'" 
+                    :type="loginType === 'email' ? 'email' : 'tel'"
+                    dark 
+                    filled 
+                    color="brand-primary" 
+                    class="custom-input text-lg"
+                    @keyup.enter="handleCheckIdentity"
+                  >
+                    <template v-slot:prepend>
+                      <q-icon :name="loginType === 'email' ? 'mail' : 'phone'" color="slate-400" />
+                    </template>
+                  </q-input>
+                </div>
+
+                <div class="flex justify-center w-full q-mt-md">
+                  <button 
+                    @click="handleCheckIdentity"
+                    style="background: var(--ej-gradient); color: #FFFFFF; height: 54px; width: 100%;"
+                    class="font-black text-xl uppercase tracking-widest border-none rounded-full active:scale-98 hover:brightness-110 shadow-[0_4px_12px_rgba(14,165,233,0.3)] transition-all duration-200 cursor-pointer outline-none flex items-center justify-center group"
+                  >
+                    <span>Tovább</span>
+                    <q-icon name="arrow_forward" size="24px" class="q-ml-sm transition-transform duration-300 group-hover:translate-x-1.5" />
+                  </button>
+                </div>
+              </div>
+
+              <!-- 2. STEP: PASSWORD LOGIN -->
+              <div v-else-if="step === 'password'" key="password" class="flex flex-col gap-4">
+                <div class="text-center q-py-sm">
+                  <p class="text-brand-primary font-black text-lg m-0 tracking-wide">{{ identity }}</p>
+                </div>
+
+                <div class="input-group">
+                  <q-input 
+                    v-model="password" 
+                    label="Jelszó"
+                    :type="showPassword ? 'text' : 'password'" 
+                    dark 
+                    filled 
+                    color="brand-primary" 
+                    class="custom-input"
+                    @keyup.enter="handlePasswordLogin"
+                  >
+                    <template v-slot:prepend>
+                      <q-icon name="lock" color="slate-400" />
+                    </template>
+                    <template v-slot:append>
+                      <q-icon 
+                        :name="showPassword ? 'visibility_off' : 'visibility'" 
+                        class="cursor-pointer" 
+                        color="slate-400"
+                        @click="showPassword = !showPassword" 
+                      />
+                    </template>
+                  </q-input>
+                  <div class="flex justify-end mt-2 px-2">
+                    <a href="#" class="text-brand-primary text-[10px] hover:underline font-bold uppercase tracking-wider">Elfelejtettem a jelszavam</a>
+                  </div>
+                </div>
+
+                <div class="flex gap-3 q-mt-sm items-center justify-center">
+                  <q-btn outline color="slate-400" label="Vissza" style="height: 54px; border-radius: 9999px;" class="px-5 text-xs font-bold" @click="step = 'identity'" dark />
+                  <button 
+                    @click="handlePasswordLogin"
+                    style="background: var(--ej-gradient); color: #FFFFFF; height: 54px; width: 65%;"
+                    class="font-black text-xl uppercase tracking-widest border-none rounded-full active:scale-98 hover:brightness-110 shadow-[0_4px_12px_rgba(14,165,233,0.3)] transition-all duration-200 cursor-pointer outline-none flex items-center justify-center group"
+                  >
+                    <span>Belépés</span>
+                    <q-icon name="login" size="24px" class="q-ml-sm transition-transform duration-300 group-hover:translate-x-1.5" />
+                  </button>
+                </div>
+
+                <!-- OTP (Jelszó nélküli) opció -->
+                <div class="w-full flex items-center justify-center gap-4 mt-4 mb-2">
+                  <div class="h-[1px] flex-1 bg-white/10"></div>
+                  <span class="text-[10px] uppercase font-bold tracking-widest text-slate-500">Vagy</span>
+                  <div class="h-[1px] flex-1 bg-white/10"></div>
+                </div>
+                
+                <q-btn 
+                  style="height: 54px; border-radius: 9999px; background: rgba(14, 165, 233, 0.15); border: 1px solid rgba(14, 165, 233, 0.3);" 
+                  class="w-full text-sm font-bold tracking-wide q-mb-sm hover:bg-brand-primary/20 transition-all text-brand-primary" 
+                  @click="requestOtpDirectly" 
+                  unelevated
+                >
+                  Belépési Kód Kérése
+                </q-btn>
+              </div>
+
+              <!-- 3. STEP: OTP CODE LOGIN -->
+              <div v-else-if="step === 'otp'" key="otp" class="flex flex-col gap-4">
+                <div class="text-center q-py-sm">
+                  <p class="text-slate-300 text-sm m-0">Az ellenőrző kódot elküldtük ide:</p>
+                  <p class="text-brand-primary font-black text-lg m-0 tracking-wide">{{ identity }}</p>
+                </div>
+
+                <div class="input-group">
+                  <q-input 
+                    v-model="otpCode" 
+                    label="6-jegyű kód" 
+                    dark 
+                    filled 
+                    color="brand-primary" 
+                    class="custom-input text-center font-mono letter-spacing-wide"
+                    mask="######"
+                    @keyup.enter="handleOtpLogin"
+                  >
+                    <template v-slot:prepend>
+                      <q-icon name="vpn_key" color="slate-400" />
+                    </template>
+                  </q-input>
+                </div>
+
+                <div class="flex justify-center mt-2 px-2">
+                   <a href="#" @click.prevent="requestOtpDirectly" class="text-brand-primary text-[13px] hover:text-white transition-colors cursor-pointer font-bold tracking-wide">Nem kaptad meg? Újraküldés.</a>
+                </div>
+
+                <div class="flex gap-3 q-mt-sm items-center justify-center">
+                  <q-btn outline color="slate-400" label="Vissza" style="height: 54px; border-radius: 9999px;" class="px-5 text-xs font-bold" @click="step = 'identity'" dark />
+                  <button 
+                    @click="handleOtpLogin"
+                    style="background: var(--ej-gradient); color: #FFFFFF; height: 54px; width: 65%;"
+                    class="font-black text-xl uppercase tracking-widest border-none rounded-full active:scale-98 hover:brightness-110 shadow-[0_4px_12px_rgba(14,165,233,0.3)] transition-all duration-200 cursor-pointer outline-none flex items-center justify-center group"
+                  >
+                    <span>Megerősítés</span>
+                    <q-icon name="check_circle" size="24px" class="q-ml-sm transition-transform duration-300 group-hover:scale-110" />
+                  </button>
+                </div>
+              </div>
+
+              <!-- 4. STEP: REGISTER (NEW USER) -->
+              <div v-else-if="step === 'register'" key="register" class="flex flex-col gap-4">
+                <div class="text-center q-py-sm">
+                  <p class="text-brand-primary font-black text-lg m-0 tracking-wide">{{ identity }}</p>
+                </div>
+
+                <div class="input-group">
+                  <q-input 
+                    v-model="password" 
+                    label="Új jelszó"
+                    :type="showPassword ? 'text' : 'password'" 
+                    dark 
+                    filled 
+                    color="brand-primary" 
+                    class="custom-input"
+                  >
+                    <template v-slot:prepend>
+                      <q-icon name="lock" color="slate-400" />
+                    </template>
+                  </q-input>
+                </div>
+
+                <div class="flex gap-3 q-mt-sm items-center justify-center">
+                  <q-btn outline color="slate-400" label="Vissza" style="height: 54px; border-radius: 9999px;" class="px-5 text-xs font-bold" @click="step = 'identity'" dark />
+                  <button 
+                    @click="handleRegister"
+                    style="background: var(--ej-gradient); color: #FFFFFF; height: 54px; width: 65%;"
+                    class="font-black text-[16px] sm:text-xl uppercase tracking-widest border-none rounded-full active:scale-98 hover:brightness-110 shadow-[0_4px_12px_rgba(14,165,233,0.3)] transition-all duration-200 cursor-pointer outline-none flex items-center justify-center group"
+                  >
+                    <span>Létrehozás</span>
+                    <q-icon name="person_add" size="24px" class="q-ml-sm transition-transform duration-300 group-hover:translate-x-1.5" />
+                  </button>
+                </div>
+
+                <!-- OTP (Jelszó nélküli) opció -->
+                <div class="w-full flex items-center justify-center gap-4 mt-4 mb-2">
+                  <div class="h-[1px] flex-1 bg-white/10"></div>
+                  <span class="text-[10px] uppercase font-bold tracking-widest text-slate-500">Vagy</span>
+                  <div class="h-[1px] flex-1 bg-white/10"></div>
+                </div>
+                
+                <q-btn 
+                  style="height: 54px; border-radius: 9999px; background: rgba(14, 165, 233, 0.15); border: 1px solid rgba(14, 165, 233, 0.3);" 
+                  class="w-full text-sm font-bold tracking-wide q-mb-sm hover:bg-brand-primary/20 transition-all text-brand-primary" 
+                  @click="requestOtpDirectly" 
+                  unelevated
+                >
+                  Belépési Kód Kérése
+                </q-btn>
+              </div>
+
+            </Transition>
+          </div>
+
+          <!-- Divider -->
+          <div v-if="step === 'identity'" class="w-full flex items-center justify-center gap-4 mt-8 mb-6 transition-opacity duration-300">
+            <div class="h-[1px] flex-1 bg-white/10"></div>
+            <span class="text-[10px] uppercase font-bold tracking-widest text-slate-500">Vagy folytasd ezzel</span>
+            <div class="h-[1px] flex-1 bg-white/10"></div>
+          </div>
+
+          <!-- Social Login Form -->
+          <div v-if="step === 'identity'" class="flex flex-col gap-4 transition-opacity duration-300">
+            <div style="display: flex !important; flex-direction: row !important; justify-content: center !important; align-items: center !important; gap: 20px !important; width: 100% !important; max-width: 340px !important; margin: 0 auto !important; padding: 4px 0 !important;">
+              <!-- Google -->
+              <button 
+                @click="socialLogin('Google')"
+                style="width: 64px; height: 64px; flex-shrink: 0; background: rgba(255, 255, 255, 0.03) !important; backdrop-filter: blur(12px) !important; border: 1.5px solid rgba(66, 133, 244, 0.4) !important; box-shadow: 0 0 15px rgba(66, 133, 244, 0.15) !important; border-radius: 50% !important;"
+                class="flex items-center justify-center cursor-pointer transition-all duration-300 hover:scale-115 active:scale-95 outline-none hover:border-[rgba(66,133,244,0.85)]! hover:shadow-[0_0_22px_rgba(66,133,244,0.4)]! opacity-90 hover:opacity-100"
+              >
+                <q-icon name="mdi-google" size="28px" style="color: #FFFFFF;" />
+              </button>
+              <!-- Facebook -->
+              <button 
+                @click="socialLogin('Facebook')"
+                style="width: 64px; height: 64px; flex-shrink: 0; background: rgba(255, 255, 255, 0.03) !important; backdrop-filter: blur(12px) !important; border: 1.5px solid rgba(24, 119, 242, 0.4) !important; box-shadow: 0 0 15px rgba(24, 119, 242, 0.15) !important; border-radius: 50% !important;"
+                class="flex items-center justify-center cursor-pointer transition-all duration-300 hover:scale-115 active:scale-95 outline-none hover:border-[rgba(24,119,242,0.85)]! hover:shadow-[0_0_22px_rgba(24,119,242,0.4)]! opacity-90 hover:opacity-100"
+              >
+                <q-icon name="mdi-facebook" size="28px" style="color: #FFFFFF;" />
+              </button>
+              <!-- Apple -->
+              <button 
+                @click="socialLogin('Apple')"
+                style="width: 64px; height: 64px; flex-shrink: 0; background: rgba(255, 255, 255, 0.03) !important; backdrop-filter: blur(12px) !important; border: 1.5px solid rgba(255, 255, 255, 0.2) !important; box-shadow: 0 0 15px rgba(255, 255, 255, 0.08) !important; border-radius: 50% !important;"
+                class="flex items-center justify-center cursor-pointer transition-all duration-300 hover:scale-115 active:scale-95 outline-none hover:border-[rgba(255,255,255,0.7)]! hover:shadow-[0_0_22px_rgba(255,255,255,0.25)]! opacity-90 hover:opacity-100"
+              >
+                <q-icon name="mdi-apple" size="28px" style="color: #FFFFFF;" />
+              </button>
+            </div>
+          </div>
+
+        </div>
+      </q-page>
+    </q-page-container>
+  </q-layout>
+</template>
+
+<script setup lang="ts">
+import { ref, watch, nextTick } from 'vue'
+import { useRouter } from 'vue-router'
+import { useQuasar, QSpinnerOrbit, QSpinnerPuff, QSpinnerGrid, QSpinnerAudio } from 'quasar'
+import { useAuthStore } from 'src/stores/auth'
+import { api } from 'src/boot/axios'
+import { AsYouType, isValidPhoneNumber } from 'libphonenumber-js'
+import { googleTokenLogin } from 'vue3-google-login'
+import axios from 'axios'
+
+const router = useRouter()
+const $q = useQuasar()
+const authStore = useAuthStore()
+
+// State
+const step = ref<'identity' | 'password' | 'otp' | 'register'>('identity')
+const identity = ref('')
+const password = ref('')
+const otpCode = ref('')
+const showPassword = ref(false)
+const tempUserId = ref<number | null>(null)
+const loginType = ref<'email' | 'phone'>('email')
+
+// --- TELEFONSZÁM FORMÁZÓ LOGIKA (libphonenumber-js) ---
+watch(identity, (newVal) => {
+  if (!newVal || loginType.value === 'email') return
+  
+  // Automatikus 06 és 36 átalakítás +36-ra
+  let inputToFormat = newVal
+  const justDigitsAndPlus = newVal.replace(/[^\d+]/g, '')
+  
+  if (justDigitsAndPlus.startsWith('06')) {
+    inputToFormat = '+36' + justDigitsAndPlus.substring(2)
+  } else if (justDigitsAndPlus.startsWith('36')) {
+    inputToFormat = '+36' + justDigitsAndPlus.substring(2)
+  }
+
+  // Profi "As You Type" formázó, alapértelmezetten Magyarországra hangolva
+  const formatter = new AsYouType('HU')
+  const formatted = formatter.input(inputToFormat)
+
+  // Ha változott a formázott érték, frissítjük a felületen
+  if (newVal !== formatted) {
+    nextTick(() => {
+      identity.value = formatted
+    })
+  }
+})
+
+// 1. Identity Check
+async function handleCheckIdentity() {
+  if (!identity.value) {
+    showToast(`Add meg a${loginType.value === 'email' ? 'z e-mail címedet' : ' telefonszámodat'}!`, 'warning')
+    return
+  }
+  
+  // A backendre szóközök nélkül küldjük a telefonszámot!
+  const rawIdentity = identity.value.trim().replace(/\s+/g, '')
+
+  // Profi validáció beküldés előtt!
+  if (loginType.value === 'email') {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(identity.value)) {
+      showToast('Kérjük, érvényes e-mail címet adj meg!', 'warning')
+      return
+    }
+  } else {
+    if (!isValidPhoneNumber(identity.value, 'HU')) {
+      showToast('Érvénytelen telefonszám formátum!', 'warning')
+      return
+    }
+  }
+
+  showLoading('Ellenőrzés...')
+  
+  try {
+    const result = await authStore.checkIdentity(rawIdentity)
+    $q.loading.hide()
+    
+    if (result.StatusID === 4) {
+      showToast('Ez a fiók fel lett függesztve!', 'warning')
+      return
+    }
+
+    if (result.UserExists) {
+      tempUserId.value = result.UserID // Elmentjük a UserID-t az OTP híváshoz!
+      
+      if (result.HasPassword) {
+        step.value = 'password' // Van jelszava, kérjük be
+      } else {
+        // Nincs jelszava, rögtön kérjük le az OTP kódot
+        await requestOtpDirectly()
+      }
+    } else {
+      // Nem létezik -> Regisztráció
+      step.value = 'register'
+    }
+  } catch (error: any) {
+    $q.loading.hide()
+    const msg = error.response?.data?.Result1?.ReturnDescription || 'Hiba történt a szerverrel való kommunikációban.'
+    showToast(msg, 'warning')
+  }
+}
+
+// Jelszó nélküli belépés / Kód kérése közvetlenül
+async function requestOtpDirectly() {
+  showLoading('Kód küldése folyamatban...')
+  try {
+    // Eldöntjük, hogy Email-t vagy Telefont küldünk be
+    // A backendre szóközök nélkül küldjük a telefonszámot!
+    const rawIdentity = identity.value.trim().replace(/\s+/g, '')
+    const isEmail = rawIdentity.includes('@')
+    const payload = isEmail ? { EmailAddress: rawIdentity } : { PhoneNumber: rawIdentity }
+    
+    await api.post('/api/auth/request-otp', payload)
+    
+    $q.loading.hide()
+    step.value = 'otp'
+    showToast('Kódot elküldtük az azonosítódra!', 'info')
+  } catch (error: any) {
+    $q.loading.hide()
+    const msg = error.response?.data?.Result1?.ReturnDescription || 'Nem sikerült elküldeni a kódot.'
+    showToast(msg, 'warning')
+  }
+}
+
+// 2. Password Login
+async function handlePasswordLogin() {
+  if (!password.value) {
+    showToast('Kérjük add meg a jelszavad!', 'warning')
+    return
+  }
+  
+  showLoading('Bejelentkezés folyamatban...')
+  
+  try {
+    // Generate UUID if it doesn't exist yet (for DeviceId)
+    let deviceId = localStorage.getItem('device_uuid')
+    if (!deviceId) {
+      deviceId = crypto.randomUUID()
+      localStorage.setItem('device_uuid', deviceId)
+    }
+
+    const payload = {
+      IdentityValue: identity.value,
+      Password: password.value,
+      DeviceId: deviceId,
+      DeviceName: 'EventJoy WebApp'
+    }
+
+    await authStore.passwordLogin(payload)
+    
+    // BOOT ADATOK BETÖLTÉSE (Események, Törzsadatok, Értesítések, SignalR indítás)
+    showLoading('Adatok szinkronizálása...')
+    await authStore.fetchBootData()
+    
+    $q.loading.hide()
+    showToast(`Üdvözlünk újra az EventJoy-ban!`, 'positive')
+    router.push('/')
+  } catch (error: any) {
+    $q.loading.hide()
+    const msg = error.response?.data?.Result1?.ReturnDescription || 'Hibás jelszó!'
+    showToast(msg, 'warning')
+  }
+}
+
+// 3. OTP Login
+async function handleOtpLogin() {
+  if (otpCode.value.length < 6) {
+    showToast('Kérjük adj meg egy érvényes 6-jegyű kódot!', 'warning')
+    return
+  }
+  
+  showLoading('Kód ellenőrzése...')
+  
+  try {
+    let deviceId = localStorage.getItem('device_uuid')
+    if (!deviceId) {
+      deviceId = crypto.randomUUID()
+      localStorage.setItem('device_uuid', deviceId)
+    }
+    
+    const rawIdentity = identity.value.trim().replace(/\s+/g, '')
+
+    const payload = {
+      IdentityValue: rawIdentity,
+      ValidationCode: otpCode.value,
+      DeviceId: deviceId,
+      DeviceName: 'EventJoy WebApp'
+    }
+
+    await authStore.verifyOtp(payload)
+    
+    showLoading('Adatok szinkronizálása...')
+    await authStore.fetchBootData()
+    
+    $q.loading.hide()
+    showToast('Sikeres belépés!', 'positive')
+    router.push('/')
+  } catch (error: any) {
+    $q.loading.hide()
+    const msg = error.response?.data?.Result1?.ReturnDescription || 'Hibás vagy lejárt kód!'
+    showToast(msg, 'warning')
+  }
+}
+
+// 4. Register
+async function handleRegister() {
+  if (!password.value) {
+    showToast('Kérjük adj meg egy jelszót!', 'warning')
+    return
+  }
+  
+  showLoading('Fiók létrehozása...')
+  
+  try {
+    let deviceId = localStorage.getItem('device_uuid')
+    if (!deviceId) {
+      deviceId = crypto.randomUUID()
+      localStorage.setItem('device_uuid', deviceId)
+    }
+
+    const payload = {
+      IdentityValue: identity.value,
+      Password: password.value,
+      DeviceId: deviceId,
+      DeviceName: 'EventJoy WebApp'
+    }
+
+    await authStore.register(payload)
+    
+    showLoading('Környezet előkészítése...')
+    await authStore.fetchBootData()
+    
+    $q.loading.hide()
+    showToast('Fiók sikeresen létrehozva!', 'positive')
+    router.push('/')
+  } catch (error: any) {
+    $q.loading.hide()
+    const msg = error.response?.data?.Result1?.ReturnDescription || 'Hiba a regisztráció során!'
+    showToast(msg, 'warning')
+  }
+}
+
+// 5. Social Login
+async function socialLogin(provider: string) {
+  if (provider === 'Google') {
+    try {
+      showLoading('Google bejelentkezés inicializálása...')
+      
+      const response = await googleTokenLogin()
+      if (!response?.access_token) {
+        $q.loading.hide()
+        showToast('Nem sikerült a Google bejelentkezés.', 'warning')
+        return
+      }
+
+      showLoading('Felhasználói adatok lekérése...')
+      
+      // Get user info from Google using the access token
+      const userInfoRes = await axios.get(`https://www.googleapis.com/oauth2/v3/userinfo?access_token=${response.access_token}`)
+      const userInfo = userInfoRes.data
+
+      let deviceId = localStorage.getItem('device_uuid')
+      if (!deviceId) {
+        deviceId = crypto.randomUUID()
+        localStorage.setItem('device_uuid', deviceId)
+      }
+
+      const payload = {
+        Provider: 'Google',
+        ProviderId: userInfo.sub, // Google egyedi ID
+        EmailAddress: userInfo.email,
+        FirstName: userInfo.given_name,
+        LastName: userInfo.family_name,
+        DeviceId: deviceId,
+        DeviceName: 'EventJoy WebApp'
+      }
+
+      showLoading('Bejelentkezés a rendszerbe...')
+      await authStore.socialLogin(payload)
+      
+      showLoading('Adatok szinkronizálása...')
+      await authStore.fetchBootData()
+      
+      $q.loading.hide()
+      showToast('Sikeres belépés a Google fiókkal!', 'positive')
+      router.push('/')
+      
+    } catch (error: any) {
+      $q.loading.hide()
+      console.error(error)
+      const msg = error.response?.data?.Result1?.ReturnDescription || `Hiba történt a Google bejelentkezés során.`
+      showToast(msg, 'warning')
+    }
+    return
+  }
+
+  if (provider === 'Facebook') {
+    try {
+      showLoading('Facebook bejelentkezés inicializálása...')
+      
+      window.FB.login((response: any) => {
+        if (response.authResponse) {
+          showLoading('Felhasználói adatok lekérése...')
+          
+          window.FB.api('/me', { fields: 'id,email,first_name,last_name' }, async (userInfo: any) => {
+            let deviceId = localStorage.getItem('device_uuid')
+            if (!deviceId) {
+              deviceId = crypto.randomUUID()
+              localStorage.setItem('device_uuid', deviceId)
+            }
+
+            const payload = {
+              Provider: 'Facebook',
+              ProviderId: userInfo.id, // Facebook egyedi ID
+              EmailAddress: userInfo.email,
+              FirstName: userInfo.first_name,
+              LastName: userInfo.last_name,
+              DeviceId: deviceId,
+              DeviceName: 'EventJoy WebApp'
+            }
+
+            try {
+              showLoading('Bejelentkezés a rendszerbe...')
+              await authStore.socialLogin(payload)
+              
+              showLoading('Adatok szinkronizálása...')
+              await authStore.fetchBootData()
+              
+              $q.loading.hide()
+              showToast('Sikeres belépés a Facebook fiókkal!', 'positive')
+              router.push('/')
+            } catch (err: any) {
+              $q.loading.hide()
+              console.error(err)
+              const msg = err.response?.data?.Result1?.ReturnDescription || `Hiba történt a Facebook bejelentkezés során.`
+              showToast(msg, 'warning')
+            }
+          })
+        } else {
+          $q.loading.hide()
+          showToast('A Facebook bejelentkezés megszakítva.', 'warning')
+        }
+      }, { scope: 'public_profile,email' })
+      
+    } catch (error: any) {
+      $q.loading.hide()
+      console.error(error)
+      showToast('Hiba a Facebook inicializálása közben.', 'warning')
+    }
+    return
+  }
+
+  if (provider === 'Apple') {
+    showToast('Az Apple bejelentkezés hamarosan elérhető lesz az iOS verzióval!', 'info')
+    return
+  }
+}
+
+// Global UI Helpers
+function showToast(message: string, type: 'positive' | 'warning' | 'info') {
+  const isWarning = type === 'warning'
+  const isPositive = type === 'positive'
+  
+  $q.notify({
+    message,
+    icon: isWarning ? 'error_outline' : (isPositive ? 'check_circle' : 'info_outline'),
+    color: 'dark', // Alap háttér, amit felülírunk
+    textColor: isWarning ? 'red-4' : (isPositive ? 'green-4' : 'blue-4'),
+    position: 'top',
+    timeout: 3500,
+    classes: `border ${isWarning ? 'border-red-500/40' : (isPositive ? 'border-green-500/40' : 'border-blue-500/40')} shadow-[0_8px_30px_rgba(0,0,0,0.5)] backdrop-blur-xl rounded-xl q-px-lg q-py-md font-bold tracking-wide text-[14px] mt-4`,
+    style: 'background: rgba(11, 15, 25, 0.85);'
+  })
+}
+
+function showLoading(message: string) {
+  $q.loading.show({
+    message,
+    spinner: QSpinnerAudio, // ALTERNATÍVÁK: QSpinnerOrbit, QSpinnerPuff, QSpinnerGrid
+    spinnerSize: 80,
+    boxClass: 'bg-transparent border-none shadow-none', // Eltüntetjük a négyzetes dobozt!
+    spinnerColor: 'brand-primary',
+    messageColor: 'white',
+    customClass: 'font-black tracking-widest text-lg mt-4'
+  })
+}
+</script>
+
+<style scoped lang="scss">
+@keyframes blob-float-1 {
+  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.4; }
+  33% { transform: translate(30px, -40px) scale(1.15); opacity: 0.7; }
+  66% { transform: translate(-20px, 20px) scale(0.9); opacity: 0.5; }
+}
+
+@keyframes blob-float-2 {
+  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.4; }
+  33% { transform: translate(-40px, 30px) scale(1.15); opacity: 0.7; }
+  66% { transform: translate(30px, -20px) scale(0.85); opacity: 0.5; }
+}
+
+.blob-1 { animation: blob-float-1 18s infinite ease-in-out; }
+.blob-2 { animation: blob-float-2 22s infinite ease-in-out; }
+
+.custom-input {
+  :deep(.q-field__control) {
+    border-radius: 1rem !important;
+    background-color: rgba(255, 255, 255, 0.03) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    transition: all 0.25s ease;
+    &:before, &:after { display: none !important; }
+  }
+  :deep(.q-field__control:hover) {
+    border-color: rgba(14, 165, 233, 0.3) !important;
+    background-color: rgba(255, 255, 255, 0.05) !important;
+  }
+  :deep(.q-field--focused .q-field__control) {
+    border-color: var(--q-primary) !important;
+    box-shadow: 0 0 12px rgba(14, 165, 233, 0.15) !important;
+    background-color: rgba(255, 255, 255, 0.05) !important;
+  }
+  :deep(.q-field__native), :deep(.q-field__input) {
+    color: #ffffff !important;
+    font-size: 0.875rem !important;
+  }
+}
+
+.slide-fade-enter-active { transition: all 0.3s ease-out; }
+.slide-fade-leave-active { transition: all 0.2s cubic-bezier(1, 0.5, 0.8, 1); }
+.slide-fade-enter-from, .slide-fade-leave-to { transform: translateX(10px); opacity: 0; }
+</style>

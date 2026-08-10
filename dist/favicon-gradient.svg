@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- EventJoy Icon - Gradient version (for app icon, modern web use) -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="ejGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0EA5E9"/>
+      <stop offset="50%" stop-color="#06B6D4"/>
+      <stop offset="100%" stop-color="#14B8A6"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Calendar body (squircle) -->
+  <rect x="56" y="96" width="400" height="380" rx="80" ry="80" fill="url(#ejGradient)"/>
+
+  <!-- Calendar binding rings (tabs) -->
+  <rect x="148" y="56" width="24" height="80" rx="12" fill="#FFFFFF"/>
+  <rect x="340" y="56" width="24" height="80" rx="12" fill="#FFFFFF"/>
+
+  <!-- EJ Monogram - thick bold compact ligature -->
+  <!-- E: two horizontal bars on the left -->
+  <rect x="148" y="200" width="110" height="36" rx="18" fill="#FFFFFF"/>
+  <rect x="148" y="300" width="110" height="36" rx="18" fill="#FFFFFF"/>
+
+  <!-- J: vertical stroke with hook on the right, touching the E bars -->
+  <path d="M 296 200 L 332 200 L 332 340 Q 332 372 300 372 Q 268 372 268 340 L 268 322 L 304 322 L 304 340 Q 304 344 308 344 Q 312 344 312 340 L 312 200 Z" fill="#FFFFFF"/>
+
+  <!-- Sparkle/star burst in top-right corner -->
+  <g transform="translate(420, 100)">
+    <path d="M 0 -24 L 6 -6 L 24 0 L 6 6 L 0 24 L -6 6 L -24 0 L -6 -6 Z" fill="#FFFFFF"/>
+  </g>
+</svg>
