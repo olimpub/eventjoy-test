@@ -1,9 +1,9 @@
 <template>
-  <q-page v-if="event" class="pta-scope" style="background: linear-gradient(180deg, #16181c 0%, #0d0e10 100%); min-height: 100vh;">
+  <q-page v-if="event" class="pta-scope" style="background: var(--pta-page); min-height: 100vh;">
     <div class="p-4 md:p-6 max-w-6xl mx-auto">
       <!-- Header -->
       <div class="flex items-center justify-between mb-5 flex-wrap gap-3">
-        <div class="flex items-center gap-3">
+        <div class="flex items-center gap-3 min-w-0">
           <q-btn
             icon="arrow_back"
             flat
@@ -14,7 +14,12 @@
           >
             <q-tooltip>Vissza a PROFI-T-ABILITY eseményekhez</q-tooltip>
           </q-btn>
-          <div>
+          <RoleSwitchChip
+            :event-id="eventId"
+            :current="enteredRole"
+            :roles="enterableRoles"
+          />
+          <div class="min-w-0">
             <div class="flex items-center gap-2 mb-1">
               <img src="~assets/PTA.png" alt="PROFI-T-ABILITY" style="height: 28px; width: auto; object-fit: contain;" />
             </div>
@@ -108,7 +113,7 @@
     </div>
   </q-page>
 
-  <q-page v-else class="pta-scope flex items-center justify-center" style="background: #16181c; min-height: 100vh;">
+  <q-page v-else class="pta-scope flex items-center justify-center" style="background: var(--pta-page); min-height: 100vh;">
     <div class="text-center">
       <q-icon name="event_busy" size="64px" style="color: #475569;" />
       <div class="pta-display text-white text-lg mt-3">Esemény nem található</div>
@@ -133,18 +138,20 @@ import DrawTab from '../components/DrawTab.vue';
 import GameTab from '../components/GameTab.vue';
 import ResultsTab from '../components/ResultsTab.vue';
 import FeedbacksTab from '../components/FeedbacksTab.vue';
+import RoleSwitchChip from 'src/components/event/RoleSwitchChip.vue';
+import { eventDatasheetKind } from 'src/utils/eventRoleNav';
 
 const route = useRoute();
 const router = useRouter();
 const $q = useQuasar();
 const store = useProfitabilityStore();
+const eventStore = useEventStore();
 
 const eventId = computed(() => Number(route.params.id));
 const event = computed(() => {
   const ptaEvent = store.getEventById(eventId.value);
   if (!ptaEvent) return undefined;
   
-  const eventStore = useEventStore();
   const dbEvent = eventStore.events?.find((e: any) => Number(e.id) === eventId.value)
                || eventStore.myEvents?.find((e: any) => Number(e.id) === eventId.value)
                || eventStore.discoveryEvents?.find((e: any) => Number(e.id) === eventId.value);
@@ -169,6 +176,39 @@ const event = computed(() => {
   }
 
   return ptaEvent;
+});
+
+const dbEvent = computed(() => {
+  return eventStore.events?.find((e: any) => Number(e.id) === eventId.value)
+    || eventStore.myEvents?.find((e: any) => Number(e.id) === eventId.value)
+    || eventStore.discoveryEvents?.find((e: any) => Number(e.id) === eventId.value)
+    || null;
+});
+
+const enterableRoles = computed(() => {
+  const e = dbEvent.value;
+  if (!e) return eventStore.getEnterableRolesForEvent(eventId.value);
+  return eventStore.getEnterableRolesForEvent(e.id, e.EventTypeID ?? e.eventTypeId);
+});
+
+const enteredRole = computed(() => {
+  const roles = enterableRoles.value;
+  const qUser = route.query.eventUserId;
+  if (qUser != null && qUser !== '') {
+    const byUser = roles.find((r) => String(r.eventUserId) === String(qUser));
+    if (byUser) return byUser;
+  }
+  const qRole = route.query.eventRoleId;
+  if (qRole != null && qRole !== '') {
+    const byRole = roles.find((r) => String(r.eventRoleId) === String(qRole));
+    if (byRole) return byRole;
+  }
+  return (
+    roles.find((r) => eventDatasheetKind(r) === 'player') ||
+    roles.find((r) => !r.isOrganizer) ||
+    roles[0] ||
+    null
+  );
 });
 
 const tabs: { key: TabKey; label: string; icon: string }[] = [

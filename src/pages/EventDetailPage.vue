@@ -89,48 +89,37 @@
         </div>
 
         <!-- Bottom Area: Status and Organizer -->
-        <div class="mt-auto flex items-center justify-between rounded-2xl px-4 py-3" :style="{ background: 'linear-gradient(90deg, rgba(255,255,255,0.02) 0%, ' + accentBg(0.1) + ' 100%)', border: '1px solid rgba(255,255,255,0.05)', marginBottom: '20px' }">
-          
-          <!-- Status Badge -->
-          <div :style="{
-            backgroundColor: getStatusStyle(event.status).bg,
-            borderColor: getStatusStyle(event.status).border,
-            color: getStatusStyle(event.status).text,
-            borderWidth: '1px',
-            borderStyle: 'solid',
-            padding: '6px 14px',
-            borderRadius: '20px',
-            fontSize: '12px',
-            fontWeight: '800',
-            textTransform: 'uppercase',
-            letterSpacing: '0.05em',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            boxShadow: event.status === 'active' ? '0 0 15px ' + getStatusStyle(event.status).glow : 'none'
-          }">
-            <div v-if="event.status === 'active'" style="width: 8px; height: 8px; border-radius: 50%; background-color: #4ade80;" class="glow-dot animate-pulse"></div>
+        <div class="event-meta-row">
+          <div
+            class="event-status-chip"
+            :style="{
+              backgroundColor: getStatusStyle(event.status).bg,
+              borderColor: getStatusStyle(event.status).border,
+              color: getStatusStyle(event.status).text,
+              boxShadow: event.status === 'active' ? '0 0 15px ' + getStatusStyle(event.status).glow : 'none'
+            }"
+          >
+            <div v-if="event.status === 'active'" class="event-status-chip__dot"></div>
             {{ getStatusLabel(event.status) }}
           </div>
-          
-          <!-- Organizer mini block with PREMIUM Chat button -->
-          <div class="flex items-center gap-4">
-             <div class="flex flex-col items-end">
-                <span class="text-[9px] text-slate-500 uppercase font-black tracking-widest mb-0.5">Szervező</span>
-                <span class="text-[13px] font-bold text-white">{{ event.organizer.name }}</span>
-             </div>
-             
-             <!-- Premium Chat Button -->
-             <q-btn 
-               v-if="event.organizer.allowChat" 
-               unelevated
-               dense
-               round
-               icon="sym_r_chat"
-               :style="{ background: accentBg(0.2), color: accentColor, border: '1px solid ' + accentBg(0.3), width: '44px', height: '44px' }"
-               class="transition-all"
-               @click="initiateChat"
-             />
+
+          <button
+            v-if="event.organizer.allowChat"
+            type="button"
+            class="event-org-chip"
+            @click="initiateChat"
+          >
+            <span class="event-org-chip__text">
+              <span class="event-org-chip__label">Szervező</span>
+              <span class="event-org-chip__name">{{ event.organizer.name }}</span>
+            </span>
+            <q-icon name="sym_r_chat" size="16px" class="event-org-chip__icon" />
+          </button>
+          <div v-else class="event-org-chip event-org-chip--static">
+            <span class="event-org-chip__text">
+              <span class="event-org-chip__label">Szervező</span>
+              <span class="event-org-chip__name">{{ event.organizer.name }}</span>
+            </span>
           </div>
         </div>
 
@@ -160,6 +149,14 @@
                   {{ unreadNewsCount }}
                 </div>
               </div>
+            </q-btn>
+
+            <!-- SZÁMLA (EventUsers.InvoiceID) -->
+            <q-btn v-if="event.hasInvoice" unelevated class="w-full rounded-[16px] py-3.5" style="background: rgba(255,255,255,0.05); color: white; border: 1px solid rgba(255,255,255,0.1);">
+               <div class="flex items-center justify-center gap-3 w-full">
+                  <q-icon name="receipt_long" size="20px" />
+                  <span class="font-bold text-[14px] tracking-wide uppercase">Számla letöltése</span>
+               </div>
             </q-btn>
             
             <!-- INFORMÁCIÓK -->
@@ -275,21 +272,65 @@
 
 
 
-    <!-- Info Modal -->
+    <!-- Info Modal — Adataim / bottom-sheet design -->
     <q-dialog v-model="modals.info" position="bottom" transition-show="slide-up" transition-hide="slide-down">
-      <q-card class="bg-[#0B0F19] text-white rounded-t-3xl border-t border-white/10 w-full max-w-2xl mx-auto pb-8">
-        <q-card-section class="flex justify-between items-center pt-6 pb-2 border-b border-white/5">
-          <h2 class="text-lg font-black uppercase tracking-widest m-0 flex items-center gap-2">
-            <q-icon name="sym_r_info" :style="{ color: accentColor }" size="24px"/>
+      <q-card class="event-info-sheet" :style="{ borderTopColor: accentBg(0.4) }">
+        <div class="w-full flex justify-center pt-3 pb-1">
+          <div class="w-12 h-1.5 bg-white/20 rounded-full"></div>
+        </div>
+
+        <q-card-section class="q-pt-sm q-pb-none flex items-center justify-between px-5">
+          <div class="w-10" />
+          <div class="event-info-sheet__title" :style="{ color: accentColor }">
             Információk
-          </h2>
-          <q-btn icon="close" flat round dense v-close-popup class="text-slate-400 hover:text-white" />
+          </div>
+          <q-btn icon="close" flat round dense v-close-popup class="text-slate-400 hover:text-white transition-colors bg-slate-800/50" size="sm" />
         </q-card-section>
-        <q-card-section class="pt-6 text-slate-300 leading-relaxed space-y-4">
-          <p>{{ event.description }}</p>
-          <div class="bg-white/5 rounded-2xl p-5 border border-white/10 mt-6">
-            <h4 class="text-xs font-black uppercase tracking-wider text-slate-400 mb-2">Helyszín megközelítése</h4>
-            <p class="text-sm">Parkolási lehetőség a helyszín mélygarázsában biztosított. Közösségi közlekedéssel: 4-es villamos, 2-es metró.</p>
+
+        <q-card-section class="q-pt-md q-px-md pb-8">
+          <div class="event-info-sheet__scroll">
+            <div class="event-info-card">
+              <div class="event-info-card__bar" :style="{ background: accentColor }"></div>
+              <div class="event-info-card__label" :style="{ color: accentColor }">
+                <q-icon name="sym_r_notes" size="18px" /> Leírás
+              </div>
+              <p class="event-info-card__text">{{ event.description }}</p>
+            </div>
+
+            <div class="event-info-card">
+              <div class="event-info-card__bar" :style="{ background: accentColor }"></div>
+              <div class="event-info-card__label" :style="{ color: accentColor }">
+                <q-icon name="calendar_today" size="18px" /> Időpont
+              </div>
+              <p class="event-info-card__value">{{ event.date }}</p>
+            </div>
+
+            <div class="event-info-card">
+              <div class="event-info-card__bar" :style="{ background: accentColor }"></div>
+              <div class="event-info-card__label" :style="{ color: accentColor }">
+                <q-icon name="place" size="18px" /> Helyszín
+              </div>
+              <p class="event-info-card__value">{{ event.location }}<span v-if="event.city"> ({{ event.city }})</span></p>
+              <a
+                v-if="event.onlineFlg && event.onlineUrl"
+                :href="event.onlineUrl"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="event-info-card__link"
+                :style="{ color: accentColor }"
+              >
+                <q-icon name="link" size="16px" />
+                Online csatlakozás
+              </a>
+            </div>
+
+            <div class="event-info-card">
+              <div class="event-info-card__bar" :style="{ background: accentColor }"></div>
+              <div class="event-info-card__label" :style="{ color: accentColor }">
+                <q-icon name="sym_r_person" size="18px" /> Szervező
+              </div>
+              <p class="event-info-card__value">{{ event.organizer.name }}</p>
+            </div>
           </div>
         </q-card-section>
       </q-card>
@@ -346,20 +387,67 @@
           <div class="text-xl font-black mb-1">{{ event.name }}</div>
           <div class="text-slate-500 text-sm font-bold mb-6">{{ event.date }}</div>
           
-          <!-- Fake QR -->
+          <!-- Ticket QR — EventUser.EventUserUID -->
           <div class="bg-white p-2 rounded-xl shadow-lg border border-slate-200 mb-4 inline-block">
-            <q-icon name="qr_code_2" size="160px" class="text-slate-900" />
+            <img
+              v-if="ticketQrUrl"
+              :src="ticketQrUrl"
+              alt="Jegy QR-kód"
+              width="160"
+              height="160"
+              class="block"
+            />
+            <q-icon v-else name="qr_code_2" size="160px" class="text-slate-900" />
           </div>
           
           <div class="text-sm font-mono font-bold text-slate-400 tracking-widest uppercase">
-            ID: TKT-8472-X9
+            {{ ticketUid ? ticketUid.slice(0, 8).toUpperCase() : 'QR nem elérhető' }}
           </div>
         </q-card-section>
       </q-card>
     </q-dialog>
 
-    <!-- FIXED ENTER BUTTON -->
-    <q-page-sticky position="top-right" :offset="[16, 16]" v-if="event.status === 'active' && event.hasActiveModule && (event.userHasTicket || event.roles.length > 0 || event.isProfitability || hasParticipated)">
+    <!-- Belépés: szerepkör választó, ha több EventRole -->
+    <q-dialog v-model="isEnterRolePickerOpen" position="bottom" transition-show="slide-up" transition-hide="slide-down">
+      <q-card class="event-info-sheet" :style="{ borderTopColor: accentBg(0.4) }">
+        <div class="w-full flex justify-center pt-3 pb-1">
+          <div class="w-12 h-1.5 bg-white/20 rounded-full"></div>
+        </div>
+        <q-card-section class="q-pt-sm q-pb-none flex items-center justify-between px-5">
+          <div class="w-10" />
+          <div class="event-info-sheet__title" :style="{ color: accentColor }">Belépés</div>
+          <q-btn icon="close" flat round dense v-close-popup class="text-slate-400 hover:text-white transition-colors bg-slate-800/50" size="sm" />
+        </q-card-section>
+        <q-card-section class="q-pt-md q-px-md pb-8">
+          <p class="event-enter-hint">Válaszd ki, melyik szerepkörrel lépsz be az adatlapra.</p>
+          <div class="event-info-sheet__scroll">
+            <button
+              v-for="role in enterableRoles"
+              :key="role.eventRoleId ?? role.eventUserId"
+              type="button"
+              class="event-enter-role"
+              @click="enterAsRole(role)"
+            >
+              <span
+                class="event-enter-role__chip"
+                :style="{
+                  color: getRoleStyle(role.color).color,
+                  backgroundColor: getRoleStyle(role.color).bg,
+                  border: '1px solid ' + getRoleStyle(role.color).border
+                }"
+              >
+                {{ role.name }}
+              </span>
+              <span v-if="role.roleTypeName" class="event-enter-role__type">{{ role.roleTypeName }}</span>
+              <q-icon name="chevron_right" size="20px" class="event-enter-role__chevron" />
+            </button>
+          </div>
+        </q-card-section>
+      </q-card>
+    </q-dialog>
+
+    <!-- FIXED ENTER BUTTON: EventTypes.CanEnterFlg + user in EventUsers -->
+    <q-page-sticky position="top-right" :offset="[16, 16]" v-if="canShowEnterButton">
       <q-btn 
         unelevated
         label="Belépés"
@@ -373,7 +461,7 @@
           border: '1px solid rgba(255,255,255,0.3)',
           boxShadow: isDemoProfitabilityRoute ? '0 10px 20px rgba(246,139,41,0.4)' : '0 10px 20px rgba(16,185,129,0.4)'
         }"
-        @click="router.push('/profitability/event/' + event.id)"
+        @click="enterEvent"
 
       />
     </q-page-sticky>
@@ -382,11 +470,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useQuasar } from 'quasar';
-import { useEventStore } from 'src/stores/event';
+import QRCode from 'qrcode';
+import { useEventStore, type EnterableEventRole } from 'src/stores/event';
 import { useMasterDataStore } from 'src/stores/masterData';
+import { isProfitabilityEventType } from 'src/modules/profitability/constants';
+import { eventDatasheetKind, eventRoleEnterBlocked, eventRolePath, eventRoleQuery } from 'src/utils/eventRoleNav';
+import { normalizeEventUserUid } from 'src/utils/eventUserQr';
 
 const $q = useQuasar();
 const router = useRouter();
@@ -394,20 +486,14 @@ const route = useRoute();
 const eventStore = useEventStore();
 const masterDataStore = useMasterDataStore();
 
-// PROFI-T-ABILITY esemény típus azonosítója a master adatban (EventTypeID)
-const PTA_EVENT_TYPE_ID = 46;
-
-// Az eseménynél ellenőrizzük mind az URL query paramétert (eventTypeId=46),
-// mind pedig az EventStore-ból a myEvents vagy discoveryEvents alapján az EventTypeID-t.
 const isDemoProfitabilityRoute = computed(() => {
-  if (Number(route.query.eventTypeId) === PTA_EVENT_TYPE_ID) return true;
+  if (isProfitabilityEventType(route.query.eventTypeId as string)) return true;
   const targetId = String(route.params.id);
-  const dbEvent = eventStore.myEvents?.find((e: any) => String(e.id) === targetId)
-               || eventStore.discoveryEvents?.find((e: any) => String(e.id) === targetId);
-  if (dbEvent && (Number(dbEvent.EventTypeID) === PTA_EVENT_TYPE_ID || Number(dbEvent.eventTypeId) === PTA_EVENT_TYPE_ID)) {
-    return true;
-  }
-  return false;
+  const dbEvent =
+    eventStore.myEvents?.find((e: any) => String(e.id) === targetId) ||
+    eventStore.discoveryEvents?.find((e: any) => String(e.id) === targetId) ||
+    eventStore.events?.find((e: any) => String(e.id) === targetId);
+  return isProfitabilityEventType(dbEvent?.EventTypeID ?? dbEvent?.eventTypeId);
 });
 
 
@@ -417,6 +503,31 @@ const modals = ref({
   downloads: false,
   ticket: false
 });
+const isEnterRolePickerOpen = ref(false);
+const ticketQrUrl = ref('');
+
+const ticketUid = computed(() => {
+  const rows = eventStore.getEventUsersForEvent(String(route.params.id));
+  const withTicket = rows.find((eu) => eu.EventTicketID != null);
+  return normalizeEventUserUid((withTicket || rows[0])?.EventUserUID);
+});
+
+watch(
+  () => [modals.value.ticket, ticketUid.value] as const,
+  async ([open, uid]) => {
+    if (!open) return;
+    if (!uid) {
+      ticketQrUrl.value = '';
+      return;
+    }
+    ticketQrUrl.value = await QRCode.toDataURL(uid, {
+      width: 280,
+      margin: 1,
+      errorCorrectionLevel: 'M',
+      color: { dark: '#0f172a', light: '#ffffff' },
+    });
+  }
+);
 
 // Dinamikus eseményadatok betöltése az EventStore és MasterDataStore alapján a jelenlegi URL ID szerint
 const event = computed(() => {
@@ -446,9 +557,9 @@ const event = computed(() => {
       hasProgram: true,
       userHasTicket: false,
       isTicketPurchasable: true,
-      hasDownloadableFiles: true,
-      hasInvoice: true,
-      hasActiveModule: true,
+      hasDownloadableFiles: false,
+      hasInvoice: false,
+      canEnter: false,
       program: [
         { time: '14:00', title: 'Regisztráció és sorsolás' },
         { time: '14:30', title: '1. forduló játékindítás' },
@@ -530,17 +641,18 @@ const event = computed(() => {
     title: p.Title || p.Name || 'Programpont'
   }));
 
-  // Jegy ellenőrzése: Csak akkor true, ha létezik az eseményhez tartozó EventUser sorokban nem null / nem 0 EventTicketID
-  const hasValidTicket = eventUserRows.some((eu: any) => {
-    const tId = eu.EventTicketID !== undefined ? eu.EventTicketID : (eu.EventTicketId !== undefined ? eu.EventTicketId : eu.event_ticket_id);
-    return tId != null && tId !== '' && Number(tId) !== 0 && tId !== 'null';
-  });
+  // Jegy: EventUsers.EventTicketID
+  const hasValidTicket = eventUserRows.some((eu: any) => eu.EventTicketID != null);
 
-  // Számla ellenőrzése: Csak akkor true, ha létezik az eseményhez tartozó EventUser sorokban nem null / nem 0 InvoiceID
-  const hasValidInvoice = eventUserRows.some((eu: any) => {
-    const invId = eu.InvoiceID !== undefined ? eu.InvoiceID : (eu.InvoiceId !== undefined ? eu.InvoiceId : eu.invoice_id);
-    return invId != null && invId !== '' && Number(invId) !== 0 && invId !== 'null';
-  });
+  // Számla: EventUsers.InvoiceID
+  const invoiceId = eventStore.getInvoiceIdForEvent(dbEvent.id);
+  const hasValidInvoice = invoiceId != null;
+
+  const isUserOnEvent = eventStore.isUserOnEvent(dbEvent.id);
+  const isOrganizer = eventStore.isOrganizerOnEvent(dbEvent.id);
+  const canEnter =
+    isOrganizer ||
+    (masterDataStore.eventTypeCanEnter(dbEvent.EventTypeID ?? dbEvent.eventTypeId) && isUserOnEvent);
 
   // Jegyvásárlás: ha nincs még EventUser sora a felhasználónak és az esemény aktív
   const canBuyTicket = eventUserRows.length === 0 && (dbEvent.Status === 'active' || !dbEvent.Status);
@@ -554,7 +666,7 @@ const event = computed(() => {
     type: typeName,
     status: dbEvent.Status || 'active',
     roles: myRoles,
-    isProfitability: isDemoProfitabilityRoute.value || Number(dbEvent.EventTypeID) === 46 || Number(dbEvent.EventTypeID) === 5,
+    isProfitability: isDemoProfitabilityRoute.value || isProfitabilityEventType(dbEvent.EventTypeID),
     tags: tags.length > 0 ? tags : (isDemoProfitabilityRoute.value ? ['üzlet', 'stratégia', 'networking'] : ['rendezvény']),
     organizer: {
       name: orgName,
@@ -568,7 +680,10 @@ const event = computed(() => {
     isTicketPurchasable: canBuyTicket,
     hasDownloadableFiles: true,
     hasInvoice: hasValidInvoice,
-    hasActiveModule: true,
+    invoiceId,
+    canEnter,
+    onlineUrl: dbEvent.OnlineURL || dbEvent.OnlineUrl || null,
+    onlineFlg: dbEvent.OnlineFlg === 1 || dbEvent.OnlineFlg === true,
     program: formattedProgram.length > 0 ? formattedProgram : [
       { time: '14:00', title: 'Regisztráció és sorsolás' },
       { time: '14:30', title: '1. forduló játékindítás' },
@@ -606,7 +721,39 @@ const unreadNewsCount = computed(() => eventNews.value.filter(n => !n.isRead).le
 
 // Computed properties for logic
 const hasParticipated = computed(() => {
-  return event.value.roles && event.value.roles.length > 0;
+  return eventStore.isUserOnEvent(event.value.id);
+});
+
+const canShowEnterButton = computed(() => readyEnterRoles.value.length > 0);
+
+const currentDbEvent = computed(() => {
+  const targetId = String(route.params.id);
+  return eventStore.events?.find((e: any) => String(e.id) === targetId)
+    || eventStore.myEvents?.find((e: any) => String(e.id) === targetId)
+    || eventStore.discoveryEvents?.find((e: any) => String(e.id) === targetId)
+    || null;
+});
+
+const enterableRoles = computed(() => {
+  const db = currentDbEvent.value;
+  if (!db) return [];
+  return eventStore.getEnterableRolesForEvent(db.id, db.EventTypeID ?? db.eventTypeId);
+});
+
+const readyEnterRoles = computed(() => {
+  const db = currentDbEvent.value;
+  if (!db) return [];
+  const statusAllowsEnter = masterDataStore.eventStatusAllowsEnter(
+    db.EventStatusID ?? db.eventStatusID ?? db.StatusID ?? db.StatusId
+  );
+  return enterableRoles.value.filter((role) => {
+    const kind = eventDatasheetKind(role, event.value.id);
+    if (kind === 'organizer' || role.isOrganizer) return true;
+    if (kind === 'gamemaster' || kind === 'player') {
+      return !eventRoleEnterBlocked(event.value.id, role);
+    }
+    return statusAllowsEnter;
+  });
 });
 
 // Utilities
@@ -654,11 +801,30 @@ function getRoleStyle(hexColor?: string) {
 }
 
 function enterEvent() {
-  if (event.value.isProfitability || isDemoProfitabilityRoute.value) {
-    router.push(`/profitability/event/${event.value.id}`);
-  } else {
-    router.push(`/profitability/event/${event.value.id}`);
+  const roles = enterableRoles.value;
+  if (roles.length > 1) {
+    isEnterRolePickerOpen.value = true;
+    return;
   }
+  enterAsRole(roles[0] ?? null);
+}
+
+function enterAsRole(role: EnterableEventRole | null) {
+  isEnterRolePickerOpen.value = false;
+  const blocked = eventRoleEnterBlocked(event.value.id, role);
+  if (blocked) {
+    $q.notify({
+      message: blocked,
+      color: 'dark',
+      textColor: 'orange-4',
+      position: 'top',
+    });
+    return;
+  }
+  router.push({
+    path: eventRolePath(event.value.id, role),
+    query: eventRoleQuery(role),
+  });
 }
 
 </script>
@@ -682,5 +848,235 @@ function enterEvent() {
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+.event-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.event-status-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border-radius: 20px;
+  border: 1px solid;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.event-status-chip__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: #4ade80;
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.event-org-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 58%;
+  padding: 6px 10px 6px 12px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.2s ease, border-color 0.2s ease;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.16);
+  }
+
+  &--static {
+    cursor: default;
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.04);
+      border-color: rgba(255, 255, 255, 0.1);
+    }
+  }
+}
+
+.event-org-chip__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  align-items: flex-end;
+}
+
+.event-org-chip__label {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #64748b;
+  line-height: 1.2;
+}
+
+.event-org-chip__name {
+  font-size: 12px;
+  font-weight: 700;
+  color: #f8fafc;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+}
+
+.event-org-chip__icon {
+  flex-shrink: 0;
+  color: #94a3b8;
+}
+
+.event-info-sheet {
+  width: 100%;
+  max-width: 42rem;
+  margin: 0 auto;
+  border-top-left-radius: 32px;
+  border-top-right-radius: 32px;
+  background: rgba(15, 23, 42, 0.95);
+  backdrop-filter: blur(20px);
+  border-top: 1px solid rgba(56, 189, 248, 0.3);
+  box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.5);
+  color: #fff;
+}
+
+.event-info-sheet__title {
+  font-size: 14px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0;
+}
+
+.event-info-sheet__scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: min(68vh, 640px);
+  overflow-y: auto;
+  padding-bottom: 8px;
+}
+
+.event-info-card {
+  position: relative;
+  overflow: hidden;
+  background-color: rgba(15, 23, 42, 0.7);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+  border-radius: 24px;
+  padding: 20px 20px 18px;
+}
+
+.event-info-card__bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 100%;
+  border-radius: 24px 0 0 24px;
+}
+
+.event-info-card__label {
+  font-size: 14px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+}
+
+.event-info-card__text {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.55;
+  color: #cbd5e1;
+}
+
+.event-info-card__value {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #f8fafc;
+  line-height: 1.4;
+}
+
+.event-info-card__link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.event-enter-hint {
+  margin: 0 4px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #94a3b8;
+}
+
+.event-enter-role {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(15, 23, 42, 0.55);
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.2s ease, border-color 0.2s ease;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.16);
+  }
+}
+
+.event-enter-role__chip {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 12px;
+}
+
+.event-enter-role__type {
+  font-size: 13px;
+  font-weight: 700;
+  color: #cbd5e1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.event-enter-role__chevron {
+  margin-left: auto;
+  color: #64748b;
 }
 </style>

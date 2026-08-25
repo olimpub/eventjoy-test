@@ -1,9 +1,57 @@
 import { defineStore } from 'pinia';
 import { api } from 'src/boot/axios';
+import { isTruthyFlag, pickDataset, unwrapApiPayload, warnIfDatasetMissing } from 'src/utils/apiPayload';
 import { useMasterDataStore } from './masterData';
 import { useEventStore } from './event';
 import { useCommunicationStore } from './communication';
 import { signalRService } from 'src/services/signalrService';
+
+/** RS 10 — tblUserOrganization (ActiveFlg = 1, UserID = current user) */
+export interface UserOrganization {
+  id: number;
+  OrganizationID: number;
+  IsPrimary: boolean;
+  OrganizationUserTypeID: number | null;
+  ActiveFlg?: boolean | number;
+}
+
+function userOrganizationId(row: Record<string, unknown>): number | undefined {
+  const raw = row.id ?? row.ID ?? row.Id;
+  if (raw === undefined || raw === null || raw === '') return undefined;
+  const num = Number(raw);
+  return Number.isFinite(num) ? num : undefined;
+}
+
+function organizationLinkId(row: Record<string, unknown>): number | undefined {
+  const raw = row.OrganizationID ?? row.organizationID ?? row.OrganizationId;
+  if (raw === undefined || raw === null || raw === '') return undefined;
+  const num = Number(raw);
+  return Number.isFinite(num) ? num : undefined;
+}
+
+function organizationUserTypeId(row: Record<string, unknown>): number | null {
+  const raw =
+    row.OrganizationUserTypeID ??
+    row.organizationUserTypeID ??
+    row.OrganizationUserTypeId;
+  if (raw === undefined || raw === null || raw === '') return null;
+  const num = Number(raw);
+  return Number.isFinite(num) ? num : null;
+}
+
+function normalizeUserOrganizations(rows: unknown): UserOrganization[] {
+  const list = Array.isArray(rows) ? rows : rows ? [rows] : [];
+  return list
+    .filter((row): row is Record<string, unknown> => !!row && typeof row === 'object')
+    .map((row) => ({
+      id: userOrganizationId(row)!,
+      OrganizationID: organizationLinkId(row)!,
+      IsPrimary: isTruthyFlag(row.IsPrimary ?? row.isPrimary),
+      OrganizationUserTypeID: organizationUserTypeId(row),
+      ActiveFlg: row.ActiveFlg ?? row.activeFlg,
+    }))
+    .filter((row) => row.id !== undefined && row.OrganizationID !== undefined);
+}
 
 export const useAuthStore = defineStore('auth', {
   state: () => ({
@@ -13,6 +61,7 @@ export const useAuthStore = defineStore('auth', {
     eventTypePreferences: [] as any[],
     labelPreferences: [] as any[],
     loginIdentifiers: [] as any[],
+    userOrganizations: [] as UserOrganization[],
     token: localStorage.getItem('token') || '',
     role: null as 'admin' | 'facilitator' | 'player' | null,
     emailCheckResult: null as { UserExists: boolean; HasPassword: boolean; StatusID: number } | null,
@@ -20,6 +69,26 @@ export const useAuthStore = defineStore('auth', {
   getters: {
     isAuthenticated: (state) => !!state.token,
     isAdmin: (state) => state.role === 'admin',
+    primaryUserOrganization: (state) =>
+      state.userOrganizations.find((uo) => uo.IsPrimary) || state.userOrganizations[0] || null,
+    primaryOrganizationId(): number | null {
+      return this.primaryUserOrganization?.OrganizationID ?? null;
+    },
+    primaryOrganization() {
+      const orgId = this.primaryOrganizationId;
+      if (orgId == null) return null;
+      const masterDataStore = useMasterDataStore();
+      return masterDataStore.getOrganizationById(orgId) ?? null;
+    },
+    primaryOrganizationUserTypeId(): number | null {
+      return this.primaryUserOrganization?.OrganizationUserTypeID ?? null;
+    },
+    primaryOrganizationUserType() {
+      const typeId = this.primaryOrganizationUserTypeId;
+      if (typeId == null) return null;
+      const masterDataStore = useMasterDataStore();
+      return masterDataStore.getOrganizationUserTypeById(typeId) ?? null;
+    },
   },
   actions: {
     async checkIdentity(identityValue: string) {
@@ -84,15 +153,34 @@ export const useAuthStore = defineStore('auth', {
       try {
         // 1. Lépés: A felhasználó saját mikro-környezete
         const userRes = await api.get('/api/user/data');
-        const userData = userRes.data;
+        const userData = unwrapApiPayload(userRes.data);
 
         // User Data lementése
-        this.user = userData.User;
-        this.settings = userData.Settings;
-        this.billingAddress = userData.BillingAddress;
-        this.eventTypePreferences = userData.EventTypePreferences;
-        this.labelPreferences = userData.LabelPreferences;
-        this.loginIdentifiers = userData.LoginIdentifiers;
+        // spGetUserData result sets → JSON property (backend mapping):
+        // 1 User | 2 Notifications | 3 ChatThreads | 4 EventTypePreferences
+        // 5 LabelPreferences | 6 Settings | 7 LoginIdentifiers | 8 BillingAddress
+        // 9 MasterDataVersion | 10 UserOrganizations
+        this.user = userData.User ?? null;
+        this.settings = userData.Settings ?? null;
+        this.billingAddress = userData.BillingAddress ?? null;
+        this.eventTypePreferences = userData.EventTypePreferences || [];
+        this.labelPreferences = userData.LabelPreferences || [];
+        this.loginIdentifiers = userData.LoginIdentifiers || [];
+        this.userOrganizations = normalizeUserOrganizations(
+          pickDataset(
+            userData,
+            'UserOrganizations',
+            'userOrganizations',
+            'UserOrganization',
+            'TblUserOrganization',
+            'tblUserOrganization',
+            'RS10',
+            'Rs10',
+            'ResultSet10',
+            'Result10'
+          )
+        );
+        warnIfDatasetMissing('auth.userOrganizations', this.userOrganizations, userData);
 
         // Communication Data lementése
         const commStore = useCommunicationStore();
@@ -104,18 +192,23 @@ export const useAuthStore = defineStore('auth', {
         const masterDataStore = useMasterDataStore();
         
         const parallelTasks = [
-          api.get('/api/event/data').then(res => eventStore.setEventData(res.data))
+          api.get('/api/event/data').then((res) => {
+            eventStore.setEventData(unwrapApiPayload(res.data));
+          }),
+          masterDataStore.checkAndSync(Number(userData.MasterDataVersion) || 1),
         ];
 
-        // Hívjuk a master datát, ha a verzió változott vagy ha a roles még üres
-        parallelTasks.push(masterDataStore.checkAndSync(userData.MasterDataVersion || 1));
-
-        // Várjuk meg, amíg lejön az esemény gráf és a törzsadat
         await Promise.all(parallelTasks);
+
+        console.log(
+          'Boot data betöltve | userOrganizations:',
+          this.userOrganizations.length,
+          '| organizations:',
+          masterDataStore.organizations.length
+        );
 
         // 3. Lépés: Csatlakozás a valós idejű WebSocketre (vagy legalább a Service)
         signalRService.startConnection();
-
 
         return true;
       } catch (error) {
@@ -130,11 +223,20 @@ export const useAuthStore = defineStore('auth', {
     },
     logout() {
       this.user = null;
+      this.settings = null;
+      this.billingAddress = null;
+      this.eventTypePreferences = [];
+      this.labelPreferences = [];
+      this.loginIdentifiers = [];
+      this.userOrganizations = [];
       this.token = '';
       this.role = null;
       this.emailCheckResult = null;
       localStorage.removeItem('token');
       signalRService.stopConnection();
+
+      useEventStore().$reset();
+      useCommunicationStore().$reset();
     },
   },
 });

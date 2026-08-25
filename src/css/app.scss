@@ -186,3 +186,34 @@ $warning   : #F59E0B; /* Warning */
 .animate-bounce-subtle {
   animation: bounce-subtle 2s ease-in-out infinite;
 }
+
+/* ---------- 6. Toast / status notify — EventJoy kártya, nem Quasar kocka ---------- */
+.q-notification {
+  font-family: var(--font-sans) !important;
+  font-weight: 600;
+  font-size: 13px;
+  line-height: 1.35;
+  letter-spacing: 0.01em;
+  border-radius: 20px !important;
+  padding: 12px 18px !important;
+  min-height: 48px;
+  max-width: min(92vw, 420px);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.q-notification__message,
+.q-notification__caption {
+  font-family: inherit !important;
+  font-weight: 600;
+}
+
+.q-notification.bg-dark {
+  background: rgba(15, 23, 42, 0.94) !important;
+}
+
+.q-notification.ej-notify {
+  font-family: var(--font-sans) !important;
+}

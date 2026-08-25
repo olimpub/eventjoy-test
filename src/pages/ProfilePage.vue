@@ -2,78 +2,73 @@
   <q-page class="bg-brand-dark text-white relative overflow-hidden flex flex-col h-full">
     <!-- View: MENU -->
     <div v-if="activeView === 'menu'" class="q-pa-md flex flex-col h-full overflow-y-auto no-scrollbar">
-      <!-- Premium Profile Header -->
-      <div class="profile-card text-center q-pt-lg q-pb-md q-px-md flex flex-col items-center justify-center relative overflow-hidden">
-        <div class="avatar-glow absolute w-24 h-24 bg-brand-primary/20 rounded-full blur-xl pointer-events-none"></div>
-        
-        <q-avatar size="80px" class="bg-[#0F172A] text-brand-primary border-2 border-brand-primary/30 shadow-[0_4px_20px_rgba(14,165,233,0.25)] z-10">
-          <q-icon v-if="!authStore.user?.LastName && !authStore.user?.FirstName" name="person" size="48px" />
-          <span v-else class="text-3xl font-black">{{ (authStore.user?.LastName?.charAt(0) || '') + (authStore.user?.FirstName?.charAt(0) || '') }}</span>
-        </q-avatar>
-        
-        <div class="text-xl font-black text-white tracking-wide q-mt-md q-mb-xs z-10">
-          {{ authStore.user?.LastName || '' }} {{ authStore.user?.FirstName || 'Felhasználó' }}
-        </div>
-        <p class="text-xs text-slate-400 font-medium z-10">{{ authStore.user?.Email || '' }}</p>
+      <!-- Section title — same language as Eseményeim / Saját eseményeim -->
+      <div class="relative z-10 q-mb-md mt-4">
+        <h2 class="profile-section-title">
+          <q-icon name="person" color="#38bdf8" size="16px" />
+          Profil
+        </h2>
       </div>
 
-      <!-- Menu List -->
-      <div class="menu-container q-mt-md flex-grow">
-        <q-list class="bg-[#0f172a] border border-brand-primary/20 rounded-[2rem] overflow-hidden p-3 shadow-[0_0_30px_rgba(99,102,241,0.15)] flex flex-col gap-1">
-          
-          <!-- 1. Adataim -->
-          <q-item clickable v-ripple class="rounded-xl transition-all duration-300 hover:bg-gradient-to-r hover:from-brand-primary/20 hover:to-sky-400/10 hover:shadow-[0_0_15px_rgba(99,102,241,0.4)] q-py-md q-px-md group" @click="activeView = 'adataim'">
-            <q-item-section avatar>
-              <q-icon name="badge" color="brand-primary" size="24px" class="group-hover:scale-110 transition-transform duration-300 group-hover:drop-shadow-[0_0_8px_rgba(99,102,241,0.8)]" />
-            </q-item-section>
-            <q-item-section class="font-bold text-slate-300 text-sm tracking-wide group-hover:text-white transition-colors duration-300">Adataim</q-item-section>
-            <q-item-section side>
-              <q-icon name="chevron_right" color="slate-600" size="20px" class="group-hover:translate-x-1 group-hover:text-brand-primary transition-all duration-300" />
-            </q-item-section>
-          </q-item>
+      <!-- Profile header -->
+      <div class="profile-card text-center q-pb-md q-px-md flex flex-col items-center justify-center relative overflow-hidden">
+        <div class="avatar-glow absolute w-24 h-24 bg-brand-primary/20 rounded-full blur-xl pointer-events-none"></div>
 
-          <!-- 2. Preferenciák -->
-          <q-item clickable v-ripple class="rounded-xl transition-all duration-300 hover:bg-gradient-to-r hover:from-brand-primary/20 hover:to-sky-400/10 hover:shadow-[0_0_15px_rgba(99,102,241,0.4)] q-py-md q-px-md group" @click="activeView = 'preferenciak'">
-            <q-item-section avatar>
-              <q-icon name="favorite_border" color="brand-primary" size="24px" class="group-hover:scale-110 transition-transform duration-300 group-hover:drop-shadow-[0_0_8px_rgba(99,102,241,0.8)]" />
-            </q-item-section>
-            <q-item-section class="font-bold text-slate-300 text-sm tracking-wide group-hover:text-white transition-colors duration-300">Preferenciák</q-item-section>
-            <q-item-section side>
-              <q-icon name="chevron_right" color="slate-600" size="20px" class="group-hover:translate-x-1 group-hover:text-brand-primary transition-all duration-300" />
-            </q-item-section>
-          </q-item>
+        <q-avatar size="80px" class="bg-[#0F172A] text-brand-primary border-2 border-brand-primary/30 shadow-[0_4px_20px_rgba(14,165,233,0.25)] z-10">
+          <q-icon v-if="!authStore.user?.LastName && !authStore.user?.FirstName" name="person" size="40px" />
+          <span v-else class="profile-avatar-initials">{{ (authStore.user?.LastName?.charAt(0) || '') + (authStore.user?.FirstName?.charAt(0) || '') }}</span>
+        </q-avatar>
 
-          <!-- 3. Beállítások -->
-          <q-item clickable v-ripple class="rounded-xl transition-all duration-300 hover:bg-gradient-to-r hover:from-brand-primary/20 hover:to-sky-400/10 hover:shadow-[0_0_15px_rgba(99,102,241,0.4)] q-py-md q-px-md group" @click="activeView = 'beallitasok'">
-            <q-item-section avatar>
-              <q-icon name="settings" color="brand-primary" size="24px" class="group-hover:scale-110 transition-transform duration-300 group-hover:drop-shadow-[0_0_8px_rgba(99,102,241,0.8)]" />
-            </q-item-section>
-            <q-item-section class="font-bold text-slate-300 text-sm tracking-wide group-hover:text-white transition-colors duration-300">Beállítások</q-item-section>
-            <q-item-section side>
-              <q-icon name="chevron_right" color="slate-600" size="20px" class="group-hover:translate-x-1 group-hover:text-brand-primary transition-all duration-300" />
-            </q-item-section>
-          </q-item>
+        <div class="profile-user-name z-10">
+          {{ authStore.user?.LastName || '' }} {{ authStore.user?.FirstName || 'Felhasználó' }}
+        </div>
+        <p class="profile-user-email z-10">{{ authStore.user?.Email || authStore.user?.EmailAddress || '' }}</p>
+      </div>
 
-          <!-- 4. QR-kód olvasó -->
-          <q-item clickable v-ripple class="rounded-xl transition-all duration-300 hover:bg-gradient-to-r hover:from-emerald-500/20 hover:to-teal-400/10 hover:shadow-[0_0_15px_rgba(16,185,129,0.4)] q-py-md q-px-md group" @click="openQrScanner">
-            <q-item-section avatar>
-              <q-icon name="qr_code_scanner" color="emerald-500" size="24px" class="group-hover:scale-110 transition-transform duration-300 group-hover:drop-shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
-            </q-item-section>
-            <q-item-section class="font-bold text-slate-300 text-sm tracking-wide group-hover:text-white transition-colors duration-300">QR-kód olvasó</q-item-section>
-            <q-item-section side>
-              <q-icon name="chevron_right" color="slate-600" size="20px" class="group-hover:translate-x-1 group-hover:text-emerald-400 transition-all duration-300" />
-            </q-item-section>
-          </q-item>
+      <!-- Menu list — glass card, brand cyan (no indigo) -->
+      <div class="menu-container q-mt-sm flex-grow">
+        <div class="profile-menu-card">
+          <button type="button" class="profile-menu-row" @click="activeView = 'adataim'">
+            <span class="profile-menu-icon">
+              <q-icon name="badge" size="22px" />
+            </span>
+            <span class="profile-menu-label">Adataim</span>
+            <q-icon name="chevron_right" size="20px" class="profile-menu-chevron" />
+          </button>
 
-          <!-- 5. Kijelentkezés -->
-          <q-item clickable v-ripple class="rounded-xl transition-all duration-300 hover:bg-gradient-to-r hover:from-rose-500/20 hover:to-pink-500/10 hover:shadow-[0_0_15px_rgba(244,63,94,0.4)] q-py-md q-px-md mt-4 group" @click="logout">
-            <q-item-section avatar>
-              <q-icon name="logout" color="rose-500" size="24px" class="group-hover:scale-110 transition-transform duration-300 group-hover:drop-shadow-[0_0_8px_rgba(244,63,94,0.8)]" />
-            </q-item-section>
-            <q-item-section class="font-bold text-rose-500/80 text-sm tracking-wide group-hover:text-rose-400 transition-colors duration-300">Kijelentkezés</q-item-section>
-          </q-item>
+          <button type="button" class="profile-menu-row" @click="activeView = 'preferenciak'">
+            <span class="profile-menu-icon">
+              <q-icon name="favorite_border" size="22px" />
+            </span>
+            <span class="profile-menu-label">Preferenciák</span>
+            <q-icon name="chevron_right" size="20px" class="profile-menu-chevron" />
+          </button>
 
-        </q-list>
+          <button type="button" class="profile-menu-row" @click="activeView = 'beallitasok'">
+            <span class="profile-menu-icon">
+              <q-icon name="settings" size="22px" />
+            </span>
+            <span class="profile-menu-label">Beállítások</span>
+            <q-icon name="chevron_right" size="20px" class="profile-menu-chevron" />
+          </button>
+
+          <button type="button" class="profile-menu-row" @click="openQrScanner">
+            <span class="profile-menu-icon profile-menu-icon--emerald">
+              <q-icon name="qr_code_scanner" size="22px" />
+            </span>
+            <span class="profile-menu-label">QR-kód olvasó</span>
+            <q-icon name="chevron_right" size="20px" class="profile-menu-chevron" />
+          </button>
+
+          <div class="profile-menu-divider" aria-hidden="true" />
+
+          <button type="button" class="profile-menu-row profile-menu-row--danger" @click="logout">
+            <span class="profile-menu-icon profile-menu-icon--rose">
+              <q-icon name="logout" size="22px" />
+            </span>
+            <span class="profile-menu-label">Kijelentkezés</span>
+          </button>
+        </div>
       </div>
     </div>
 
@@ -81,15 +76,14 @@
     <div v-else-if="activeView === 'adataim'" class="flex flex-col h-full relative">
       <q-toolbar class="bg-transparent border-b border-white/10 q-py-sm z-20" style="backdrop-filter: blur(16px); background: linear-gradient(180deg, rgba(15,23,42,0.95) 0%, rgba(15,23,42,0.5) 100%);">
         <q-btn flat round dense icon="arrow_back" @click="activeView = 'menu'" class="text-brand-primary bg-white/5 hover:bg-white/10 transition-all ml-2" />
-        <q-toolbar-title class="font-black text-lg uppercase tracking-widest text-center text-transparent bg-clip-text bg-gradient-to-r from-brand-primary to-sky-300 drop-shadow-lg">
+        <q-toolbar-title class="profile-subview-title">
           Adataim
         </q-toolbar-title>
         <q-btn 
           round 
           icon="save" 
           size="md"
-          class="mr-2 shadow-[0_0_15px_rgba(99,102,241,0.6)] hover:scale-110 transition-transform duration-300"
-          style="background: linear-gradient(135deg, #6366f1 0%, #38bdf8 100%); color: white;"
+          class="mr-2 profile-save-btn"
           @click="savePersonalData"
         />
       </q-toolbar>
@@ -103,41 +97,42 @@
               <q-icon name="person" size="18px" /> Személyes Adatok
             </div>
           </div>
-          <div class="grid grid-cols-1 gap-4" v-if="authStore.user">
-            <div>
-              <div class="text-[10px] text-slate-500 uppercase font-bold tracking-wider mb-1 q-ml-xs">Vezetéknév</div>
-              <q-input 
-                v-model="authStore.user.LastName" 
-                dark 
-                outlined 
-                dense 
-                color="brand-primary" 
-                class="custom-input bg-[#0B0F19]/50 rounded-xl"
-                input-style="font-size: 16px;" input-class="font-medium text-white"
+          <div class="profile-field-stack profile-field-stack--compact" v-if="authStore.user">
+            <div class="profile-field">
+              <label class="profile-field__label">Vezetéknév</label>
+              <q-input
+                v-model="authStore.user.LastName"
+                dark
+                outlined
+                dense
+                hide-bottom-space
+                class="profile-input profile-input--cyan"
+                input-class="profile-input__native"
               />
             </div>
-            <div>
-              <div class="text-[10px] text-slate-500 uppercase font-bold tracking-wider mb-1 q-ml-xs">Keresztnév</div>
-              <q-input 
-                v-model="authStore.user.FirstName" 
-                dark 
-                outlined 
-                dense 
-                color="brand-primary" 
-                class="custom-input bg-[#0B0F19]/50 rounded-xl"
-                input-style="font-size: 16px;" input-class="font-medium text-white"
+            <div class="profile-field">
+              <label class="profile-field__label">Keresztnév</label>
+              <q-input
+                v-model="authStore.user.FirstName"
+                dark
+                outlined
+                dense
+                hide-bottom-space
+                class="profile-input profile-input--cyan"
+                input-class="profile-input__native"
               />
             </div>
-            <div>
-              <div class="text-[10px] text-slate-500 uppercase font-bold tracking-wider mb-1 q-ml-xs">E-mail cím</div>
-              <q-input 
-                v-model="authStore.user.EmailAddress" 
-                dark 
-                outlined 
-                dense 
-                color="brand-primary" 
-                class="custom-input bg-[#0B0F19]/50 rounded-xl"
-                input-style="font-size: 16px;" input-class="font-medium text-white"
+            <div class="profile-field">
+              <label class="profile-field__label">E-mail cím</label>
+              <q-input
+                v-model="authStore.user.EmailAddress"
+                dark
+                outlined
+                dense
+                hide-bottom-space
+                type="email"
+                class="profile-input profile-input--cyan"
+                input-class="profile-input__native"
               />
             </div>
           </div>
@@ -206,6 +201,63 @@
           </div>
         </div>
 
+        <!-- Szervezetek (Owner / Manager) — utolsó kártya -->
+        <div class="mb-6 flex flex-col relative" style="background-color: rgba(15, 23, 42, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.08); box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2); border-radius: 24px; padding: 20px;">
+          <div class="absolute top-0 left-0 w-1 h-full bg-orange-500 rounded-l-[24px]"></div>
+          <div class="flex justify-between items-center mb-4">
+            <div style="font-size: 14px; font-weight: 800; color: #fb923c; text-transform: uppercase; letter-spacing: 0.05em; display: flex; align-items: center; gap: 8px; margin: 0;">
+              <q-icon name="apartment" size="18px" /> Szervezetek
+            </div>
+            <q-btn round icon="add" color="orange-500" class="shadow-[0_8px_20px_rgba(249,115,22,0.5)] hover:scale-110 transition-transform" @click="openOrganizationDialog" />
+          </div>
+
+          <div v-if="manageableUserOrganizations.length" class="flex flex-col gap-3 mt-2">
+            <div
+              v-for="row in manageableUserOrganizations"
+              :key="row.userOrg.id"
+              class="flex items-center gap-3 px-3 py-3"
+              style="background: rgba(15, 23, 42, 0.4); border-radius: 16px; border: 1px solid rgba(249, 115, 22, 0.18);"
+            >
+              <q-btn
+                flat
+                round
+                dense
+                :icon="row.userOrg.IsPrimary ? 'star' : 'star_border'"
+                :class="row.userOrg.IsPrimary ? 'text-amber-400' : 'text-slate-500 hover:text-amber-300'"
+                class="transition-colors"
+                @click="setPrimaryOrganization(row.userOrg.id)"
+              >
+                <q-tooltip>{{ row.userOrg.IsPrimary ? 'Alapértelmezett' : 'Beállítás alapértelmezettnek' }}</q-tooltip>
+              </q-btn>
+
+              <div class="flex-grow min-w-0">
+                <div class="font-black text-orange-50 text-base tracking-wide truncate">{{ row.displayName }}</div>
+                <div class="text-xs text-orange-300/80 font-bold mt-0.5">{{ row.typeName }}</div>
+              </div>
+
+              <q-badge
+                v-if="row.userOrg.IsPrimary"
+                color="orange-500"
+                class="text-[10px] font-bold rounded-lg shrink-0"
+              >
+                Alapértelmezett
+              </q-badge>
+
+              <q-btn
+                flat
+                round
+                dense
+                icon="delete_outline"
+                class="text-slate-500 hover:text-rose-400 transition-colors shrink-0"
+                @click="confirmLeaveOrganization(row)"
+              />
+            </div>
+          </div>
+          <div v-else class="text-center py-6 text-slate-500 text-xs font-bold border border-dashed border-white/10 rounded-xl">
+            Nincs kezelhető szervezet
+          </div>
+        </div>
+
       </div>
 
       <!-- Számlázási cím Bottom Sheet Dialog -->
@@ -221,16 +273,16 @@
               {{ billingDialogMode === 'add' ? 'Új számlázási cím' : 'Számlázási cím szerkesztése' }}
             </div>
             
-            <div class="flex flex-col gap-5 max-h-[80vh] overflow-y-auto no-scrollbar pb-6 px-1 pr-2">
+            <div ref="billingFormScrollRef" class="billing-form-scroll profile-field-stack">
               
               <!-- Toggles: IsDefault & IsCompany -->
               <div class="grid grid-cols-2 gap-3">
-                <div class="flex flex-col items-center justify-center bg-[#0B0F19]/50 p-3 rounded-xl gap-2">
-                  <div class="text-[10px] text-emerald-100 font-bold uppercase text-center w-full leading-tight">Alapértelmezett</div>
+                <div class="profile-toggle-card">
+                  <div class="profile-toggle-card__label">Alapértelmezett</div>
                   <q-toggle v-model="currentBillingAddress.IsDefault" color="emerald-400" dense />
                 </div>
-                <div class="flex flex-col items-center justify-center bg-[#0B0F19]/50 p-3 rounded-xl gap-2">
-                  <div class="text-[10px] text-emerald-100 font-bold uppercase text-center w-full leading-tight">Céges</div>
+                <div class="profile-toggle-card">
+                  <div class="profile-toggle-card__label">Céges</div>
                   <q-toggle v-model="currentBillingAddress.IsCompany" color="emerald-400" dense />
                 </div>
               </div>
@@ -239,47 +291,47 @@
               
               <!-- Név / Cégnév -->
               <template v-if="currentBillingAddress.IsCompany">
-                <div>
-                  <div class="text-[10px] text-emerald-400/80 uppercase font-bold tracking-wider mb-1 q-ml-xs">Cégnév</div>
-                  <q-input v-model="currentBillingAddress.CompanyName" dark outlined dense color="emerald-400" class="custom-input bg-[#0B0F19]/50 rounded-xl" input-style="font-size: 16px;" input-class="font-medium text-white" />
+                <div class="profile-field">
+                  <label class="profile-field__label profile-field__label--emerald">Cégnév</label>
+                  <q-input v-model="currentBillingAddress.CompanyName" dark outlined dense hide-bottom-space class="profile-input profile-input--emerald" input-class="profile-input__native" />
                 </div>
-                <div class="grid grid-cols-2 gap-3">
-                  <div>
-                    <div class="text-[10px] text-emerald-400/80 uppercase font-bold tracking-wider mb-1 q-ml-xs">Adószám</div>
-                    <q-input v-model="currentBillingAddress.CompanyTaxNumber" dark outlined dense color="emerald-400" class="custom-input bg-[#0B0F19]/50 rounded-xl" input-style="font-size: 16px;" input-class="font-medium text-white" />
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div class="profile-field">
+                    <label class="profile-field__label profile-field__label--emerald">Adószám</label>
+                    <q-input v-model="currentBillingAddress.CompanyTaxNumber" dark outlined dense hide-bottom-space class="profile-input profile-input--emerald" input-class="profile-input__native" />
                   </div>
-                  <div>
-                    <div class="text-[10px] text-emerald-400/80 uppercase font-bold tracking-wider mb-1 q-ml-xs">Közösségi adószám</div>
-                    <q-input v-model="currentBillingAddress.CompanyVatNumber" dark outlined dense color="emerald-400" class="custom-input bg-[#0B0F19]/50 rounded-xl" input-style="font-size: 16px;" input-class="font-medium text-white" />
+                  <div class="profile-field">
+                    <label class="profile-field__label profile-field__label--emerald">Közösségi adószám</label>
+                    <q-input v-model="currentBillingAddress.CompanyVatNumber" dark outlined dense hide-bottom-space class="profile-input profile-input--emerald" input-class="profile-input__native" />
                   </div>
                 </div>
               </template>
               
-              <div>
-                <div class="text-[10px] text-emerald-400/80 uppercase font-bold tracking-wider mb-1 q-ml-xs">Számlázási Név (Kapcsolattartó)</div>
-                <q-input v-model="currentBillingAddress.BillingName" dark outlined dense color="emerald-400" class="custom-input bg-[#0B0F19]/50 rounded-xl" input-style="font-size: 16px;" input-class="font-medium text-white" />
+              <div class="profile-field">
+                <label class="profile-field__label profile-field__label--emerald">Számlázási Név (Kapcsolattartó)</label>
+                <q-input v-model="currentBillingAddress.BillingName" dark outlined dense hide-bottom-space class="profile-input profile-input--emerald" input-class="profile-input__native" />
               </div>
 
               <!-- Cím adatok -->
               <q-separator color="white" class="opacity-10 my-2" />
               <div class="grid grid-cols-4 gap-3">
-                <div class="col-span-1">
-                  <div class="text-[10px] text-emerald-400/80 uppercase font-bold tracking-wider mb-1 q-ml-xs">Ország</div>
-                  <q-input v-model="currentBillingAddress.CountryCode" dark outlined dense color="emerald-400" class="custom-input bg-[#0B0F19]/50 rounded-xl" input-style="font-size: 16px;" input-class="font-medium text-white" />
+                <div class="profile-field col-span-1">
+                  <label class="profile-field__label profile-field__label--emerald">Ország</label>
+                  <q-input v-model="currentBillingAddress.CountryCode" dark outlined dense hide-bottom-space class="profile-input profile-input--emerald" input-class="profile-input__native" />
                 </div>
-                <div class="col-span-1">
-                  <div class="text-[10px] text-emerald-400/80 uppercase font-bold tracking-wider mb-1 q-ml-xs">Ir.szám</div>
-                  <q-input v-model="currentBillingAddress.PostalCode" dark outlined dense color="emerald-400" class="custom-input bg-[#0B0F19]/50 rounded-xl" input-style="font-size: 16px;" input-class="font-medium text-white" />
+                <div class="profile-field col-span-1">
+                  <label class="profile-field__label profile-field__label--emerald">Ir.szám</label>
+                  <q-input v-model="currentBillingAddress.PostalCode" dark outlined dense hide-bottom-space class="profile-input profile-input--emerald" input-class="profile-input__native" />
                 </div>
-                <div class="col-span-2">
-                  <div class="text-[10px] text-emerald-400/80 uppercase font-bold tracking-wider mb-1 q-ml-xs">Város</div>
-                  <q-input v-model="currentBillingAddress.City" dark outlined dense color="emerald-400" class="custom-input bg-[#0B0F19]/50 rounded-xl" input-style="font-size: 16px;" input-class="font-medium text-white" />
+                <div class="profile-field col-span-2">
+                  <label class="profile-field__label profile-field__label--emerald">Város</label>
+                  <q-input v-model="currentBillingAddress.City" dark outlined dense hide-bottom-space class="profile-input profile-input--emerald" input-class="profile-input__native" />
                 </div>
               </div>
               
-              <div>
-                <div class="text-[10px] text-emerald-400/80 uppercase font-bold tracking-wider mb-1 q-ml-xs">Utca, házszám</div>
-                <q-input v-model="currentBillingAddress.AddressLine1" dark outlined dense color="emerald-400" class="custom-input bg-[#0B0F19]/50 rounded-xl" input-style="font-size: 16px;" input-class="font-medium text-white" />
+              <div class="profile-field">
+                <label class="profile-field__label profile-field__label--emerald">Utca, házszám</label>
+                <q-input v-model="currentBillingAddress.AddressLine1" dark outlined dense hide-bottom-space class="profile-input profile-input--emerald" input-class="profile-input__native" />
               </div>
               
               <div class="flex justify-center mt-2 mb-1">
@@ -290,35 +342,41 @@
                   :label="showMoreBillingDetails ? 'Kevesebb adat' : 'További adatok (opcionális)'" 
                   color="emerald-400" 
                   class="bg-emerald-500/10 rounded-xl text-xs font-bold px-4 py-1.5"
-                  @click="showMoreBillingDetails = !showMoreBillingDetails"
+                  @click="toggleMoreBillingDetails"
                 />
               </div>
 
-              <div v-show="showMoreBillingDetails" class="flex flex-col gap-4">
-                <div class="grid grid-cols-2 gap-3">
-                  <div>
-                    <div class="text-[10px] text-emerald-400/80 uppercase font-bold tracking-wider mb-1 q-ml-xs">Emelet, ajtó</div>
-                    <q-input v-model="currentBillingAddress.AddressLine2" dark outlined dense color="emerald-400" class="custom-input bg-[#0B0F19]/50 rounded-xl" input-style="font-size: 16px;" input-class="font-medium text-white" />
+              <q-slide-transition>
+                <div
+                  v-if="showMoreBillingDetails"
+                  ref="billingExtraFieldsRef"
+                  class="billing-extra-fields profile-field-stack"
+                >
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div class="profile-field">
+                    <label class="profile-field__label profile-field__label--emerald">Emelet, ajtó</label>
+                    <q-input v-model="currentBillingAddress.AddressLine2" dark outlined dense hide-bottom-space class="profile-input profile-input--emerald" input-class="profile-input__native" />
                   </div>
-                  <div>
-                    <div class="text-[10px] text-emerald-400/80 uppercase font-bold tracking-wider mb-1 q-ml-xs">Megye / Régió</div>
-                    <q-input v-model="currentBillingAddress.StateOrRegion" dark outlined dense color="emerald-400" class="custom-input bg-[#0B0F19]/50 rounded-xl" input-style="font-size: 16px;" input-class="font-medium text-white" />
+                  <div class="profile-field">
+                    <label class="profile-field__label profile-field__label--emerald">Megye / Régió</label>
+                    <q-input v-model="currentBillingAddress.StateOrRegion" dark outlined dense hide-bottom-space class="profile-input profile-input--emerald" input-class="profile-input__native" />
                   </div>
                 </div>
 
                 <!-- Elérhetőségek -->
                 <q-separator color="white" class="opacity-10 my-1" />
-                <div class="grid grid-cols-2 gap-3">
-                  <div>
-                    <div class="text-[10px] text-emerald-400/80 uppercase font-bold tracking-wider mb-1 q-ml-xs">E-mail</div>
-                    <q-input v-model="currentBillingAddress.BillingEmail" dark outlined dense color="emerald-400" class="custom-input bg-[#0B0F19]/50 rounded-xl" input-style="font-size: 16px;" input-class="font-medium text-white" />
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div class="profile-field">
+                    <label class="profile-field__label profile-field__label--emerald">E-mail</label>
+                    <q-input v-model="currentBillingAddress.BillingEmail" dark outlined dense hide-bottom-space type="email" class="profile-input profile-input--emerald" input-class="profile-input__native" />
                   </div>
-                  <div>
-                    <div class="text-[10px] text-emerald-400/80 uppercase font-bold tracking-wider mb-1 q-ml-xs">Telefon</div>
-                    <q-input v-model="currentBillingAddress.BillingPhone" dark outlined dense color="emerald-400" class="custom-input bg-[#0B0F19]/50 rounded-xl" input-style="font-size: 16px;" input-class="font-medium text-white" />
+                  <div class="profile-field">
+                    <label class="profile-field__label profile-field__label--emerald">Telefon</label>
+                    <q-input v-model="currentBillingAddress.BillingPhone" dark outlined dense hide-bottom-space type="tel" class="profile-input profile-input--emerald" input-class="profile-input__native" />
                   </div>
                 </div>
-              </div>
+                </div>
+              </q-slide-transition>
               
             </div>
           </q-card-section>
@@ -326,6 +384,237 @@
           <q-card-actions class="q-pa-md pt-2 mb-4 grid grid-cols-2 gap-3">
             <q-btn flat no-caps label="Mégsem" color="white" class="bg-white/5 hover:bg-white/10 rounded-xl font-bold py-3" v-close-popup />
             <q-btn unelevated no-caps label="Mentés" color="emerald-500" class="rounded-xl font-bold py-3 shadow-[0_4px_15px_rgba(16,185,129,0.4)]" @click="saveBillingAddress" />
+          </q-card-actions>
+        </q-card>
+      </q-dialog>
+
+      <!-- Szervezet hozzáadása Bottom Sheet -->
+      <q-dialog v-model="isOrganizationDialogVisible" position="bottom">
+        <q-card style="width: 100%; border-top-left-radius: 32px; border-top-right-radius: 32px; background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(20px); border-top: 1px solid rgba(249, 115, 22, 0.35); box-shadow: 0 -10px 40px rgba(0,0,0,0.5);">
+          <div class="w-full flex justify-center pt-3 pb-1">
+            <div class="w-12 h-1.5 bg-white/20 rounded-full"></div>
+          </div>
+
+          <q-card-section class="q-pt-sm q-pb-none flex items-center justify-between px-5">
+            <q-btn
+              v-if="orgDialogMode === 'create'"
+              flat
+              round
+              dense
+              icon="arrow_back"
+              class="text-orange-300 bg-white/5"
+              @click="orgDialogMode = 'join'"
+            />
+            <div v-else class="w-10" />
+            <div style="font-size: 14px; font-weight: 800; color: #fb923c; text-transform: uppercase; letter-spacing: 0.05em; margin: 0;">
+              {{ orgDialogMode === 'create' ? 'Új szervezet' : 'Szervezet hozzáadása' }}
+            </div>
+            <q-btn icon="close" flat round dense v-close-popup class="text-slate-400 hover:text-white transition-colors bg-slate-800/50" size="sm" />
+          </q-card-section>
+
+          <q-card-section class="q-pt-md">
+            <div ref="orgFormScrollRef" class="billing-form-scroll profile-field-stack">
+              <!-- JOIN: keresés + designos Új szervezet CTA -->
+              <template v-if="orgDialogMode === 'join'">
+                <button
+                  type="button"
+                  class="org-create-cta w-full text-left mb-4"
+                  @click="orgDialogMode = 'create'"
+                >
+                  <span class="org-create-cta__icon">
+                    <q-icon name="add_business" size="22px" />
+                  </span>
+                  <span class="org-create-cta__body">
+                    <span class="org-create-cta__title">Új szervezet</span>
+                    <span class="org-create-cta__sub">Létrehozás tulajdonosként</span>
+                  </span>
+                  <q-icon name="chevron_right" size="22px" class="org-create-cta__chevron" />
+                </button>
+
+                <div class="w-full flex items-center gap-3 mb-3">
+                  <div class="h-px flex-1 bg-white/10" />
+                  <span class="text-[10px] uppercase font-bold tracking-widest text-slate-500">vagy keresés</span>
+                  <div class="h-px flex-1 bg-white/10" />
+                </div>
+
+                <div class="profile-field">
+                  <label class="profile-field__label profile-field__label--orange">Keresés név / rövid név</label>
+                  <q-input
+                    v-model="orgSearchQuery"
+                    dark
+                    outlined
+                    dense
+                    hide-bottom-space
+                    clearable
+                    class="profile-input profile-input--orange"
+                    input-class="profile-input__native"
+                    placeholder="pl. TE-TEST"
+                  >
+                    <template #prepend>
+                      <q-icon name="search" color="slate-400" />
+                    </template>
+                  </q-input>
+                </div>
+
+                <div class="text-[11px] text-slate-500 font-bold uppercase tracking-wider px-1">
+                  Beosztás: {{ managerUserTypeName }} (alapértelmezett)
+                </div>
+
+                <div v-if="joinableOrganizations.length" class="flex flex-col gap-2 max-h-[36vh] overflow-y-auto no-scrollbar">
+                  <button
+                    v-for="org in joinableOrganizations"
+                    :key="org.id"
+                    type="button"
+                    class="text-left px-4 py-3 rounded-xl transition-all border"
+                    :class="selectedJoinOrgId === org.id
+                      ? 'bg-orange-500/20 border-orange-400/50'
+                      : 'bg-white/5 border-white/10 hover:bg-white/10'"
+                    @click="selectedJoinOrgId = org.id"
+                  >
+                    <div class="font-bold text-orange-50 text-sm">{{ org.ShortName?.trim() || org.Name }}</div>
+                    <div v-if="org.ShortName?.trim()" class="text-xs text-slate-400 mt-0.5 truncate">{{ org.Name }}</div>
+                  </button>
+                </div>
+                <div v-else class="text-center py-6 text-slate-500 text-xs font-bold border border-dashed border-white/10 rounded-xl">
+                  Nincs csatlakozható szervezet
+                </div>
+              </template>
+
+              <!-- CREATE: új szervezet -->
+              <template v-else>
+                <div class="profile-field">
+                  <label class="profile-field__label profile-field__label--orange">Szervezet típusa</label>
+                  <q-select
+                    v-model="newOrgForm.OrganizationTypeID"
+                    :options="organizationTypeOptions"
+                    emit-value
+                    map-options
+                    dark
+                    outlined
+                    dense
+                    hide-bottom-space
+                    class="profile-input profile-input--orange"
+                    popup-content-class="bg-slate-900 text-white"
+                  />
+                </div>
+
+                <div class="profile-field">
+                  <label class="profile-field__label profile-field__label--orange">Beosztás</label>
+                  <q-input
+                    :model-value="ownerUserTypeName"
+                    dark
+                    outlined
+                    dense
+                    hide-bottom-space
+                    readonly
+                    class="profile-input profile-input--orange"
+                    input-class="profile-input__native"
+                  />
+                </div>
+
+                <div class="profile-field">
+                  <label class="profile-field__label profile-field__label--orange">Név</label>
+                  <q-input
+                    v-model="newOrgForm.Name"
+                    dark
+                    outlined
+                    dense
+                    hide-bottom-space
+                    class="profile-input profile-input--orange"
+                    input-class="profile-input__native"
+                    placeholder="pl. TE Teszt Organizáció"
+                  />
+                </div>
+
+                <div class="profile-field">
+                  <label class="profile-field__label profile-field__label--orange">Rövid név <span class="text-slate-500 font-normal">(opcionális)</span></label>
+                  <q-input
+                    v-model="newOrgForm.ShortName"
+                    dark
+                    outlined
+                    dense
+                    hide-bottom-space
+                    class="profile-input profile-input--orange"
+                    input-class="profile-input__native"
+                    placeholder="pl. TE-TEST"
+                  />
+                </div>
+
+                <div class="flex justify-center mt-1 mb-1">
+                  <q-btn
+                    flat
+                    no-caps
+                    :icon-right="showMoreOrgDetails ? 'expand_less' : 'expand_more'"
+                    :label="showMoreOrgDetails ? 'Kevesebb adat' : 'További adatok (opcionális)'"
+                    class="bg-orange-500/10 rounded-xl text-xs font-bold px-4 py-1.5 text-orange-300"
+                    @click="toggleMoreOrgDetails"
+                  />
+                </div>
+
+                <q-slide-transition>
+                  <div v-if="showMoreOrgDetails" ref="orgExtraFieldsRef" class="profile-field-stack">
+                    <div class="grid grid-cols-4 gap-3">
+                      <div class="profile-field col-span-1">
+                        <label class="profile-field__label profile-field__label--orange">Ország</label>
+                        <q-input v-model="newOrgForm.CountryCode" dark outlined dense hide-bottom-space class="profile-input profile-input--orange" input-class="profile-input__native" />
+                      </div>
+                      <div class="profile-field col-span-1">
+                        <label class="profile-field__label profile-field__label--orange">Ir.szám</label>
+                        <q-input v-model="newOrgForm.PostalCode" dark outlined dense hide-bottom-space class="profile-input profile-input--orange" input-class="profile-input__native" />
+                      </div>
+                      <div class="profile-field col-span-2">
+                        <label class="profile-field__label profile-field__label--orange">Város</label>
+                        <q-input v-model="newOrgForm.City" dark outlined dense hide-bottom-space class="profile-input profile-input--orange" input-class="profile-input__native" />
+                      </div>
+                    </div>
+                    <div class="profile-field">
+                      <label class="profile-field__label profile-field__label--orange">Utca, házszám</label>
+                      <q-input v-model="newOrgForm.AddressLine1" dark outlined dense hide-bottom-space class="profile-input profile-input--orange" input-class="profile-input__native" />
+                    </div>
+                    <div class="profile-field">
+                      <label class="profile-field__label profile-field__label--orange">Emelet, ajtó</label>
+                      <q-input v-model="newOrgForm.AddressLine2" dark outlined dense hide-bottom-space class="profile-input profile-input--orange" input-class="profile-input__native" />
+                    </div>
+                    <q-separator color="white" class="opacity-10 my-1" />
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div class="profile-field">
+                        <label class="profile-field__label profile-field__label--orange">E-mail</label>
+                        <q-input v-model="newOrgForm.Email" type="email" dark outlined dense hide-bottom-space class="profile-input profile-input--orange" input-class="profile-input__native" />
+                      </div>
+                      <div class="profile-field">
+                        <label class="profile-field__label profile-field__label--orange">Telefon</label>
+                        <q-input v-model="newOrgForm.Phone" type="tel" dark outlined dense hide-bottom-space class="profile-input profile-input--orange" input-class="profile-input__native" />
+                      </div>
+                    </div>
+                    <div class="profile-field">
+                      <label class="profile-field__label profile-field__label--orange">Adószám</label>
+                      <q-input v-model="newOrgForm.TaxId" dark outlined dense hide-bottom-space class="profile-input profile-input--orange" input-class="profile-input__native" />
+                    </div>
+                  </div>
+                </q-slide-transition>
+              </template>
+            </div>
+          </q-card-section>
+
+          <q-card-actions class="q-pa-md pt-2 mb-4">
+            <q-btn
+              v-if="orgDialogMode === 'join'"
+              unelevated
+              no-caps
+              label="Csatlakozás"
+              color="orange-500"
+              class="w-full rounded-xl font-bold py-3 shadow-[0_4px_15px_rgba(249,115,22,0.4)]"
+              @click="saveOrganizationDialog"
+            />
+            <q-btn
+              v-else
+              unelevated
+              no-caps
+              label="Szervezet létrehozása"
+              color="orange-500"
+              class="w-full rounded-xl font-bold py-3 shadow-[0_4px_15px_rgba(249,115,22,0.4)]"
+              @click="saveOrganizationDialog"
+            />
           </q-card-actions>
         </q-card>
       </q-dialog>
@@ -360,24 +649,21 @@
               </button>
             </div>
 
-            <div class="mb-6">
-              <div class="text-[10px] text-slate-500 uppercase font-bold tracking-wider mb-2 q-ml-xs">
+            <div class="profile-field">
+              <label class="profile-field__label profile-field__label--amber">
                 {{ identifierType === 'email' ? 'E-mail cím' : 'Telefonszám' }}
-              </div>
-              <q-input 
-                v-model="newIdentifierValue" 
+              </label>
+              <q-input
+                v-model="newIdentifierValue"
                 :type="identifierType === 'email' ? 'email' : 'tel'"
-                dark 
-                outlined 
-                color="amber" 
-                class="custom-input bg-[#0B0F19]/50 rounded-xl"
-                input-style="font-size: 16px;" input-class="font-medium text-white"
+                dark
+                outlined
+                dense
+                hide-bottom-space
+                class="profile-input profile-input--amber"
+                input-class="profile-input__native"
                 :placeholder="identifierType === 'email' ? 'pl. pelda@email.com' : 'pl. +36 30 123 4567'"
-              >
-                <template v-slot:prepend>
-                  <q-icon :name="identifierType === 'email' ? 'mail' : 'phone'" color="slate-400" />
-                </template>
-              </q-input>
+              />
             </div>
 
             <q-btn 
@@ -397,15 +683,14 @@
     <div v-else-if="activeView === 'preferenciak'" class="flex flex-col h-full relative">
       <q-toolbar class="bg-transparent border-b border-white/10 q-py-sm z-20" style="backdrop-filter: blur(16px); background: linear-gradient(180deg, rgba(15,23,42,0.95) 0%, rgba(15,23,42,0.5) 100%);">
         <q-btn flat round dense icon="arrow_back" @click="activeView = 'menu'" class="text-brand-primary bg-white/5 hover:bg-white/10 transition-all ml-2" />
-        <q-toolbar-title class="font-black text-lg uppercase tracking-widest text-center text-transparent bg-clip-text bg-gradient-to-r from-brand-primary to-sky-300 drop-shadow-lg">
+        <q-toolbar-title class="profile-subview-title">
           Preferenciák
         </q-toolbar-title>
         <q-btn 
           round 
           icon="save" 
           size="md"
-          class="mr-2 shadow-[0_0_15px_rgba(99,102,241,0.6)] hover:scale-110 transition-transform duration-300"
-          style="background: linear-gradient(135deg, #6366f1 0%, #38bdf8 100%); color: white;"
+          class="mr-2 profile-save-btn"
           @click="savePreferences"
         />
       </q-toolbar>
@@ -413,25 +698,25 @@
         
         <!-- Esemény Típusok kártya -->
         <div class="mb-6 flex flex-col relative overflow-hidden" style="background-color: rgba(15, 23, 42, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.08); box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2); border-radius: 24px; padding: 20px;">
-          <div class="absolute top-0 left-0 w-1 h-full bg-indigo-500"></div>
+          <div class="absolute top-0 left-0 w-1 h-full bg-sky-500"></div>
           <div class="flex justify-between items-center mb-4">
-            <div style="font-size: 14px; font-weight: 800; color: #6366f1; text-transform: uppercase; letter-spacing: 0.05em; display: flex; align-items: center; gap: 8px; margin: 0;">
-              <q-icon name="category" size="18px" /> Eseménytípusok
-              <q-btn round flat dense icon="info" size="xs" color="indigo-400">
-                <q-tooltip class="bg-indigo-900 text-white shadow-4 text-xs font-bold border border-indigo-500/30" :offset="[10, 10]" style="max-width: 250px;">
+            <div style="font-size: 13px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em; display: flex; align-items: center; gap: 8px; margin: 0;">
+              <q-icon name="category" size="16px" color="#38bdf8" /> Eseménytípusok
+              <q-btn round flat dense icon="info" size="xs" color="slate-400">
+                <q-tooltip class="bg-slate-900 text-white shadow-4 text-xs font-bold border border-sky-500/30" :offset="[10, 10]" style="max-width: 250px;">
                   Válaszd ki azokat az esemény típusokat és cimkéket, amelyek érdekelnek, hogy a felületen az ilyen típusú események jelenjenek meg.
                 </q-tooltip>
               </q-btn>
             </div>
-            <q-btn round icon="add" color="indigo-500" class="shadow-[0_8px_20px_rgba(99,102,241,0.5)] hover:scale-110 transition-transform" @click="openEventTypesDialog" />
+            <q-btn round icon="add" class="profile-add-btn" @click="openEventTypesDialog" />
           </div>
           
           <div v-if="authStore.eventTypePreferences && authStore.eventTypePreferences.length > 0" class="flex flex-wrap mt-2" style="gap: 8px;">
             <div 
               v-for="pref in authStore.eventTypePreferences" 
               :key="'pref_type_' + pref.EventTypeID"
-              class="inline-flex items-center justify-center font-bold rounded-full text-[15px] tracking-wide cursor-pointer transition-all hover:scale-105 max-w-full"
-              style="background-color: #6366f1; color: white; box-shadow: 0 4px 12px rgba(99,102,241,0.4); padding: 6px 16px;"
+              class="inline-flex items-center justify-center font-bold rounded-full text-[14px] tracking-wide cursor-pointer transition-all hover:scale-105 max-w-full"
+              style="background: var(--ej-gradient); color: white; box-shadow: 0 4px 12px rgba(14,165,233,0.35); padding: 6px 16px;"
               @click="removeEventType(pref.EventTypeID)"
             >
               <span class="truncate block max-w-full">{{ getEventTypeName(pref.EventTypeID) }}</span>
@@ -479,7 +764,7 @@
       <q-dialog v-model="isEventTypesDialogVisible" position="bottom">
         <q-card style="width: 100%; border-top-left-radius: 32px; border-top-right-radius: 32px; background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(20px); border-top: 1px solid rgba(99, 102, 241, 0.3); box-shadow: 0 -10px 40px rgba(0,0,0,0.5);">
           <q-card-section class="q-pb-none flex justify-between items-center relative pt-6 pb-2 px-6">
-            <div class="text-xs font-bold text-indigo-400 uppercase tracking-widest">Esemény típus hozzáadása</div>
+            <div class="text-xs font-bold text-sky-400 uppercase tracking-wider">Esemény típus hozzáadása</div>
             <q-btn icon="close" flat round dense v-close-popup class="text-slate-400 hover:text-white transition-colors bg-slate-800/50" size="sm" />
           </q-card-section>
           
@@ -535,15 +820,14 @@
     <div v-else-if="activeView === 'beallitasok'" class="flex flex-col h-full relative">
       <q-toolbar class="bg-transparent border-b border-white/10 q-py-sm z-20" style="backdrop-filter: blur(16px); background: linear-gradient(180deg, rgba(15,23,42,0.95) 0%, rgba(15,23,42,0.5) 100%);">
         <q-btn flat round dense icon="arrow_back" @click="activeView = 'menu'" class="text-brand-primary bg-white/5 hover:bg-white/10 transition-all ml-2" />
-        <q-toolbar-title class="font-black text-lg uppercase tracking-widest text-center text-transparent bg-clip-text bg-gradient-to-r from-brand-primary to-sky-300 drop-shadow-lg">
+        <q-toolbar-title class="profile-subview-title">
           Beállítások
         </q-toolbar-title>
         <q-btn 
           round 
           icon="save" 
           size="md"
-          class="mr-2 shadow-[0_0_15px_rgba(99,102,241,0.6)] hover:scale-110 transition-transform duration-300"
-          style="background: linear-gradient(135deg, #6366f1 0%, #38bdf8 100%); color: white;"
+          class="mr-2 profile-save-btn"
           @click="saveSettings"
         />
       </q-toolbar>
@@ -678,10 +962,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, watch, computed } from 'vue';
+import { ref, reactive, watch, computed, nextTick } from 'vue';
 import { AsYouType, isValidPhoneNumber } from 'libphonenumber-js';
-import { useAuthStore } from 'src/stores/auth';
-import { useMasterDataStore } from 'src/stores/masterData';
+import { useAuthStore, type UserOrganization } from 'src/stores/auth';
+import { useMasterDataStore, type MasterOrganization } from 'src/stores/masterData';
 import { useEventStore } from 'src/stores/event';
 import { useRouter } from 'vue-router';
 import { useQuasar } from 'quasar';
@@ -713,6 +997,298 @@ function confirmDeleteIdentifier(ident: any, idx: number) {
   });
 }
 
+type ManageableOrgRow = {
+  userOrg: UserOrganization;
+  displayName: string;
+  typeName: string;
+};
+
+const manageableUserOrganizations = computed<ManageableOrgRow[]>(() => {
+  return (authStore.userOrganizations || [])
+    .map((userOrg) => {
+      const userType = userOrg.OrganizationUserTypeID != null
+        ? masterDataStore.getOrganizationUserTypeById(userOrg.OrganizationUserTypeID)
+        : null;
+      if (!userType) return null;
+      if (!userType.OwnerFlg && !userType.ManagerFlg) return null;
+
+      const org = masterDataStore.getOrganizationById(userOrg.OrganizationID);
+      const displayName = org
+        ? (org.ShortName?.trim() || org.Name || 'Ismeretlen')
+        : 'Ismeretlen';
+
+      return {
+        userOrg,
+        displayName,
+        typeName: userType.Name?.trim() || 'Ismeretlen',
+      };
+    })
+    .filter((row): row is ManageableOrgRow => row != null);
+});
+
+const ownerUserType = computed(() => {
+  const types = masterDataStore.organizationUserTypes || [];
+  return (
+    types.find((t) => t.Code?.toUpperCase() === 'OWNER') ||
+    types.find((t) => t.OwnerFlg) ||
+    null
+  );
+});
+
+const managerUserType = computed(() => {
+  const types = masterDataStore.organizationUserTypes || [];
+  return (
+    types.find((t) => t.Code?.toUpperCase() === 'MANAGER') ||
+    types.find((t) => t.ManagerFlg && !t.OwnerFlg) ||
+    types.find((t) => t.ManagerFlg) ||
+    null
+  );
+});
+
+const ownerUserTypeName = computed(() => ownerUserType.value?.Name || 'Tulajdonos');
+const managerUserTypeName = computed(() => managerUserType.value?.Name || 'Menedzser');
+
+const memberOrganizationIds = computed(() => {
+  return new Set((authStore.userOrganizations || []).map((uo) => Number(uo.OrganizationID)));
+});
+
+const organizationTypeOptions = computed(() =>
+  (masterDataStore.organizationTypes || []).map((t) => ({
+    label: t.Name,
+    value: t.id,
+  }))
+);
+
+const isOrganizationDialogVisible = ref(false);
+const orgDialogMode = ref<'join' | 'create'>('join');
+const orgSearchQuery = ref('');
+const selectedJoinOrgId = ref<number | null>(null);
+const showMoreOrgDetails = ref(false);
+const orgFormScrollRef = ref<HTMLElement | null>(null);
+const orgExtraFieldsRef = ref<HTMLElement | null>(null);
+
+const emptyNewOrgForm = () => ({
+  OrganizationTypeID: null as number | null,
+  Name: '',
+  ShortName: '',
+  CountryCode: 'HU',
+  PostalCode: '',
+  City: '',
+  AddressLine1: '',
+  AddressLine2: '',
+  Email: '',
+  Phone: '',
+  TaxId: '',
+});
+
+const newOrgForm = ref(emptyNewOrgForm());
+
+const joinableOrganizations = computed(() => {
+  const q = orgSearchQuery.value.trim().toLowerCase();
+  return (masterDataStore.organizations || [])
+    .filter((org) => !memberOrganizationIds.value.has(Number(org.id)))
+    .filter((org) => {
+      if (!q) return true;
+      const name = (org.Name || '').toLowerCase();
+      const shortName = (org.ShortName || '').toLowerCase();
+      return name.includes(q) || shortName.includes(q);
+    })
+    .slice(0, 40);
+});
+
+function nextLocalId(existingIds: number[]): number {
+  const maxId = existingIds.reduce((max, id) => (Number.isFinite(id) && id > max ? id : max), 0);
+  return maxId + 1;
+}
+
+function persistOrganizationsCache() {
+  localStorage.setItem('md_organizations', JSON.stringify(masterDataStore.organizations));
+}
+
+function openOrganizationDialog() {
+  orgDialogMode.value = 'join';
+  orgSearchQuery.value = '';
+  selectedJoinOrgId.value = null;
+  showMoreOrgDetails.value = false;
+  newOrgForm.value = emptyNewOrgForm();
+  if (organizationTypeOptions.value.length === 1) {
+    newOrgForm.value.OrganizationTypeID = organizationTypeOptions.value[0].value;
+  }
+  isOrganizationDialogVisible.value = true;
+}
+
+function toggleMoreOrgDetails() {
+  showMoreOrgDetails.value = !showMoreOrgDetails.value;
+  if (showMoreOrgDetails.value) {
+    void nextTick(() => {
+      orgExtraFieldsRef.value?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+  }
+}
+
+function setPrimaryOrganization(userOrgId: number) {
+  authStore.userOrganizations = (authStore.userOrganizations || []).map((uo) => ({
+    ...uo,
+    IsPrimary: Number(uo.id) === Number(userOrgId),
+  }));
+}
+
+function confirmLeaveOrganization(row: ManageableOrgRow) {
+  $q.dialog({
+    title: 'Kilépés a szervezetből',
+    message: `Biztosan kilépsz a(z) „${row.displayName}” szervezetből?`,
+    cancel: {
+      label: 'Mégsem',
+      color: 'slate',
+      flat: true,
+    },
+    ok: {
+      label: 'Kilépés',
+      color: 'negative',
+      flat: true,
+    },
+    persistent: true,
+  }).onOk(() => {
+    authStore.userOrganizations = (authStore.userOrganizations || []).filter(
+      (uo) => Number(uo.id) !== Number(row.userOrg.id)
+    );
+    $q.notify({
+      message: 'Kiléptél a szervezetből. A mentés a profil mentésekor történik.',
+      color: 'info',
+      position: 'top',
+      icon: 'logout',
+    });
+  });
+}
+
+function joinOrganizationLocally(orgId: number) {
+  const manager = managerUserType.value;
+  if (!manager) {
+    $q.notify({
+      message: 'Nincs elérhető Menedzser beosztás a törzsadatokban.',
+      color: 'warning',
+      position: 'top',
+      icon: 'warning',
+    });
+    return false;
+  }
+
+  const nextId = nextLocalId((authStore.userOrganizations || []).map((uo) => Number(uo.id)));
+  authStore.userOrganizations = [
+    ...(authStore.userOrganizations || []),
+    {
+      id: nextId,
+      OrganizationID: orgId,
+      IsPrimary: false,
+      OrganizationUserTypeID: manager.id,
+      ActiveFlg: true,
+    },
+  ];
+  return true;
+}
+
+function createOrganizationLocally() {
+  const owner = ownerUserType.value;
+  if (!owner) {
+    $q.notify({
+      message: 'Nincs elérhető Tulajdonos beosztás a törzsadatokban.',
+      color: 'warning',
+      position: 'top',
+      icon: 'warning',
+    });
+    return false;
+  }
+
+  const name = newOrgForm.value.Name.trim();
+  if (!name) {
+    $q.notify({
+      message: 'Add meg a szervezet nevét!',
+      color: 'warning',
+      position: 'top',
+      icon: 'warning',
+    });
+    return false;
+  }
+
+  if (newOrgForm.value.OrganizationTypeID == null) {
+    $q.notify({
+      message: 'Válassz szervezet típust!',
+      color: 'warning',
+      position: 'top',
+      icon: 'warning',
+    });
+    return false;
+  }
+
+  const orgId = nextLocalId((masterDataStore.organizations || []).map((o) => Number(o.id)));
+  const now = new Date().toISOString();
+  const org: MasterOrganization = {
+    id: orgId,
+    Name: name,
+    ShortName: newOrgForm.value.ShortName.trim() || null,
+    Email: newOrgForm.value.Email.trim() || null,
+    Phone: newOrgForm.value.Phone.trim() || null,
+    TaxId: newOrgForm.value.TaxId.trim() || null,
+    CountryCode: newOrgForm.value.CountryCode.trim() || null,
+    PostalCode: newOrgForm.value.PostalCode.trim() || null,
+    City: newOrgForm.value.City.trim() || null,
+    AddressLine1: newOrgForm.value.AddressLine1.trim() || null,
+    AddressLine2: newOrgForm.value.AddressLine2.trim() || null,
+    OrganizationTypeID: newOrgForm.value.OrganizationTypeID,
+    ActiveFlg: true,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  masterDataStore.organizations = [...(masterDataStore.organizations || []), org];
+  persistOrganizationsCache();
+
+  const linkId = nextLocalId((authStore.userOrganizations || []).map((uo) => Number(uo.id)));
+  authStore.userOrganizations = [
+    ...(authStore.userOrganizations || []),
+    {
+      id: linkId,
+      OrganizationID: orgId,
+      IsPrimary: false,
+      OrganizationUserTypeID: owner.id,
+      ActiveFlg: true,
+    },
+  ];
+  return true;
+}
+
+function saveOrganizationDialog() {
+  if (orgDialogMode.value === 'join') {
+    if (selectedJoinOrgId.value == null) {
+      $q.notify({
+        message: 'Válassz ki egy szervezetet a listából!',
+        color: 'warning',
+        position: 'top',
+        icon: 'warning',
+      });
+      return;
+    }
+    if (!joinOrganizationLocally(selectedJoinOrgId.value)) return;
+    isOrganizationDialogVisible.value = false;
+    $q.notify({
+      message: 'Csatlakoztál a szervezethez. A mentés a profil mentésekor történik.',
+      color: 'positive',
+      position: 'top',
+      icon: 'check_circle',
+    });
+    return;
+  }
+
+  if (!createOrganizationLocally()) return;
+  isOrganizationDialogVisible.value = false;
+  $q.notify({
+    message: 'Szervezet létrehozva. A mentés a profil mentésekor történik.',
+    color: 'positive',
+    position: 'top',
+    icon: 'check_circle',
+  });
+}
+
 type ViewState = 'menu' | 'adataim' | 'preferenciak' | 'beallitasok';
 const activeView = ref<ViewState>('menu');
 const qrScannerOpen = ref(false);
@@ -722,11 +1298,32 @@ const isBillingDialogVisible = ref(false);
 const billingDialogMode = ref<'add' | 'edit'>('add');
 const currentBillingAddress = ref<any>({});
 const showMoreBillingDetails = ref(false);
+const billingFormScrollRef = ref<HTMLElement | null>(null);
+const billingExtraFieldsRef = ref<HTMLElement | null>(null);
+
+function hasOptionalBillingFields(addr: Record<string, unknown>) {
+  return Boolean(
+    addr.AddressLine2 ||
+    addr.StateOrRegion ||
+    addr.BillingEmail ||
+    addr.BillingPhone
+  );
+}
+
+function toggleMoreBillingDetails() {
+  showMoreBillingDetails.value = !showMoreBillingDetails.value;
+  if (showMoreBillingDetails.value) {
+    void nextTick(() => {
+      billingExtraFieldsRef.value?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+  }
+}
 
 function openBillingDialog(mode: 'add' | 'edit', addr?: any) {
   billingDialogMode.value = mode;
   if (mode === 'edit' && addr) {
     currentBillingAddress.value = { ...addr };
+    showMoreBillingDetails.value = hasOptionalBillingFields(addr);
   } else {
     currentBillingAddress.value = { 
       BillingName: '', 
@@ -744,8 +1341,8 @@ function openBillingDialog(mode: 'add' | 'edit', addr?: any) {
       BillingEmail: '',
       BillingPhone: ''
     };
+    showMoreBillingDetails.value = false;
   }
-  showMoreBillingDetails.value = false;
   isBillingDialogVisible.value = true;
 }
 
@@ -756,8 +1353,11 @@ function saveBillingAddress() {
 }
 
 function savePersonalData() {
-  // TODO: Hívás a backend felé
-  console.log('Személyes adatok mentve:', authStore.user);
+  // TODO: User Save endpoint — user + userOrganizations + billing + identifiers
+  console.log('Személyes adatok mentve:', {
+    user: authStore.user,
+    userOrganizations: authStore.userOrganizations,
+  });
   $q.notify({
     message: 'Személyes adatok sikeresen mentve!',
     color: 'positive',
@@ -927,53 +1527,186 @@ function removeLabel(id: number) {
 </script>
 
 <style scoped lang="scss">
+.profile-section-title {
+  font-size: 13px;
+  font-weight: 800;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+
+.profile-avatar-initials {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.profile-user-name {
+  margin-top: 12px;
+  margin-bottom: 4px;
+  font-size: 18px;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: 0.01em;
+}
+
+.profile-user-email {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: #94a3b8;
+}
+
 .profile-card {
-  border-radius: 2rem;
+  border-radius: 24px;
   background: radial-gradient(circle at top, rgba(14, 165, 233, 0.08) 0%, transparent 70%);
 }
 
-.icon-wrap {
-  width: 40px;
-  height: 40px;
+.profile-menu-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px;
+  border-radius: 24px;
+  background-color: rgba(15, 23, 42, 0.7);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+}
+
+.profile-menu-row {
   display: flex;
   align-items: center;
-  justify-content: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  border: none;
+  border-radius: 14px;
+  background: transparent;
+  color: #e2e8f0;
+  text-align: left;
+  cursor: pointer;
+  outline: none;
+  transition: background 0.2s ease, color 0.2s ease;
+
+  &:hover {
+    background: rgba(14, 165, 233, 0.08);
+
+    .profile-menu-label {
+      color: #ffffff;
+    }
+
+    .profile-menu-chevron {
+      color: #38bdf8;
+      transform: translateX(2px);
+    }
+
+    .profile-menu-icon:not(.profile-menu-icon--rose):not(.profile-menu-icon--emerald) {
+      background: rgba(14, 165, 233, 0.18);
+    }
+  }
+
+  &:active {
+    transform: scale(0.99);
+  }
+
+  &--danger:hover {
+    background: rgba(244, 63, 94, 0.08);
+
+    .profile-menu-label {
+      color: #fb7185;
+    }
+  }
+}
+
+.profile-menu-icon {
+  width: 40px;
+  height: 40px;
   border-radius: 12px;
-  transition: all 0.3s ease;
-}
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: rgba(14, 165, 233, 0.12);
+  color: #38bdf8;
+  transition: background 0.2s ease;
 
-.menu-item {
-  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-  
-  &:hover {
-    background-color: rgba(255, 255, 255, 0.03);
-    
-    .icon-wrap {
-      transform: scale(1.05);
-      background-color: rgba(14, 165, 233, 0.18);
-    }
-    
-    .arrow-icon {
-      transform: translateX(3px);
-      color: var(--q-primary) !important;
-    }
+  &--emerald {
+    background: rgba(16, 185, 129, 0.12);
+    color: #34d399;
+  }
+
+  &--rose {
+    background: rgba(244, 63, 94, 0.12);
+    color: #fb7185;
   }
 }
 
-.logout-item {
-  &:hover {
-    background-color: rgba(239, 68, 68, 0.05);
-    
-    .icon-wrap {
-      background-color: rgba(239, 68, 68, 0.18);
-    }
-  }
+.profile-menu-label {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #cbd5e1;
+  transition: color 0.2s ease;
 }
 
-.menu-divider {
+.profile-menu-chevron {
+  color: #64748b;
+  flex-shrink: 0;
+  transition: color 0.2s ease, transform 0.2s ease;
+}
+
+.profile-menu-divider {
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.03) 10%, rgba(255, 255, 255, 0.03) 90%, transparent);
-  margin: 2px 8px;
+  margin: 6px 8px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.08) 20%,
+    rgba(255, 255, 255, 0.08) 80%,
+    transparent
+  );
+}
+
+.profile-subview-title {
+  font-size: 15px !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase;
+  text-align: center;
+  color: #e2e8f0 !important;
+}
+
+.profile-save-btn {
+  background: var(--ej-gradient) !important;
+  color: #fff !important;
+  box-shadow: 0 4px 14px rgba(14, 165, 233, 0.4);
+  transition: transform 0.2s ease, filter 0.2s ease;
+
+  &:hover {
+    filter: brightness(1.06);
+    transform: scale(1.05);
+  }
+}
+
+.profile-add-btn {
+  background: var(--ej-gradient) !important;
+  color: #fff !important;
+  box-shadow: 0 4px 14px rgba(14, 165, 233, 0.35);
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 
 @keyframes scan {
@@ -983,6 +1716,219 @@ function removeLabel(id: number) {
 }
 .animate-scan {
   animation: scan 3s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.profile-field-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+
+  &--compact {
+    gap: 10px;
+
+    .profile-field {
+      gap: 4px;
+    }
+  }
+}
+
+.billing-form-scroll {
+  max-height: min(68vh, 640px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 0 4px 24px 4px;
+}
+
+.billing-extra-fields {
+  padding-top: 4px;
+}
+
+.profile-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.profile-field__label {
+  margin: 0;
+  padding-left: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #64748b;
+  line-height: 1.2;
+
+  &--emerald {
+    color: rgba(52, 211, 153, 0.85);
+  }
+
+  &--amber {
+    color: rgba(251, 191, 36, 0.9);
+  }
+
+  &--orange {
+    color: rgba(251, 146, 60, 0.95);
+  }
+}
+
+.profile-toggle-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 72px;
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(11, 15, 25, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.profile-toggle-card__label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: center;
+  color: rgba(167, 243, 208, 0.9);
+  line-height: 1.25;
+}
+
+.profile-input {
+  :deep(.q-field__control) {
+    min-height: 48px;
+    height: 48px;
+    border-radius: 14px !important;
+    background-color: rgba(11, 15, 25, 0.55) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+
+    &::before,
+    &::after {
+      display: none !important;
+    }
+  }
+
+  :deep(.q-field__marginal) {
+    height: 48px;
+  }
+
+  :deep(.q-field__native),
+  :deep(.q-field__input) {
+    padding: 0 14px;
+    font-size: 16px;
+    font-weight: 500;
+    color: #f8fafc;
+  }
+
+  :deep(.q-field__control:hover) {
+    background-color: rgba(255, 255, 255, 0.06) !important;
+  }
+
+  &--cyan :deep(.q-field__control:hover) {
+    border-color: rgba(56, 189, 248, 0.35) !important;
+  }
+
+  &--cyan :deep(.q-field--focused .q-field__control) {
+    border-color: #38bdf8 !important;
+    box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.15) !important;
+  }
+
+  &--emerald :deep(.q-field__control:hover) {
+    border-color: rgba(52, 211, 153, 0.35) !important;
+  }
+
+  &--emerald :deep(.q-field--focused .q-field__control) {
+    border-color: #34d399 !important;
+    box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.15) !important;
+  }
+
+  &--amber :deep(.q-field__control:hover) {
+    border-color: rgba(251, 191, 36, 0.35) !important;
+  }
+
+  &--amber :deep(.q-field--focused .q-field__control) {
+    border-color: #fbbf24 !important;
+    box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.15) !important;
+  }
+
+  &--orange :deep(.q-field__control:hover) {
+    border-color: rgba(249, 115, 22, 0.4) !important;
+  }
+
+  &--orange :deep(.q-field--focused .q-field__control) {
+    border-color: #f97316 !important;
+    box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.18) !important;
+  }
+}
+
+.org-create-cta {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(249, 115, 22, 0.35);
+  background: linear-gradient(135deg, rgba(249, 115, 22, 0.22) 0%, rgba(249, 115, 22, 0.06) 100%);
+  box-shadow: 0 8px 24px rgba(249, 115, 22, 0.15);
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+
+  &:hover {
+    transform: translateY(-1px);
+    border-color: rgba(249, 115, 22, 0.55);
+    box-shadow: 0 10px 28px rgba(249, 115, 22, 0.22);
+  }
+
+  &:active {
+    transform: scale(0.99);
+  }
+}
+
+.org-create-cta__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background: rgba(249, 115, 22, 0.25);
+  color: #fdba74;
+  flex-shrink: 0;
+}
+
+.org-create-cta__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.org-create-cta__title {
+  font-size: 15px;
+  font-weight: 800;
+  color: #fff7ed;
+  letter-spacing: 0.02em;
+}
+
+.org-create-cta__sub {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(253, 186, 116, 0.85);
+}
+
+.org-create-cta__chevron {
+  color: #fdba74;
+  flex-shrink: 0;
+}
+
+:deep(.profile-input__native) {
+  font-size: 16px;
+  font-weight: 500;
+  color: #f8fafc;
 }
 
 .custom-input {

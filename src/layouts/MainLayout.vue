@@ -103,151 +103,15 @@
           <!-- Üzenetek -->
           <q-btn flat round dense icon="sym_r_chat_bubble" class="text-slate-400 hover:text-white relative" size="18px">
             <q-badge color="sky-500" floating style="top: -2px; right: -2px; padding: 3px 5px; font-size: 10px; font-weight: 900; border-radius: 9999px;">2</q-badge>
-            <q-menu anchor="bottom right" self="top right" transition-show="jump-down" transition-hide="jump-up" :offset="[0, 10]" style="background: rgba(15, 23, 42, 0.98); backdrop-filter: blur(24px); border-radius: 20px; width: 380px; box-shadow: 0 30px 60px -12px rgba(0,0,0,1); border: none; padding: 16px 24px 16px 16px;">
-              
-              <!-- HEADER -->
-              <div class="flex items-center justify-between pb-3 mb-2">
-                <div class="flex items-center gap-2">
-                  <q-icon name="sym_r_forum" size="20px" color="sky-400" />
-                  <span class="text-transparent bg-clip-text bg-gradient-to-r from-sky-400 to-sky-200 font-black uppercase tracking-widest text-[16px] drop-shadow-md">Üzenetek</span>
-                </div>
-                <q-btn flat dense no-caps icon-right="sym_r_done_all" label="Mind olvasva" class="bg-white/5 hover:bg-white/10 text-sky-200 rounded-full font-bold text-[10px] uppercase tracking-wider px-3 py-1 shadow-[0_2px_10px_rgba(0,0,0,0.2)]" />
-              </div>
-
-              <!-- BODY (MESSAGES) -->
-              <div class="flex flex-col gap-3">
-                
-                <!-- Unread Chat 1 -->
-                <div class="rounded-[16px] bg-[#1E293B] shadow-[0_8px_20px_rgba(0,0,0,0.4)] p-3 cursor-pointer hover:-translate-y-1 hover:bg-[#2A3B54] transition-all group relative overflow-hidden">
-                  <div class="absolute left-0 top-0 bottom-0 w-1 bg-sky-500 shadow-[0_0_12px_#0ea5e9]"></div>
-                  <div class="flex items-center pl-3">
-                    <div class="shrink-0 mr-4 relative">
-                      <q-avatar size="40px" class="bg-slate-800 shrink-0"><img src="https://i.pravatar.cc/150?u=peter" /></q-avatar>
-                      <div class="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 rounded-full border-2 border-[#1E293B] shadow-[0_0_5px_rgba(16,185,129,0.5)]"></div>
-                    </div>
-                    <div class="flex-1 min-w-0 flex flex-col justify-center">
-                      <div class="flex items-center justify-between mb-0.5">
-                        <div class="truncate min-w-0 font-black tracking-[1.5px] text-[13px] text-sky-400 drop-shadow-md mr-2" style="-webkit-text-stroke: 0.5px currentColor; text-shadow: 0px 0px 2px currentColor;">Kovács Péter</div>
-                        <div class="shrink-0 text-sky-300 text-[10px] font-black uppercase bg-sky-500/10 px-2 py-0.5 rounded-full whitespace-nowrap mr-4 mr-6">10:42&nbsp;&nbsp;&nbsp;</div>
-                      </div>
-                      <div class="truncate text-slate-400 text-[12px] font-medium leading-tight">Szia! Találkozunk a kávészünetben a B teremnél?</div>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Unread Chat 2 -->
-                <div class="rounded-[16px] bg-[#1E293B] shadow-[0_8px_20px_rgba(0,0,0,0.4)] p-3 cursor-pointer hover:-translate-y-1 hover:bg-[#2A3B54] transition-all group relative overflow-hidden">
-                  <div class="absolute left-0 top-0 bottom-0 w-1 bg-sky-500 shadow-[0_0_12px_#0ea5e9]"></div>
-                  <div class="flex items-center pl-3">
-                    <div class="shrink-0 mr-4 relative">
-                      <q-avatar size="40px" class="bg-slate-800 shrink-0"><img src="https://i.pravatar.cc/150?u=szabo" /></q-avatar>
-                    </div>
-                    <div class="flex-1 min-w-0 flex flex-col justify-center">
-                      <div class="flex items-center justify-between mb-0.5">
-                        <div class="truncate min-w-0 font-black tracking-[1.5px] text-[13px] text-sky-400 drop-shadow-md mr-2" style="-webkit-text-stroke: 0.5px currentColor; text-shadow: 0px 0px 2px currentColor;">Szabó Gábor</div>
-                        <div class="shrink-0 text-sky-300 text-[10px] font-black uppercase bg-sky-500/10 px-2 py-0.5 rounded-full whitespace-nowrap mr-4 mr-6">09:15&nbsp;&nbsp;&nbsp;</div>
-                      </div>
-                      <div class="truncate text-slate-400 text-[12px] font-medium leading-tight">Átküldtem a jegyzeteket az előző panelbeszélgetésről.</div>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Read Chat 1 -->
-                <div class="rounded-[16px] bg-[#1E293B] shadow-[0_8px_20px_rgba(0,0,0,0.4)] p-3 cursor-pointer hover:-translate-y-1 hover:bg-[#2A3B54] transition-all group relative overflow-hidden">
-                  <div class="absolute left-0 top-0 bottom-0 w-1 bg-slate-700 opacity-50"></div>
-                  <div class="flex items-center pl-3">
-                    <div class="shrink-0 mr-4 relative">
-                      <q-avatar size="40px" class="bg-slate-800 shrink-0 opacity-70"><img src="https://i.pravatar.cc/150?u=anna" /></q-avatar>
-                      <div class="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 rounded-full border-2 border-[#1E293B] shadow-[0_0_5px_rgba(16,185,129,0.5)]"></div>
-                    </div>
-                    <div class="flex-1 min-w-0 flex flex-col justify-center">
-                      <div class="flex items-center justify-between mb-0.5">
-                        <div class="truncate min-w-0 font-black tracking-[1.5px] text-[13px] text-slate-300 drop-shadow-md mr-2" style="-webkit-text-stroke: 0.5px currentColor; text-shadow: 0px 0px 2px currentColor;">Nagy Anna</div>
-                        <div class="shrink-0 text-slate-500 text-[10px] font-black uppercase bg-slate-800 px-2 py-0.5 rounded-full whitespace-nowrap mr-4 mr-6">Tegnap&nbsp;&nbsp;&nbsp;</div>
-                      </div>
-                      <div class="truncate text-slate-500 text-[12px] font-medium leading-tight">El tudod küldeni a tegnapi prezentációt?</div>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Read Chat 2 -->
-                <div class="rounded-[16px] bg-[#1E293B] shadow-[0_8px_20px_rgba(0,0,0,0.4)] p-3 cursor-pointer hover:-translate-y-1 hover:bg-[#2A3B54] transition-all group relative overflow-hidden">
-                  <div class="absolute left-0 top-0 bottom-0 w-1 bg-slate-700 opacity-50"></div>
-                  <div class="flex items-center pl-3">
-                    <div class="shrink-0 mr-4 relative">
-                      <q-avatar size="40px" class="bg-slate-800 shrink-0 opacity-70"><img src="https://i.pravatar.cc/150?u=tamas" /></q-avatar>
-                    </div>
-                    <div class="flex-1 min-w-0 flex flex-col justify-center">
-                      <div class="flex items-center justify-between mb-0.5">
-                        <div class="truncate min-w-0 font-black tracking-[1.5px] text-[13px] text-slate-300 drop-shadow-md mr-2" style="-webkit-text-stroke: 0.5px currentColor; text-shadow: 0px 0px 2px currentColor;">Kiss Tamás</div>
-                        <div class="shrink-0 text-slate-500 text-[10px] font-black uppercase bg-slate-800 px-2 py-0.5 rounded-full whitespace-nowrap mr-4 mr-6">Hétfő&nbsp;&nbsp;&nbsp;</div>
-                      </div>
-                      <div class="truncate text-slate-500 text-[12px] font-medium leading-tight">Rendben, köszi az infót!</div>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Read Chat 3 -->
-                <div class="rounded-[16px] bg-[#1E293B] shadow-[0_8px_20px_rgba(0,0,0,0.4)] p-3 cursor-pointer hover:-translate-y-1 hover:bg-[#2A3B54] transition-all group relative overflow-hidden">
-                  <div class="absolute left-0 top-0 bottom-0 w-1 bg-slate-700 opacity-50"></div>
-                  <div class="flex items-center pl-3">
-                    <div class="shrink-0 mr-4 relative">
-                      <div class="w-[40px] h-[40px] rounded-full bg-slate-800 flex items-center justify-center shrink-0 opacity-70">
-                      <q-icon name="sym_r_groups" color="slate-400" size="20px" />
-                    </div>
-                    </div>
-                    <div class="flex-1 min-w-0 flex flex-col justify-center">
-                      <div class="flex items-center justify-between mb-0.5">
-                        <div class="truncate min-w-0 font-black tracking-[1.5px] text-[13px] text-slate-300 drop-shadow-md mr-2" style="-webkit-text-stroke: 0.5px currentColor; text-shadow: 0px 0px 2px currentColor;">Marketing Csapat</div>
-                        <div class="shrink-0 text-slate-500 text-[10px] font-black uppercase bg-slate-800 px-2 py-0.5 rounded-full whitespace-nowrap mr-4 mr-6">Múlt héten&nbsp;&nbsp;&nbsp;</div>
-                      </div>
-                      <div class="truncate text-slate-500 text-[12px] font-medium leading-tight">Mindenki megkapta az egyedi QR kódokat?</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div class="pt-4 mt-2 mb-1">
-                <q-btn to="/messages" unelevated class="w-full rounded-[16px] py-3.5" style="background: var(--ej-gradient); color: white; box-shadow: 0 4px 15px rgba(14, 165, 233, 0.4);" no-caps>
-                  <div class="flex items-center justify-center gap-2 w-full">
-                    <span class="font-black text-[13px] tracking-wide uppercase">Összes üzenet megnyitása</span>
-                  </div>
-                </q-btn>
-              </div>
-            </q-menu>
+            <MessagesMenu />
           </q-btn>
 
         </div>
       </q-toolbar>
     </q-header>
 
-    <!-- Option 3: "Now Playing" Floating Active Event Bar (Swipe-to-hide variant) -->
-    <div 
-      class="fixed z-[2500] transition-all duration-300 ease-out cursor-pointer hover:scale-[1.02] active:scale-95 left-4 right-4 sm:left-auto sm:right-6 sm:w-[320px]"
-      :style="footerVisible ? 'bottom: 80px;' : 'bottom: 24px;'"
-      style="border-radius: 16px; background: linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 41, 59, 0.95) 100%); border: 1px solid rgba(56, 189, 248, 0.3); box-shadow: 0 10px 25px rgba(0,0,0,0.5), 0 0 20px rgba(56, 189, 248, 0.15); backdrop-filter: blur(12px); overflow: hidden;"
-      @click="onEventClick"
-    >
-      <!-- Event Details -->
-      <div class="flex items-center justify-between q-pa-sm">
-        <div class="flex items-center gap-4 q-pl-xs" style="min-width: 0; flex: 1; padding-right: 8px;">
-          <!-- Animated Pulse Icon -->
-          <div class="relative flex h-3 w-3 flex-shrink-0">
-            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-brand-primary opacity-75"></span>
-            <span class="relative inline-flex rounded-full h-3 w-3 bg-sky-400"></span>
-          </div>
-          <div class="flex flex-col" style="min-width: 0; width: 100%;">
-            <span style="font-size: 10px; font-weight: 800; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.1em;">Jelenleg fut</span>
-            <span style="font-size: 14px; font-weight: 800; color: #ffffff; line-height: 1.2; display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;">XXI. MLBKT KONGRESSZUS</span>
-          </div>
-        </div>
-        <q-btn round dense flat icon="play_arrow" style="background-color: rgba(56, 189, 248, 0.15); color: #38bdf8;" size="13px" class="q-mr-xs" @click.stop="onEventClick" />
-      </div>
-      <!-- Fake Progress bar (Spotify style) -->
-      <div style="height: 2px; width: 100%; background-color: rgba(56, 189, 248, 0.1);">
-        <div style="height: 100%; width: 45%; background-color: #38bdf8; box-shadow: 0 0 8px #38bdf8;"></div>
-      </div>
-    </div>
+    <!-- Folyamatban lévő saját esemény (csak főoldalakon) -->
+    <NowPlayingBar :footer-visible="footerVisible" />
 
     <!-- Alsó navigáció mobilon (Eseményeim + QR kód beolvasó, csúsztatható elrejtés) -->
     <q-footer 
@@ -270,7 +134,10 @@
       >
         <q-route-tab name="home" icon="dashboard" label="Főoldal" to="/" exact />
         <q-route-tab name="my_events" icon="emoji_events" label="Eseményeim" to="/my-events" exact />
-        <q-route-tab name="communities" icon="groups" label="Közösségek" to="/communities" exact />
+        <q-route-tab name="klubhub" to="/klubhub" exact class="tab-klubhub">
+          <img :src="klubhubIcon" alt="" class="tab-klubhub__icon" />
+          <div class="q-tab__label">KlubHub</div>
+        </q-route-tab>
         <q-route-tab name="profile" icon="person" label="Profil" to="/profile" />
       </q-tabs>
     </q-footer>
@@ -364,13 +231,17 @@ import { useQuasar } from 'quasar';
 import { useRoute, useRouter } from 'vue-router';
 import headerDarkLogo from 'src/assets/eventjoy_header_dark_240.png';
 import headerLightLogo from 'src/assets/eventjoy_header_light_240.png';
+import { BRAND_MODULES } from 'src/assets/brand';
+import MessagesMenu from 'src/components/layout/MessagesMenu.vue';
+import NowPlayingBar from 'src/components/layout/NowPlayingBar.vue';
+
+const klubhubIcon = BRAND_MODULES.klubhub.icon;
 
 const $q = useQuasar();
 const route = useRoute();
 const router = useRouter();
 
 const tab = ref('home');
-const isInEvent = ref(true);
 
 const footerVisible = ref(true);
 
@@ -398,23 +269,13 @@ watch(() => route.path, (path) => {
   if (path === '/') tab.value = 'home';
   else if (path === '/my-events') tab.value = 'my_events';
   else if (path === '/profile') tab.value = 'profile';
-      else if (path === '/communities') tab.value = 'communities';
+      else if (path === '/klubhub' || path === '/communities') tab.value = 'klubhub';
   else tab.value = '';
 }, { immediate: true });
 
 const headerLogo = computed(() => {
   return $q.dark.isActive ? headerDarkLogo : headerLightLogo;
 });
-
-function onEventClick() {
-  $q.notify({
-    message: 'OlimPub kvíz részletek megnyitása...',
-    color: $q.dark.isActive ? 'brand-primary' : 'primary',
-    textColor: $q.dark.isActive ? 'brand-dark' : 'white',
-    position: 'top',
-    timeout: 2000
-  });
-}
 
 // QR Code Scanner actions
 async function openQrScanner() {
@@ -520,6 +381,26 @@ watch(qrScannerOpen, (val) => {
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.05em;
+  }
+
+  .tab-klubhub {
+    .q-tab__content {
+      padding-top: 2px;
+    }
+
+    .tab-klubhub__icon {
+      width: 30px;
+      height: 30px;
+      object-fit: contain;
+      display: block;
+      margin: 0 auto 1px;
+      border-radius: 7px;
+      flex-shrink: 0;
+    }
+  }
+
+  .q-tab--active.tab-klubhub .tab-klubhub__icon {
+    filter: drop-shadow(0 0 8px rgba(249, 115, 22, 0.65));
   }
 }
 

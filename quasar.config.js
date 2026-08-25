@@ -5,7 +5,8 @@ module.exports = configure(function (/* ctx */) {
     boot: [
       'axios',
       'google-auth',
-      'facebook-auth'
+      'facebook-auth',
+      'notify'
     ],
 
     css: [

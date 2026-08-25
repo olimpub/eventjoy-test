@@ -47,7 +47,7 @@
           <!-- Top Row: Status and Type -->
           <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
             <!-- Status Badge -->
-            <div :style="{
+            <div v-if="event.statusName" :style="{
               backgroundColor: getStatusStyle(event).bg,
               borderColor: getStatusStyle(event).border,
               color: getStatusStyle(event).text,
@@ -62,11 +62,11 @@
               display: 'flex',
               alignItems: 'center',
               gap: '6px',
-              boxShadow: event.status === 'active' || event.statusColor ? '0 0 10px ' + getStatusStyle(event).glow : 'none'
+              boxShadow: event.statusColor ? '0 0 10px ' + getStatusStyle(event).glow : 'none'
             }">
-              <div v-if="event.status === 'active'" style="width: 6px; height: 6px; border-radius: 50%; background-color: #4ade80;" class="glow-dot"></div>
-              {{ getStatusLabel(event) }}
+              {{ event.statusName }}
             </div>
+            <div v-else></div>
             
             <!-- Type (PROFI-T-ABILITY esetén csak a szélesebb PTA2.png logó, felirat nélkül) -->
             <img v-if="event.isProfitability" src="~assets/PTA2.png" alt="PROFI-T-ABILITY" style="width: 90px; height: auto; object-fit: contain; margin-top: 2px;" />
@@ -135,32 +135,36 @@
       <!-- Header Row with Tabs and Search Toggle -->
       <div class="flex items-center justify-between q-mb-md px-1 w-full gap-2">
         
-        <!-- Horizontal Scrollable Chips -->
-        <div class="flex flex-row overflow-x-auto no-scrollbar gap-2 flex-grow" style="scroll-snap-type: x mandatory;">
-          <!-- Recommended Chip -->
-          <button 
+        <!-- Segmented control: Ajánlott / Közelgő -->
+        <div class="feed-seg" role="tablist" aria-label="Felfedezés szűrő">
+          <span
+            class="feed-seg__indicator"
+            :class="activeTab === 'upcoming' ? 'is-right' : 'is-left'"
+            aria-hidden="true"
+          />
+          <button
+            type="button"
+            role="tab"
+            class="feed-seg__btn"
+            :class="{ 'is-active': activeTab === 'recommended' }"
+            :aria-selected="activeTab === 'recommended'"
             @click="activeTab = 'recommended'"
-            :style="activeTab === 'recommended' 
-              ? 'background: var(--ej-gradient); color: #ffffff; border: 1px solid transparent; box-shadow: 0 4px 12px rgba(14, 165, 233, 0.4);' 
-              : 'background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.8); border: 1px solid rgba(255,255,255,0.1);'"
-            class="flex items-center gap-2 rounded-full py-3.5 px-8 text-[15px] sm:text-base font-black uppercase tracking-wider transition-all duration-300 outline-none cursor-pointer flex-shrink-0 hover:bg-white/10"
-            style="scroll-snap-align: start;"
           >
-            <q-icon name="local_fire_department" size="22px" :style="activeTab === 'recommended' ? 'color: white' : 'color: #38bdf8'" />
-            Ajánlott
+            <q-icon name="sym_r_auto_awesome" size="18px" />
+            <span>Ajánlott</span>
+            <span v-if="recommendedEvents.length" class="feed-seg__count">{{ recommendedEvents.length }}</span>
           </button>
-
-          <!-- Upcoming Chip -->
-          <button 
+          <button
+            type="button"
+            role="tab"
+            class="feed-seg__btn"
+            :class="{ 'is-active': activeTab === 'upcoming' }"
+            :aria-selected="activeTab === 'upcoming'"
             @click="activeTab = 'upcoming'"
-            :style="activeTab === 'upcoming' 
-              ? 'background: var(--ej-gradient); color: #ffffff; border: 1px solid transparent; box-shadow: 0 4px 12px rgba(14, 165, 233, 0.4);' 
-              : 'background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.8); border: 1px solid rgba(255,255,255,0.1);'"
-            class="flex items-center gap-2 rounded-full py-3.5 px-8 text-[15px] sm:text-base font-black uppercase tracking-wider transition-all duration-300 outline-none cursor-pointer flex-shrink-0 hover:bg-white/10"
-            style="scroll-snap-align: start;"
           >
-            <q-icon name="schedule" size="22px" :style="activeTab === 'upcoming' ? 'color: white' : 'color: #38bdf8'" />
-            Közelgő
+            <q-icon name="sym_r_schedule" size="18px" />
+            <span>Közelgő</span>
+            <span v-if="upcomingEventsSorted.length" class="feed-seg__count">{{ upcomingEventsSorted.length }}</span>
           </button>
         </div>
 
@@ -171,8 +175,8 @@
           :icon="isSearchVisible ? 'close' : 'search'"
           class="flex-shrink-0 transition-all"
           :style="isSearchVisible 
-            ? 'background: var(--ej-gradient); color: #ffffff; box-shadow: 0 4px 12px rgba(14, 165, 233, 0.4); height: 46px; width: 46px;'
-            : 'background: rgba(255,255,255,0.05); color: #38bdf8; border: 1px solid rgba(255,255,255,0.1); height: 46px; width: 46px;'"
+            ? 'background: var(--ej-gradient); color: #ffffff; box-shadow: 0 4px 12px rgba(14, 165, 233, 0.4); height: 40px; width: 40px;'
+            : 'background: rgba(255,255,255,0.05); color: #38bdf8; border: 1px solid rgba(255,255,255,0.1); height: 40px; width: 40px;'"
           @click="isSearchVisible = !isSearchVisible"
         />
 
@@ -437,6 +441,8 @@ import { useRouter } from 'vue-router';
 import { useEventStore } from 'src/stores/event';
 import { useMasterDataStore } from 'src/stores/masterData';
 import { useAuthStore } from 'src/stores/auth';
+import { resolveIconName } from 'src/components/event-wizard/groupIcons';
+import { isProfitabilityEventType } from 'src/modules/profitability/constants';
 
 const router = useRouter();
 const eventStore = useEventStore();
@@ -467,10 +473,6 @@ interface EventItem {
   matchPriority?: number;
   isProfitability?: boolean;
 }
-
-// PROFI-T-ABILITY esemény típus azonosítója a master adatban (EventTypeID)
-const PTA_EVENT_TYPE_ID = 46;
-
 
 // Mapper a DB raw JSON objektumokból a UI EventItem objektumba
 const mapToUIEvent = (dbEvent: any, isMyEvent: boolean): EventItem => {
@@ -518,28 +520,22 @@ const mapToUIEvent = (dbEvent: any, isMyEvent: boolean): EventItem => {
   }
   const myRoles = rawRoles;
 
-  // Regisztráció státusza
-  let regStatus: any = undefined;
+  // Saját státusz: résztvevő > közreműködő; szervezőnél nincs
+  let regStatus: EventItem['regStatus'] = undefined;
   let customStatusName: string | undefined = undefined;
   let customStatusColor: string | undefined = undefined;
-  
-  if (isMyEvent) {
-     const myEventUser = eventStore.eventUsers?.find((eu: any) => eu.EventID === dbEvent.id);
-     if (myEventUser) {
-        // TOP LEFT: statusName and color
-        const sObj = masterDataStore.eventUserStatuses?.find((s: any) => s.id === myEventUser.EventUserStatusID);
-        if (sObj) {
-           customStatusName = sObj.StatusName || sObj.Name;
-           customStatusColor = sObj.ColorCode || sObj.ColorHex;
-        }
 
-        // BOTTOM RIGHT: regStatus
-        const sId = myEventUser.EventUserStatusID;
-        if (sId === 1) regStatus = 'saved'; // csillag
-        else if (sId === 2) regStatus = 'payment_pending'; // $ jel
-        else if ([3,4,7,10].includes(sId)) regStatus = 'success'; // zöld pipa
-        else regStatus = 'error'; // piros X
-     }
+  if (isMyEvent) {
+    const mine = eventStore.getMyEventUserStatus(dbEvent.id);
+    if (mine) {
+      customStatusName = mine.name;
+      customStatusColor = mine.color;
+      const sId = mine.statusId;
+      if (sId === 1) regStatus = 'saved';
+      else if (sId === 2) regStatus = 'payment_pending';
+      else if ([3, 4, 7, 10].includes(sId)) regStatus = 'success';
+      else regStatus = 'error';
+    }
   }
 
   // Dátum formázás
@@ -574,12 +570,14 @@ const mapToUIEvent = (dbEvent: any, isMyEvent: boolean): EventItem => {
     statusName: customStatusName,
     statusColor: customStatusColor,
     regStatus: regStatus,
-    logo: eventType?.IconName || 'sym_r_event',
+    logo: resolveIconName(eventType?.IconName || eventType?.iconName),
     price: dbEvent.Capacity > 0 ? 5000 : null, // TODO: Jegy árak számítása EventTicket táblából
     category: 'general',
     roles: myRoles,
     matchPriority: priority,
-    isProfitability: dbEvent.EventTypeID === PTA_EVENT_TYPE_ID
+    isProfitability: isProfitabilityEventType(dbEvent.EventTypeID),
+    onlineUrl: dbEvent.OnlineURL || dbEvent.OnlineUrl || null,
+    onlineFlg: dbEvent.OnlineFlg === 1 || dbEvent.OnlineFlg === true
   };
 };
 
@@ -713,11 +711,7 @@ function onMouseMove(e: MouseEvent) {
 // Kártyára kattintás kezelése (drag-védelemmel, hogy húzás közben ne navigáljon véletlenül)
 function onCardClick(event: EventItem) {
   if (dragMoved) return;
-  if (event.isProfitability) {
-    router.push({ path: `/event/${event.id}`, query: { eventTypeId: String(PTA_EVENT_TYPE_ID) } });
-  } else {
-    router.push(`/event/${event.id}`);
-  }
+  router.push(`/event/${event.id}`);
 }
 
 
@@ -748,17 +742,6 @@ function getRegStatusLabel(status: string) {
     case 'saved': return 'Mentett esemény';
     case 'error': return 'Elutasítva';
     default: return '';
-  }
-}
-
-// Status visualization helpers
-function getStatusLabel(event: EventItem): string {
-  if (event.statusName) return event.statusName;
-  switch (event.status) {
-    case 'active': return 'Aktív';
-    case 'applied': return 'Jelentkezve';
-    case 'checkin': return 'Check-In';
-    case 'completed': return 'Befejezett';
   }
 }
 
@@ -856,6 +839,93 @@ function getRoleStyle(hexColor: string) {
   :deep(.q-field--focused .q-field__control) {
     border-color: #38bdf8 !important;
     box-shadow: 0 0 12px rgba(56, 189, 248, 0.2) !important;
+  }
+}
+
+/* Segmented feed tabs — Ajánlott / Közelgő */
+.feed-seg {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  flex: 1;
+  min-width: 0;
+  max-width: 360px;
+  padding: 4px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.feed-seg__indicator {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: calc(50% - 4px);
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.95) 0%, rgba(20, 184, 166, 0.95) 100%);
+  box-shadow:
+    0 2px 10px rgba(14, 165, 233, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+  pointer-events: none;
+  z-index: 0;
+
+  &.is-right {
+    transform: translateX(100%);
+  }
+
+  &.is-left {
+    transform: translateX(0);
+  }
+}
+
+.feed-seg__btn {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 9px 12px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  outline: none;
+  transition: color 0.2s ease;
+
+  &:hover:not(.is-active) {
+    color: #e2e8f0;
+  }
+
+  &.is-active {
+    color: #ffffff;
+  }
+}
+
+.feed-seg__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  background: rgba(255, 255, 255, 0.1);
+  color: inherit;
+  line-height: 1;
+
+  .feed-seg__btn.is-active & {
+    background: rgba(255, 255, 255, 0.22);
   }
 }
 </style>

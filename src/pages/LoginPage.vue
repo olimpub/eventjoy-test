@@ -3,22 +3,32 @@
     <q-page-container>
       <q-page class="flex items-center justify-center min-h-screen bg-brand-dark text-white relative overflow-hidden q-pa-md">
 
+        <!-- Watermark (matches IndexPage) -->
+        <div class="login-watermark pointer-events-none select-none" aria-hidden="true">
+          <img :src="EVENTJOY_BRAND.icon" alt="" />
+        </div>
+
         <!-- Ambient Animated Background Glows -->
         <div class="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-0">
-          <div class="blob-1 absolute top-[-5%] left-[-5%] w-[60%] h-[60%] rounded-full mix-blend-screen" style="background: rgba(14,165,233,0.35); filter: blur(90px);"></div>
-          <div class="blob-2 absolute bottom-[-5%] right-[-5%] w-[70%] h-[70%] rounded-full mix-blend-screen" style="background: rgba(139,92,246,0.3); filter: blur(120px);"></div>
+          <div class="blob-1 absolute top-[-5%] left-[-5%] w-[60%] h-[60%] rounded-full mix-blend-screen"></div>
+          <div class="blob-2 absolute bottom-[-5%] right-[-5%] w-[70%] h-[70%] rounded-full mix-blend-screen"></div>
         </div>
 
         <!-- Login Card Wrapper -->
-        <div class="relative z-10 w-full max-w-md bg-[#0B0F19]/60 border border-white/10 rounded-[2.5rem] p-6 sm:p-8 shadow-2xl backdrop-blur-xl flex flex-col justify-start transition-all duration-500">
+        <div class="login-card relative z-10 w-full max-w-md flex flex-col justify-start">
           
           <!-- Top Branding Logo -->
-          <div class="text-center q-mb-xl flex flex-col items-center">
-            <img src="~assets/eventjoy_logo_full_dark.svg" alt="EventJoy Logo" style="height: 42px; width: auto;" class="object-contain q-mb-md" />
-            <h1 style="font-size: 22px; font-weight: 800; color: #ffffff; letter-spacing: 0.02em; margin: 0; line-height: 1.2;">
+          <div class="login-header text-center q-mb-xl flex flex-col items-center">
+            <img
+              :src="EVENTJOY_BRAND.logoDark"
+              :alt="`${EVENTJOY_BRAND.name} logo`"
+              class="login-logo object-contain q-mb-sm"
+            />
+            <p v-if="step === 'identity'" class="login-tagline">{{ EVENTJOY_BRAND.tagline }}</p>
+            <h1 class="login-title">
               {{ step === 'identity' ? 'Üdvözlünk az EventJoy-ban!' : (step === 'register' ? 'Hozd létre a fiókod' : 'Üdv újra!') }}
             </h1>
-            <p style="font-size: 13px; color: #94A3B8; margin-top: 6px; margin-bottom: 0;">
+            <p class="login-subtitle">
               {{ step === 'identity' ? 'Kérlek, add meg az azonosítód a folytatáshoz.' : (step === 'register' ? 'Úgy látjuk, új vagy nálunk! Állíts be egy jelszót.' : 'Kérlek, igazold a személyazonosságod.') }}
             </p>
           </div>
@@ -31,19 +41,21 @@
               <div v-if="step === 'identity'" key="identity" class="flex flex-col gap-4">
                 
                 <!-- Típus választó (Email / Telefon) -->
-                <div style="display: flex; gap: 12px; margin-bottom: 20px; margin-top: 8px;">
+                <div class="login-type-toggle">
                   <button 
+                    type="button"
                     @click.prevent="loginType = 'email'; identity = ''"
-                    :style="loginType === 'email' ? 'background: #0EA5E9; color: #FFFFFF; box-shadow: 0 4px 12px rgba(14,165,233,0.4); border: 1px solid transparent;' : 'background: rgba(255, 255, 255, 0.05); color: #FFFFFF; border: 1px solid rgba(255, 255, 255, 0.2);'"
-                    class="flex-1 py-3 px-4 rounded-full text-[14px] font-bold transition-all duration-300 flex items-center justify-center gap-2 cursor-pointer"
+                    class="login-type-btn"
+                    :class="{ 'login-type-btn--active': loginType === 'email' }"
                   >
                     <q-icon name="mail" size="18px" />
                     <span>E-mail</span>
                   </button>
                   <button 
+                    type="button"
                     @click.prevent="loginType = 'phone'; identity = ''"
-                    :style="loginType === 'phone' ? 'background: #0EA5E9; color: #FFFFFF; box-shadow: 0 4px 12px rgba(14,165,233,0.4); border: 1px solid transparent;' : 'background: rgba(255, 255, 255, 0.05); color: #FFFFFF; border: 1px solid rgba(255, 255, 255, 0.2);'"
-                    class="flex-1 py-3 px-4 rounded-full text-[14px] font-bold transition-all duration-300 flex items-center justify-center gap-2 cursor-pointer"
+                    class="login-type-btn"
+                    :class="{ 'login-type-btn--active': loginType === 'phone' }"
                   >
                     <q-icon name="phone" size="18px" />
                     <span>Telefon</span>
@@ -69,12 +81,12 @@
 
                 <div class="flex justify-center w-full q-mt-md">
                   <button 
+                    type="button"
                     @click="handleCheckIdentity"
-                    style="background: var(--ej-gradient); color: #FFFFFF; height: 54px; width: 100%;"
-                    class="font-black text-xl uppercase tracking-widest border-none rounded-full active:scale-98 hover:brightness-110 shadow-[0_4px_12px_rgba(14,165,233,0.3)] transition-all duration-200 cursor-pointer outline-none flex items-center justify-center group"
+                    class="login-btn-primary login-btn-primary--full group"
                   >
                     <span>Tovább</span>
-                    <q-icon name="arrow_forward" size="24px" class="q-ml-sm transition-transform duration-300 group-hover:translate-x-1.5" />
+                    <q-icon name="arrow_forward" size="20px" class="q-ml-sm transition-transform duration-300 group-hover:translate-x-1" />
                   </button>
                 </div>
               </div>
@@ -82,7 +94,7 @@
               <!-- 2. STEP: PASSWORD LOGIN -->
               <div v-else-if="step === 'password'" key="password" class="flex flex-col gap-4">
                 <div class="text-center q-py-sm">
-                  <p class="text-brand-primary font-black text-lg m-0 tracking-wide">{{ identity }}</p>
+                  <p class="login-identity-value m-0">{{ identity }}</p>
                 </div>
 
                 <div class="input-group">
@@ -109,36 +121,36 @@
                     </template>
                   </q-input>
                   <div class="flex justify-end mt-2 px-2">
-                    <a href="#" class="text-brand-primary text-[10px] hover:underline font-bold uppercase tracking-wider">Elfelejtettem a jelszavam</a>
+                    <a href="#" class="login-link-muted">Elfelejtettem a jelszavam</a>
                   </div>
                 </div>
 
                 <div class="flex gap-3 q-mt-sm items-center justify-center">
-                  <q-btn outline color="slate-400" label="Vissza" style="height: 54px; border-radius: 9999px;" class="px-5 text-xs font-bold" @click="step = 'identity'" dark />
+                  <button type="button" class="login-btn-secondary" @click="step = 'identity'">Vissza</button>
                   <button 
+                    type="button"
                     @click="handlePasswordLogin"
-                    style="background: var(--ej-gradient); color: #FFFFFF; height: 54px; width: 65%;"
-                    class="font-black text-xl uppercase tracking-widest border-none rounded-full active:scale-98 hover:brightness-110 shadow-[0_4px_12px_rgba(14,165,233,0.3)] transition-all duration-200 cursor-pointer outline-none flex items-center justify-center group"
+                    class="login-btn-primary login-btn-primary--split group"
                   >
                     <span>Belépés</span>
-                    <q-icon name="login" size="24px" class="q-ml-sm transition-transform duration-300 group-hover:translate-x-1.5" />
+                    <q-icon name="login" size="20px" class="q-ml-sm transition-transform duration-300 group-hover:translate-x-1" />
                   </button>
                 </div>
 
                 <!-- OTP (Jelszó nélküli) opció -->
                 <div class="w-full flex items-center justify-center gap-4 mt-4 mb-2">
                   <div class="h-[1px] flex-1 bg-white/10"></div>
-                  <span class="text-[10px] uppercase font-bold tracking-widest text-slate-500">Vagy</span>
+                  <span class="login-divider-label">Vagy</span>
                   <div class="h-[1px] flex-1 bg-white/10"></div>
                 </div>
                 
                 <q-btn 
-                  style="height: 54px; border-radius: 9999px; background: rgba(14, 165, 233, 0.15); border: 1px solid rgba(14, 165, 233, 0.3);" 
-                  class="w-full text-sm font-bold tracking-wide q-mb-sm hover:bg-brand-primary/20 transition-all text-brand-primary" 
+                  class="login-btn-outline w-full q-mb-sm" 
                   @click="requestOtpDirectly" 
                   unelevated
+                  no-caps
                 >
-                  Belépési Kód Kérése
+                  Belépési kód kérése
                 </q-btn>
               </div>
 
@@ -146,7 +158,7 @@
               <div v-else-if="step === 'otp'" key="otp" class="flex flex-col gap-4">
                 <div class="text-center q-py-sm">
                   <p class="text-slate-300 text-sm m-0">Az ellenőrző kódot elküldtük ide:</p>
-                  <p class="text-brand-primary font-black text-lg m-0 tracking-wide">{{ identity }}</p>
+                  <p class="login-identity-value m-0">{{ identity }}</p>
                 </div>
 
                 <div class="input-group">
@@ -167,18 +179,18 @@
                 </div>
 
                 <div class="flex justify-center mt-2 px-2">
-                   <a href="#" @click.prevent="requestOtpDirectly" class="text-brand-primary text-[13px] hover:text-white transition-colors cursor-pointer font-bold tracking-wide">Nem kaptad meg? Újraküldés.</a>
+                   <a href="#" @click.prevent="requestOtpDirectly" class="login-link">Nem kaptad meg? Újraküldés.</a>
                 </div>
 
                 <div class="flex gap-3 q-mt-sm items-center justify-center">
-                  <q-btn outline color="slate-400" label="Vissza" style="height: 54px; border-radius: 9999px;" class="px-5 text-xs font-bold" @click="step = 'identity'" dark />
+                  <button type="button" class="login-btn-secondary" @click="step = 'identity'">Vissza</button>
                   <button 
+                    type="button"
                     @click="handleOtpLogin"
-                    style="background: var(--ej-gradient); color: #FFFFFF; height: 54px; width: 65%;"
-                    class="font-black text-xl uppercase tracking-widest border-none rounded-full active:scale-98 hover:brightness-110 shadow-[0_4px_12px_rgba(14,165,233,0.3)] transition-all duration-200 cursor-pointer outline-none flex items-center justify-center group"
+                    class="login-btn-primary login-btn-primary--split group"
                   >
                     <span>Megerősítés</span>
-                    <q-icon name="check_circle" size="24px" class="q-ml-sm transition-transform duration-300 group-hover:scale-110" />
+                    <q-icon name="check_circle" size="20px" class="q-ml-sm transition-transform duration-300 group-hover:scale-110" />
                   </button>
                 </div>
               </div>
@@ -186,7 +198,7 @@
               <!-- 4. STEP: REGISTER (NEW USER) -->
               <div v-else-if="step === 'register'" key="register" class="flex flex-col gap-4">
                 <div class="text-center q-py-sm">
-                  <p class="text-brand-primary font-black text-lg m-0 tracking-wide">{{ identity }}</p>
+                  <p class="login-identity-value m-0">{{ identity }}</p>
                 </div>
 
                 <div class="input-group">
@@ -206,31 +218,31 @@
                 </div>
 
                 <div class="flex gap-3 q-mt-sm items-center justify-center">
-                  <q-btn outline color="slate-400" label="Vissza" style="height: 54px; border-radius: 9999px;" class="px-5 text-xs font-bold" @click="step = 'identity'" dark />
+                  <button type="button" class="login-btn-secondary" @click="step = 'identity'">Vissza</button>
                   <button 
+                    type="button"
                     @click="handleRegister"
-                    style="background: var(--ej-gradient); color: #FFFFFF; height: 54px; width: 65%;"
-                    class="font-black text-[16px] sm:text-xl uppercase tracking-widest border-none rounded-full active:scale-98 hover:brightness-110 shadow-[0_4px_12px_rgba(14,165,233,0.3)] transition-all duration-200 cursor-pointer outline-none flex items-center justify-center group"
+                    class="login-btn-primary login-btn-primary--split group"
                   >
                     <span>Létrehozás</span>
-                    <q-icon name="person_add" size="24px" class="q-ml-sm transition-transform duration-300 group-hover:translate-x-1.5" />
+                    <q-icon name="person_add" size="20px" class="q-ml-sm transition-transform duration-300 group-hover:translate-x-1" />
                   </button>
                 </div>
 
                 <!-- OTP (Jelszó nélküli) opció -->
                 <div class="w-full flex items-center justify-center gap-4 mt-4 mb-2">
                   <div class="h-[1px] flex-1 bg-white/10"></div>
-                  <span class="text-[10px] uppercase font-bold tracking-widest text-slate-500">Vagy</span>
+                  <span class="login-divider-label">Vagy</span>
                   <div class="h-[1px] flex-1 bg-white/10"></div>
                 </div>
                 
                 <q-btn 
-                  style="height: 54px; border-radius: 9999px; background: rgba(14, 165, 233, 0.15); border: 1px solid rgba(14, 165, 233, 0.3);" 
-                  class="w-full text-sm font-bold tracking-wide q-mb-sm hover:bg-brand-primary/20 transition-all text-brand-primary" 
+                  class="login-btn-outline w-full q-mb-sm" 
                   @click="requestOtpDirectly" 
                   unelevated
+                  no-caps
                 >
-                  Belépési Kód Kérése
+                  Belépési kód kérése
                 </q-btn>
               </div>
 
@@ -240,7 +252,7 @@
           <!-- Divider -->
           <div v-if="step === 'identity'" class="w-full flex items-center justify-center gap-4 mt-8 mb-6 transition-opacity duration-300">
             <div class="h-[1px] flex-1 bg-white/10"></div>
-            <span class="text-[10px] uppercase font-bold tracking-widest text-slate-500">Vagy folytasd ezzel</span>
+            <span class="login-divider-label">Vagy folytasd ezzel</span>
             <div class="h-[1px] flex-1 bg-white/10"></div>
           </div>
 
@@ -289,6 +301,7 @@ import { api } from 'src/boot/axios'
 import { AsYouType, isValidPhoneNumber } from 'libphonenumber-js'
 import { googleTokenLogin } from 'vue3-google-login'
 import axios from 'axios'
+import { EVENTJOY_BRAND } from 'src/assets/brand'
 
 const router = useRouter()
 const $q = useQuasar()
@@ -683,8 +696,216 @@ function showLoading(message: string) {
   66% { transform: translate(30px, -20px) scale(0.85); opacity: 0.5; }
 }
 
-.blob-1 { animation: blob-float-1 18s infinite ease-in-out; }
-.blob-2 { animation: blob-float-2 22s infinite ease-in-out; }
+.blob-1 {
+  animation: blob-float-1 18s infinite ease-in-out;
+  background: rgba(14, 165, 233, 0.35);
+  filter: blur(90px);
+}
+
+.blob-2 {
+  animation: blob-float-2 22s infinite ease-in-out;
+  background: rgba(20, 184, 166, 0.28);
+  filter: blur(120px);
+}
+
+.login-watermark {
+  position: absolute;
+  right: -6rem;
+  top: 12%;
+  width: 22rem;
+  height: 22rem;
+  opacity: 0.03;
+  z-index: 0;
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+}
+
+.login-card {
+  background: rgba(15, 23, 42, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 2rem;
+  padding: 1.5rem;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(16px);
+  transition: all 0.5s ease;
+
+  @media (min-width: 640px) {
+    padding: 2rem;
+    border-radius: 2.5rem;
+  }
+}
+
+.login-logo {
+  height: 42px;
+  width: auto;
+}
+
+.login-tagline {
+  margin: 0 0 0.75rem;
+  font-size: 13px;
+  font-weight: 700;
+  color: #38bdf8;
+  letter-spacing: 0.04em;
+}
+
+.login-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 800;
+  color: #ffffff;
+  letter-spacing: 0.02em;
+  line-height: 1.25;
+}
+
+.login-subtitle {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: #94a3b8;
+  line-height: 1.45;
+}
+
+.login-identity-value {
+  font-size: 16px;
+  font-weight: 800;
+  color: #38bdf8;
+  letter-spacing: 0.02em;
+  word-break: break-all;
+}
+
+.login-type-toggle {
+  display: flex;
+  gap: 12px;
+  margin: 8px 0 20px;
+}
+
+.login-type-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-radius: 9999px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  cursor: pointer;
+  transition: all 0.25s ease;
+
+  &--active {
+    background: #0ea5e9;
+    border-color: transparent;
+    box-shadow: 0 4px 12px rgba(14, 165, 233, 0.35);
+  }
+}
+
+.login-btn-primary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 52px;
+  border: none;
+  border-radius: 9999px;
+  background: var(--ej-gradient);
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  box-shadow: 0 4px 12px rgba(14, 165, 233, 0.3);
+  cursor: pointer;
+  outline: none;
+  transition: filter 0.2s ease, transform 0.15s ease;
+
+  &:hover {
+    filter: brightness(1.08);
+  }
+
+  &:active {
+    transform: scale(0.98);
+  }
+
+  &--full {
+    width: 100%;
+  }
+
+  &--split {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+.login-btn-secondary {
+  flex-shrink: 0;
+  height: 52px;
+  padding: 0 20px;
+  border-radius: 9999px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #94a3b8;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.25);
+  }
+}
+
+.login-btn-outline {
+  height: 52px !important;
+  border-radius: 9999px !important;
+  background: rgba(14, 165, 233, 0.12) !important;
+  border: 1px solid rgba(14, 165, 233, 0.28) !important;
+  color: #38bdf8 !important;
+  font-size: 14px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.02em !important;
+
+  &:hover {
+    background: rgba(14, 165, 233, 0.2) !important;
+  }
+}
+
+.login-divider-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.login-link {
+  font-size: 13px;
+  font-weight: 700;
+  color: #38bdf8;
+  text-decoration: none;
+  cursor: pointer;
+  transition: color 0.2s ease;
+
+  &:hover {
+    color: #ffffff;
+  }
+}
+
+.login-link-muted {
+  font-size: 12px;
+  font-weight: 700;
+  color: #64748b;
+  text-decoration: none;
+
+  &:hover {
+    color: #38bdf8;
+    text-decoration: underline;
+  }
+}
 
 .custom-input {
   :deep(.q-field__control) {

@@ -1,43 +1,62 @@
 <template>
   <q-page class="bg-brand-dark text-white relative overflow-hidden q-pa-md flex flex-col justify-start">
     
-    <!-- Title -->
+    <!-- Title + Új gomb -->
     <div class="relative z-10 q-mb-md mt-4">
-      <div class="flex items-center justify-between">
+      <div class="flex items-center justify-between gap-3">
         <h2 style="font-size: 13px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em; display: flex; align-items: center; gap: 6px; margin: 0;">
           <q-icon name="emoji_events" color="#38bdf8" size="16px" />
           Eseményeim
         </h2>
+
+        <button
+          type="button"
+          class="new-event-btn"
+          @click="wizardVisible = true"
+        >
+          <span class="new-event-btn__glow" aria-hidden="true" />
+          <q-icon name="add" size="18px" />
+          <span>Új</span>
+        </button>
       </div>
     </div>
+
+    <CreateEventWizard v-if="wizardVisible" v-model="wizardVisible" mode="create" />
 
     <!-- Tabs (Közelgő vs Lezárt) -->
     <div class="flex-grow relative z-10 flex flex-col justify-start">
       <!-- Header Row with Tabs and Search Toggle -->
       <div class="flex items-center justify-between q-mb-md px-1 w-full gap-2">
-        <div class="flex flex-row overflow-x-auto no-scrollbar gap-2 flex-grow" style="scroll-snap-type: x mandatory;">
-          <!-- Upcoming Chip -->
-          <button 
+        <!-- Segmented control: Közelgő / Lezárt -->
+        <div class="feed-seg" role="tablist" aria-label="Eseményeim szűrő">
+          <span
+            class="feed-seg__indicator"
+            :class="activeTab === 'closed' ? 'is-right' : 'is-left'"
+            aria-hidden="true"
+          />
+          <button
+            type="button"
+            role="tab"
+            class="feed-seg__btn"
+            :class="{ 'is-active': activeTab === 'upcoming' }"
+            :aria-selected="activeTab === 'upcoming'"
             @click="activeTab = 'upcoming'"
-            :style="activeTab === 'upcoming' 
-              ? 'background: var(--ej-gradient); color: #ffffff; border: 1px solid transparent; box-shadow: 0 4px 12px rgba(14, 165, 233, 0.4);' 
-              : 'background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.8); border: 1px solid rgba(255,255,255,0.1);'"
-            class="flex items-center gap-2 rounded-full py-3.5 px-8 text-[15px] sm:text-base font-black uppercase tracking-wider transition-all duration-300 outline-none cursor-pointer flex-shrink-0 hover:bg-white/10"
           >
-            <q-icon name="schedule" size="22px" :style="activeTab === 'upcoming' ? 'color: white' : 'color: #38bdf8'" />
-            Közelgő
+            <q-icon name="sym_r_schedule" size="18px" />
+            <span>Közelgő</span>
+            <span v-if="upcomingEvents.length" class="feed-seg__count">{{ upcomingEvents.length }}</span>
           </button>
-
-          <!-- Closed Chip -->
-          <button 
+          <button
+            type="button"
+            role="tab"
+            class="feed-seg__btn"
+            :class="{ 'is-active': activeTab === 'closed' }"
+            :aria-selected="activeTab === 'closed'"
             @click="activeTab = 'closed'"
-            :style="activeTab === 'closed' 
-              ? 'background: var(--ej-gradient); color: #ffffff; border: 1px solid transparent; box-shadow: 0 4px 12px rgba(14, 165, 233, 0.4);' 
-              : 'background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.8); border: 1px solid rgba(255,255,255,0.1);'"
-            class="flex items-center gap-2 rounded-full py-3.5 px-8 text-[15px] sm:text-base font-black uppercase tracking-wider transition-all duration-300 outline-none cursor-pointer flex-shrink-0 hover:bg-white/10"
           >
-            <q-icon name="history" size="22px" :style="activeTab === 'closed' ? 'color: white' : 'color: #38bdf8'" />
-            Lezárt
+            <q-icon name="sym_r_history" size="18px" />
+            <span>Lezárt</span>
+            <span v-if="closedEvents.length" class="feed-seg__count">{{ closedEvents.length }}</span>
           </button>
         </div>
 
@@ -48,8 +67,8 @@
           :icon="isSearchVisible ? 'close' : 'search'"
           class="flex-shrink-0 transition-all"
           :style="isSearchVisible 
-            ? 'background: var(--ej-gradient); color: #ffffff; box-shadow: 0 4px 12px rgba(14, 165, 233, 0.4); height: 46px; width: 46px;'
-            : 'background: rgba(255,255,255,0.05); color: #38bdf8; border: 1px solid rgba(255,255,255,0.1); height: 46px; width: 46px;'"
+            ? 'background: var(--ej-gradient); color: #ffffff; box-shadow: 0 4px 12px rgba(14, 165, 233, 0.4); height: 40px; width: 40px;'
+            : 'background: rgba(255,255,255,0.05); color: #38bdf8; border: 1px solid rgba(255,255,255,0.1); height: 40px; width: 40px;'"
           @click="isSearchVisible = !isSearchVisible"
         />
       </div>
@@ -118,7 +137,8 @@
           >
             <!-- Type Label positioned absolutely in top right (PROFI-T-ABILITY esetén csak a szélesebb PTA2.png logó, felirat nélkül) -->
             <img v-if="event.isProfitability" src="~assets/PTA2.png" alt="PROFI-T-ABILITY" style="position: absolute; top: 21px; right: 16px; z-index: 2; width: 90px; height: auto; object-fit: contain;" />
-            <div v-else style="position: absolute; top: 16px; right: 16px; background-color: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px 16px 8px 8px; padding: 6px 14px; z-index: 2;">
+            <div v-else style="position: absolute; top: 16px; right: 16px; background-color: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px 16px 8px 8px; padding: 6px 14px; z-index: 2; display: flex; align-items: center; gap: 6px;">
+              <q-icon :name="event.logo" size="16px" style="color: #cbd5e1;" />
               <span style="font-size: 12px; font-weight: 800; color: #cbd5e1; text-transform: uppercase; letter-spacing: 0.05em;">{{ event.type }}</span>
             </div>
 
@@ -162,32 +182,8 @@
               <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ event.location }} ({{ event.city }})</span>
             </div>
 
-            <!-- Bottom Area: Status instead of price + Arrow Button -->
-            <div class="mt-auto flex items-center justify-between rounded-xl px-4 py-3" style="background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(14, 165, 233, 0.15) 100%); margin-top: 6px;">
-              
-              <!-- Status Badge (from horizontal scroll component) -->
-              <div :style="{
-                backgroundColor: getStatusStyle(event.status).bg,
-                borderColor: getStatusStyle(event.status).border,
-                color: getStatusStyle(event.status).text,
-                borderWidth: '1px',
-                borderStyle: 'solid',
-                padding: '4px 10px',
-                borderRadius: '20px',
-                fontSize: '12px',
-                fontWeight: '800',
-                textTransform: 'uppercase',
-                letterSpacing: '0.05em',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                boxShadow: event.status === 'active' ? '0 0 10px ' + getStatusStyle(event.status).glow : 'none'
-              }">
-                <div v-if="event.status === 'active'" style="width: 6px; height: 6px; border-radius: 50%; background-color: #4ade80;" class="glow-dot animate-pulse"></div>
-                {{ getStatusLabel(event.status) }}
-              </div>
-              
-              <!-- Nav Button -->
+            <!-- Bottom Area: arrow -->
+            <div class="mt-auto flex items-center justify-end rounded-xl px-4 py-3" style="background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(14, 165, 233, 0.15) 100%); margin-top: 6px;">
               <q-btn 
                 round
                 unelevated
@@ -213,10 +209,14 @@ import { ref, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { useEventStore } from 'src/stores/event';
 import { useMasterDataStore } from 'src/stores/masterData';
+import CreateEventWizard from 'src/components/event-wizard/CreateEventWizard.vue';
+import { resolveIconName } from 'src/components/event-wizard/groupIcons';
+import { isProfitabilityEventType } from 'src/modules/profitability/constants';
 
 const router = useRouter();
 const eventStore = useEventStore();
 const masterDataStore = useMasterDataStore();
+const wizardVisible = ref(false);
 
 // Event interface structure
 interface EventItem {
@@ -230,15 +230,12 @@ interface EventItem {
   city: string;
   tags: string[];
   isMyEvent: boolean;
+  logo?: string;
   roles?: { name: string; type: 'organizer' | 'contributor' | 'participant' }[];
   userStatusName?: string;
   userStatusColor?: string;
   isProfitability?: boolean;
 }
-
-// PROFI-T-ABILITY esemény típus azonosítója a master adatban (EventTypeID)
-const PTA_EVENT_TYPE_ID = 46;
-
 
 const activeTab = ref<'upcoming' | 'closed'>('upcoming');
 const isSearchVisible = ref(false);
@@ -293,8 +290,7 @@ const mapToUIEvent = (dbEvent: any): EventItem => {
   }
   const myRoles = rawRoles;
 
-  const myEventUser = eventStore.eventUsers?.find((eu: any) => eu.EventID === dbEvent.id);
-  const statusObj = masterDataStore.eventUserStatuses?.find((s: any) => s.id === myEventUser?.EventUserStatusID);
+  const myStatus = eventStore.getMyEventUserStatus(dbEvent.id);
 
   const dateObj = new Date(dbEvent.StartAtUtc);
   const formattedDate = dateObj.toLocaleDateString('hu-HU', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -310,10 +306,13 @@ const mapToUIEvent = (dbEvent: any): EventItem => {
     city: location.City || 'Budapest',
     tags: tags.length > 0 ? tags : ['rendezvény'],
     isMyEvent: true,
+    logo: resolveIconName(eventType?.IconName || eventType?.iconName),
     roles: myRoles,
-    userStatusName: statusObj ? statusObj.StatusName : 'Jelentkezem',
-    userStatusColor: statusObj ? statusObj.ColorCode : '#38bdf8',
-    isProfitability: dbEvent.EventTypeID === PTA_EVENT_TYPE_ID
+    userStatusName: myStatus?.name,
+    userStatusColor: myStatus?.color,
+    isProfitability: isProfitabilityEventType(dbEvent.EventTypeID),
+    onlineUrl: dbEvent.OnlineURL || dbEvent.OnlineUrl || null,
+    onlineFlg: dbEvent.OnlineFlg === 1 || dbEvent.OnlineFlg === true
   };
 };
 
@@ -369,52 +368,8 @@ const filteredEvents = computed(() => {
   return baseList;
 });
 
-// Utility to get status visual styling
-function getStatusStyle(status: string) {
-  switch(status) {
-    case 'active':
-      return { bg: 'rgba(34, 197, 94, 0.15)', text: '#4ade80', border: 'rgba(34, 197, 94, 0.3)', glow: 'rgba(34,197,94,0.4)' };
-    case 'checkin':
-      return { bg: 'rgba(234, 179, 8, 0.15)', text: '#facc15', border: 'rgba(234, 179, 8, 0.3)', glow: 'transparent' };
-    case 'applied':
-      return { bg: 'rgba(56, 189, 248, 0.15)', text: '#38bdf8', border: 'rgba(56, 189, 248, 0.3)', glow: 'transparent' };
-    case 'completed':
-    default:
-      return { bg: 'rgba(255, 255, 255, 0.1)', text: '#94a3b8', border: 'rgba(255, 255, 255, 0.2)', glow: 'transparent' };
-  }
-}
-
-// Utility to get human-readable status labels
-function getStatusLabel(status: string) {
-  switch(status) {
-    case 'active': return 'Jelenleg fut';
-    case 'checkin': return 'Becsekkolás';
-    case 'applied': return 'Jelentkezve';
-    case 'completed': return 'Lezárt';
-    default: return status;
-  }
-}
-
 function openEventDetails(event: EventItem) {
-  console.log('Navigating to event details:', event.name);
-  if (event.isProfitability) {
-    router.push({ path: `/event/${event.id}`, query: { eventTypeId: String(PTA_EVENT_TYPE_ID) } });
-  } else {
-    router.push(`/event/${event.id}`);
-  }
-}
-
-// Role type color mapping
-function getRoleTypeStyle(type: string) {
-  switch(type) {
-    case 'organizer': 
-      return { color: '#a855f7', bg: 'rgba(168, 85, 247, 0.1)', border: 'rgba(168, 85, 247, 0.2)' };
-    case 'contributor': 
-      return { color: '#38bdf8', bg: 'rgba(56, 189, 248, 0.1)', border: 'rgba(56, 189, 248, 0.2)' };
-    case 'participant':
-    default:
-      return { color: '#34d399', bg: 'rgba(52, 211, 153, 0.1)', border: 'rgba(52, 211, 153, 0.2)' };
-  }
+  router.push(`/event/${event.id}`);
 }
 </script>
 
@@ -448,6 +403,137 @@ function getRoleTypeStyle(type: string) {
   :deep(.q-field--focused .q-field__control) {
     border-color: #38bdf8 !important;
     box-shadow: 0 0 12px rgba(56, 189, 248, 0.2) !important;
+  }
+}
+
+.new-event-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 16px 8px 12px;
+  border: none;
+  border-radius: 9999px;
+  background: var(--ej-gradient);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  outline: none;
+  overflow: hidden;
+  box-shadow: 0 4px 16px rgba(14, 165, 233, 0.45);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+
+  &:hover {
+    filter: brightness(1.08);
+    box-shadow: 0 6px 22px rgba(14, 165, 233, 0.55);
+  }
+
+  &:active {
+    transform: scale(0.96);
+  }
+
+  &__glow {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(120deg, transparent 30%, rgba(255, 255, 255, 0.22) 50%, transparent 70%);
+    transform: translateX(-120%);
+    animation: new-event-shine 3.5s ease-in-out infinite;
+    pointer-events: none;
+  }
+}
+
+@keyframes new-event-shine {
+  0%, 55% { transform: translateX(-120%); }
+  75%, 100% { transform: translateX(120%); }
+}
+
+/* Segmented tabs — Közelgő / Lezárt (same as IndexPage feed-seg) */
+.feed-seg {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  flex: 1;
+  min-width: 0;
+  max-width: 360px;
+  padding: 4px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.feed-seg__indicator {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: calc(50% - 4px);
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.95) 0%, rgba(20, 184, 166, 0.95) 100%);
+  box-shadow:
+    0 2px 10px rgba(14, 165, 233, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+  pointer-events: none;
+  z-index: 0;
+
+  &.is-right {
+    transform: translateX(100%);
+  }
+
+  &.is-left {
+    transform: translateX(0);
+  }
+}
+
+.feed-seg__btn {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 9px 12px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  outline: none;
+  transition: color 0.2s ease;
+
+  &:hover:not(.is-active) {
+    color: #e2e8f0;
+  }
+
+  &.is-active {
+    color: #ffffff;
+  }
+}
+
+.feed-seg__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  background: rgba(255, 255, 255, 0.1);
+  color: inherit;
+  line-height: 1;
+
+  .feed-seg__btn.is-active & {
+    background: rgba(255, 255, 255, 0.22);
   }
 }
 </style>

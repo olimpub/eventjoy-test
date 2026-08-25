@@ -14,9 +14,12 @@
   /* === PTA Brand Colors === */
   --pta-orange: #f68b29;
   --pta-orange-dark: #ea580c;
-  --pta-dark: #2c2e32;
-  --pta-dark-2: #1c1d20;
-  --pta-white: #ffffff;
+  /* Kézikönyv canvas: #2c2e32 — appban sötétebb, hogy a szöveg ne vakítson */
+  --pta-page: #0a0b0c;
+  --pta-dark: #141516;
+  --pta-dark-2: #101112;
+  --pta-brand-gray: #2c2e32;
+  --pta-white: #e2e8f0;
 
   /* Player / Team colors */
   --pta-red: #ff6060;
@@ -24,43 +27,42 @@
   --pta-blue: #2aa9ff;
   --pta-yellow: #f2e74b;
 
-  /* Typography stacks */
-  --pta-font-display: 'Barlow Condensed', 'Archivo Black', 'Helvetica Neue', 'Helvetica Neue LT Pro', Arial, sans-serif;
-  --pta-font-body: 'Roboto', 'Helvetica Neue', 'Helvetica Neue LT Pro', Arial, sans-serif;
-  --pta-font-number: 'Roboto Condensed', 'Helvetica Neue', 'Helvetica Neue LT Pro', Arial, sans-serif;
+  /* App UI: EventJoy Poppins. A kézikönyv condensed/light stack csak print/arculat. */
+  --pta-font-display: var(--font-sans);
+  --pta-font-body: var(--font-sans);
+  --pta-font-number: var(--font-sans);
 
   --pta-radius: 20px;
   --pta-radius-sm: 12px;
 }
 
 .pta-scope {
-  font-family: var(--pta-font-body);
-  font-weight: 300;
-  color: var(--pta-white);
-  background-color: var(--pta-dark);
+  font-family: var(--font-sans);
+  font-weight: 400;
+  color: #e2e8f0;
+  background-color: var(--pta-page);
 }
 
 .pta-scope .pta-display {
-  font-family: var(--pta-font-display);
+  font-family: var(--font-sans);
   font-weight: 800;
-  font-stretch: condensed;
   letter-spacing: 0.01em;
 }
 
 .pta-scope .pta-number {
-  font-family: var(--pta-font-number);
-  font-weight: 500;
+  font-family: var(--font-sans);
+  font-weight: 800;
   font-variant-numeric: tabular-nums;
 }
 
 .pta-scope .pta-body {
-  font-family: var(--pta-font-body);
-  font-weight: 300;
+  font-family: var(--font-sans);
+  font-weight: 400;
 }
 
 /* Glassmorphism panel base */
 .pta-scope .pta-glass {
-  background-color: rgba(44, 46, 50, 0.72);
+  background-color: rgba(20, 21, 22, 0.92);
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
   border: 1px solid rgba(255, 255, 255, 0.08);
