@@ -107,8 +107,24 @@
               </div>
             </div>
             
-            <!-- Reg Status Indicator -->
-            <div v-if="event.regStatus" class="flex items-center justify-center flex-shrink-0 relative cursor-pointer" style="width: 36px; height: 36px; background-color: rgba(255,255,255,0.05); border-radius: 12px; border: 1px solid rgba(255,255,255,0.05); backdrop-filter: blur(8px);">
+            <!-- Invite bang OR reg status -->
+            <button
+              v-if="event.needUserApproval"
+              type="button"
+              class="invite-bang"
+              aria-label="Meghívó megerősítése"
+              @click.stop="openInviteDecision(event)"
+            >
+              !
+              <q-tooltip class="bg-[#0B0F19] border border-white/10 text-white text-[11px] font-bold px-3 py-1" anchor="top middle" self="bottom middle" :offset="[0, 8]">
+                Meghívó megerősítése
+              </q-tooltip>
+            </button>
+            <div
+              v-else-if="event.regStatus"
+              class="flex items-center justify-center flex-shrink-0 relative cursor-pointer"
+              style="width: 36px; height: 36px; background-color: rgba(255,255,255,0.05); border-radius: 12px; border: 1px solid rgba(255,255,255,0.05); backdrop-filter: blur(8px);"
+            >
               <q-icon :name="getRegStatusIcon(event.regStatus)" :style="{ color: getRegStatusColor(event.regStatus) }" size="20px" />
               <q-tooltip class="bg-[#0B0F19] border border-white/10 text-white text-[11px] font-bold px-3 py-1" anchor="top middle" self="bottom middle" :offset="[0, 8]">
                 {{ getRegStatusLabel(event.regStatus) }}
@@ -432,23 +448,34 @@
         </q-card-actions>
       </q-card>
     </q-dialog>
+
+    <InviteDecisionSheet
+      v-model="inviteSheetOpen"
+      :event-id="inviteEvent?.id ?? null"
+      :event-name="inviteEvent?.name || ''"
+    />
   </q-page>
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useEventStore } from 'src/stores/event';
 import { useMasterDataStore } from 'src/stores/masterData';
 import { useAuthStore } from 'src/stores/auth';
 import { resolveIconName } from 'src/components/event-wizard/groupIcons';
 import { isProfitabilityEventType } from 'src/modules/profitability/constants';
+import InviteDecisionSheet from 'src/components/event/InviteDecisionSheet.vue';
 
 const router = useRouter();
 const eventStore = useEventStore();
 const masterDataStore = useMasterDataStore();
 const authStore = useAuthStore();
 
+onMounted(() => {
+  // Régi TEMP Belépett localStorage patch ne ragadjon a meghívóra
+  void eventStore.refreshEventData().catch(() => undefined);
+});
 
 // Event interface structure based on UI needs
 interface EventItem {
@@ -464,7 +491,8 @@ interface EventItem {
   isMyEvent: boolean;
   statusName?: string;
   statusColor?: string;
-  regStatus?: 'success' | 'payment_pending' | 'saved' | 'error';
+  needUserApproval?: boolean;
+  regStatus?: 'success' | 'payment_pending' | 'saved' | 'error' | 'needs_approval';
   logo: string;
   price: number | null;
   priceMax?: number | null;
@@ -472,6 +500,14 @@ interface EventItem {
   roles?: { name: string; color: string }[];
   matchPriority?: number;
   isProfitability?: boolean;
+}
+
+const inviteSheetOpen = ref(false);
+const inviteEvent = ref<EventItem | null>(null);
+
+function openInviteDecision(event: EventItem) {
+  inviteEvent.value = event;
+  inviteSheetOpen.value = true;
 }
 
 // Mapper a DB raw JSON objektumokból a UI EventItem objektumba
@@ -520,21 +556,26 @@ const mapToUIEvent = (dbEvent: any, isMyEvent: boolean): EventItem => {
   }
   const myRoles = rawRoles;
 
-  // Saját státusz: résztvevő > közreműködő; szervezőnél nincs
+  // Saját státusz: résztvevő > közreműködő; meghívó megerősítés mindig látszik
   let regStatus: EventItem['regStatus'] = undefined;
   let customStatusName: string | undefined = undefined;
   let customStatusColor: string | undefined = undefined;
+  let needUserApproval = false;
 
   if (isMyEvent) {
     const mine = eventStore.getMyEventUserStatus(dbEvent.id);
     if (mine) {
       customStatusName = mine.name;
       customStatusColor = mine.color;
-      const sId = mine.statusId;
-      if (sId === 1) regStatus = 'saved';
-      else if (sId === 2) regStatus = 'payment_pending';
-      else if ([3, 4, 7, 10].includes(sId)) regStatus = 'success';
-      else regStatus = 'error';
+      needUserApproval = mine.needUserApproval;
+      if (mine.needUserApproval) {
+        regStatus = 'needs_approval';
+      } else {
+        const sId = mine.statusId;
+        if (sId === 2) regStatus = 'payment_pending';
+        else if ([3, 4, 7, 10].includes(sId)) regStatus = 'success';
+        else regStatus = 'saved';
+      }
     }
   }
 
@@ -569,6 +610,7 @@ const mapToUIEvent = (dbEvent: any, isMyEvent: boolean): EventItem => {
     isMyEvent: isMyEvent,
     statusName: customStatusName,
     statusColor: customStatusColor,
+    needUserApproval,
     regStatus: regStatus,
     logo: resolveIconName(eventType?.IconName || eventType?.iconName),
     price: dbEvent.Capacity > 0 ? 5000 : null, // TODO: Jegy árak számítása EventTicket táblából
@@ -585,7 +627,10 @@ const mapToUIEvent = (dbEvent: any, isMyEvent: boolean): EventItem => {
 const myEventsSorted = computed(() => {
   return eventStore.myEvents
     .map(e => mapToUIEvent(e, true))
-    .sort((a, b) => new Date(a.dateISO).getTime() - new Date(b.dateISO).getTime());
+    .sort((a, b) => {
+      if (a.needUserApproval !== b.needUserApproval) return a.needUserApproval ? -1 : 1;
+      return new Date(a.dateISO).getTime() - new Date(b.dateISO).getTime();
+    });
 });
 
 
@@ -722,6 +767,7 @@ function getRegStatusIcon(status: string) {
     case 'success': return 'check_circle';
     case 'payment_pending': return 'attach_money';
     case 'saved': return 'star';
+    case 'needs_approval': return 'schedule';
     case 'error': return 'cancel';
     default: return 'help';
   }
@@ -731,6 +777,7 @@ function getRegStatusColor(status: string) {
     case 'success': return '#4ade80';
     case 'payment_pending': return '#fbbf24';
     case 'saved': return '#60a5fa';
+    case 'needs_approval': return '#fbbf24';
     case 'error': return '#ef4444';
     default: return '#94a3b8';
   }
@@ -740,6 +787,7 @@ function getRegStatusLabel(status: string) {
     case 'success': return 'Sikeres regisztráció';
     case 'payment_pending': return 'Fizetésre vár';
     case 'saved': return 'Mentett esemény';
+    case 'needs_approval': return 'Megerősítésre vár';
     case 'error': return 'Elutasítva';
     default: return '';
   }
@@ -816,6 +864,28 @@ function getRoleStyle(hexColor: string) {
 }
 .glow-dot {
   animation: glowPulse 2s infinite;
+}
+
+.invite-bang {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  border: 1px solid rgba(251, 191, 36, 0.55);
+  background: rgba(251, 191, 36, 0.18);
+  color: #fbbf24;
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 0 12px rgba(251, 191, 36, 0.25);
+}
+
+.invite-bang:active {
+  transform: scale(0.94);
 }
 
 /* Keresőmező formázása */

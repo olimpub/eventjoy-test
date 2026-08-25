@@ -38,8 +38,12 @@ import {
   listUndoEventUserStatusTransitions,
   normalizeEventUserFlowTemplates,
   normalizeEventUserFlowTemplateSteps,
+  normalizeEventUserStatuses,
+  statusIdNeedsOrganizerApproval,
+  statusIdNeedsUserApproval,
   type EventUserFlowTemplate,
   type EventUserFlowTemplateStep,
+  type EventUserStatus,
   type EventUserStatusTransition,
 } from 'src/utils/eventUserFlow';
 
@@ -243,7 +247,9 @@ export const useMasterDataStore = defineStore('masterData', {
     eventFlowStatusRoles: normalizeEventFlowStatusRoles(
       JSON.parse(localStorage.getItem('md_eventFlowStatusRoles') || '[]')
     ) as EventFlowStatusRole[],
-    eventUserStatuses: JSON.parse(localStorage.getItem('md_eventUserStatuses') || '[]'),
+    eventUserStatuses: normalizeEventUserStatuses(
+      JSON.parse(localStorage.getItem('md_eventUserStatuses') || '[]')
+    ) as EventUserStatus[],
     eventUserFlowTemplates: normalizeEventUserFlowTemplates(
       JSON.parse(localStorage.getItem('md_eventUserFlowTemplates') || '[]')
     ) as EventUserFlowTemplate[],
@@ -328,10 +334,14 @@ export const useMasterDataStore = defineStore('masterData', {
     },
     getEventUserStatusName: (state) => (id: number) => {
       const status = state.eventUserStatuses.find(
-        (s: any) => Number(s.id ?? s.ID ?? s.Id) === Number(id)
+        (s: EventUserStatus) => Number(s.id) === Number(id)
       );
       return status ? status.StatusName : 'Ismeretlen';
     },
+    eventUserStatusNeedsUserApproval: (state) => (statusId: number | null | undefined) =>
+      statusIdNeedsUserApproval(state.eventUserStatuses, statusId),
+    eventUserStatusNeedsOrganizerApproval: (state) => (statusId: number | null | undefined) =>
+      statusIdNeedsOrganizerApproval(state.eventUserStatuses, statusId),
     getEventUserFlowTemplateByCode: (state) => (code: string | null | undefined) =>
       findEventUserFlowTemplateByCode(state.eventUserFlowTemplates, code),
     getEventUserFlowTemplateIdByCode: (state) => (code: string | null | undefined): number | null =>
@@ -524,7 +534,9 @@ export const useMasterDataStore = defineStore('masterData', {
         this.eventStatuses = normalizeEventStatuses(
           pickDataset(data, 'EventStatuses', 'eventStatuses', 'EventStatus')
         );
-        this.eventUserStatuses = data.EventUserStatuses || [];
+        this.eventUserStatuses = normalizeEventUserStatuses(
+          pickDataset(data, 'EventUserStatuses', 'eventUserStatuses', 'EventUserStatus')
+        );
         // spGetMasterData: 20 EventUserFlowTemplates | 21 EventUserFlowTemplateSteps
         this.eventUserFlowTemplates = normalizeEventUserFlowTemplates(
           pickDataset(

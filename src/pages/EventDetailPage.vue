@@ -447,8 +447,26 @@
     </q-dialog>
 
     <!-- FIXED ENTER BUTTON: EventTypes.CanEnterFlg + user in EventUsers -->
-    <q-page-sticky position="top-right" :offset="[16, 16]" v-if="canShowEnterButton">
-      <q-btn 
+    <q-page-sticky
+      v-if="needUserApproval || canShowEnterButton"
+      position="top-right"
+      :offset="[16, 16]"
+      class="event-sticky-actions"
+    >
+      <button
+        v-if="needUserApproval"
+        type="button"
+        class="invite-bang"
+        aria-label="Meghívó megerősítése"
+        @click="inviteSheetOpen = true"
+      >
+        !
+        <q-tooltip class="bg-[#0B0F19] border border-white/10 text-white text-[11px] font-bold px-3 py-1" anchor="bottom middle" self="top middle" :offset="[0, 8]">
+          Meghívó megerősítése
+        </q-tooltip>
+      </button>
+      <q-btn
+        v-if="canShowEnterButton"
         unelevated
         label="Belépés"
         icon="meeting_room"
@@ -462,9 +480,14 @@
           boxShadow: isDemoProfitabilityRoute ? '0 10px 20px rgba(246,139,41,0.4)' : '0 10px 20px rgba(16,185,129,0.4)'
         }"
         @click="enterEvent"
-
       />
     </q-page-sticky>
+
+    <InviteDecisionSheet
+      v-model="inviteSheetOpen"
+      :event-id="event.id"
+      :event-name="event.name"
+    />
 
   </q-page>
 </template>
@@ -479,12 +502,14 @@ import { useMasterDataStore } from 'src/stores/masterData';
 import { isProfitabilityEventType } from 'src/modules/profitability/constants';
 import { eventDatasheetKind, eventRoleEnterBlocked, eventRolePath, eventRoleQuery } from 'src/utils/eventRoleNav';
 import { normalizeEventUserUid } from 'src/utils/eventUserQr';
+import InviteDecisionSheet from 'src/components/event/InviteDecisionSheet.vue';
 
 const $q = useQuasar();
 const router = useRouter();
 const route = useRoute();
 const eventStore = useEventStore();
 const masterDataStore = useMasterDataStore();
+const inviteSheetOpen = ref(false);
 
 const isDemoProfitabilityRoute = computed(() => {
   if (isProfitabilityEventType(route.query.eventTypeId as string)) return true;
@@ -725,6 +750,10 @@ const hasParticipated = computed(() => {
 });
 
 const canShowEnterButton = computed(() => readyEnterRoles.value.length > 0);
+
+const needUserApproval = computed(
+  () => !!eventStore.getMyEventUserStatus(String(route.params.id))?.needUserApproval
+);
 
 const currentDbEvent = computed(() => {
   const targetId = String(route.params.id);
@@ -1078,5 +1107,34 @@ function enterAsRole(role: EnterableEventRole | null) {
 .event-enter-role__chevron {
   margin-left: auto;
   color: #64748b;
+}
+
+.event-sticky-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  z-index: 100;
+}
+
+.invite-bang {
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  border: 1px solid rgba(251, 191, 36, 0.55);
+  background: rgba(251, 191, 36, 0.18);
+  color: #fbbf24;
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 0 12px rgba(251, 191, 36, 0.28);
+  backdrop-filter: blur(8px);
+}
+
+.invite-bang:active {
+  transform: scale(0.94);
 }
 </style>

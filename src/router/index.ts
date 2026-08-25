@@ -21,7 +21,7 @@ export default route(function (/* { store, ssrContext } */) {
   Router.beforeEach(async (to, from, next) => {
     const { useAuthStore } = await import('src/stores/auth');
     const authStore = useAuthStore();
-    const isPublic = to.path === '/login';
+    const isPublic = to.path === '/login' || to.name === 'invite' || to.meta.public === true;
 
     if (!isPublic && !authStore.isAuthenticated) {
       next('/login');
@@ -33,7 +33,7 @@ export default route(function (/* { store, ssrContext } */) {
         authStore.logout();
         next('/login');
       }
-    } else if (isPublic && authStore.isAuthenticated) {
+    } else if (to.path === '/login' && authStore.isAuthenticated) {
       next('/');
     } else {
       next();

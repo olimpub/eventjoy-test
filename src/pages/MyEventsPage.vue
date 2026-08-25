@@ -132,7 +132,15 @@
           <div 
             v-for="event in filteredEvents" 
             :key="event.id"
-            class="flex flex-col hover:-translate-y-1 transition-all duration-300 relative overflow-hidden group/card cursor-pointer" style="background-color: rgba(15, 23, 42, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.08); box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2); border-radius: 24px; padding: 16px;"
+            class="flex flex-col hover:-translate-y-1 transition-all duration-300 relative overflow-hidden group/card cursor-pointer"
+            :style="{
+              backgroundColor: 'rgba(15, 23, 42, 0.7)',
+              backdropFilter: 'blur(10px)',
+              border: '1px solid rgba(255, 255, 255, 0.08)',
+              boxShadow: '0 8px 20px rgba(0, 0, 0, 0.2)',
+              borderRadius: '24px',
+              padding: '16px',
+            }"
             @click="openEventDetails(event)"
           >
             <!-- Type Label positioned absolutely in top right (PROFI-T-ABILITY esetén csak a szélesebb PTA2.png logó, felirat nélkül) -->
@@ -143,16 +151,31 @@
             </div>
 
 
-            <!-- Status (Moved to top-left) -->
-            <div v-if="event.userStatusName" class="flex flex-wrap gap-2 mb-2 pr-28 relative z-10">
-              <span class="font-bold px-[12px] py-[5px] rounded-[12px] text-[11px] uppercase tracking-wider flex items-center gap-1.5"
-                :style="{ color: event.userStatusColor, backgroundColor: event.userStatusColor + '1A', border: '1px solid ' + event.userStatusColor + '33' }">
-                <q-icon 
-                  :name="event.userStatusName === 'Részt veszek' ? 'check_circle' : 'info'" 
-                  size="12px" 
+            <!-- Status + invite CTA -->
+            <div v-if="event.userStatusName || event.needUserApproval" class="flex flex-wrap items-center gap-2 mb-2 pr-28 relative z-10">
+              <span
+                v-if="event.userStatusName"
+                class="font-bold px-[12px] py-[5px] rounded-[12px] text-[11px] uppercase tracking-wider flex items-center gap-1.5"
+                :style="{ color: event.userStatusColor, backgroundColor: event.userStatusColor + '1A', border: '1px solid ' + event.userStatusColor + '33' }"
+              >
+                <q-icon
+                  :name="event.userStatusName === 'Részt veszek' ? 'check_circle' : 'info'"
+                  size="12px"
                 />
                 {{ event.userStatusName }}
               </span>
+              <button
+                v-if="event.needUserApproval"
+                type="button"
+                class="invite-bang"
+                aria-label="Meghívó megerősítése"
+                @click.stop="openInviteDecision(event)"
+              >
+                !
+                <q-tooltip class="bg-[#0B0F19] border border-white/10 text-white text-[11px] font-bold px-3 py-1" anchor="top middle" self="bottom middle" :offset="[0, 8]">
+                  Meghívó megerősítése
+                </q-tooltip>
+              </button>
             </div>
 
             <!-- Event Name -->
@@ -201,6 +224,12 @@
         </div>
       </div>
     </div>
+
+    <InviteDecisionSheet
+      v-model="inviteSheetOpen"
+      :event-id="inviteEvent?.id ?? null"
+      :event-name="inviteEvent?.name || ''"
+    />
   </q-page>
 </template>
 
@@ -210,6 +239,7 @@ import { useRouter } from 'vue-router';
 import { useEventStore } from 'src/stores/event';
 import { useMasterDataStore } from 'src/stores/masterData';
 import CreateEventWizard from 'src/components/event-wizard/CreateEventWizard.vue';
+import InviteDecisionSheet from 'src/components/event/InviteDecisionSheet.vue';
 import { resolveIconName } from 'src/components/event-wizard/groupIcons';
 import { isProfitabilityEventType } from 'src/modules/profitability/constants';
 
@@ -217,6 +247,13 @@ const router = useRouter();
 const eventStore = useEventStore();
 const masterDataStore = useMasterDataStore();
 const wizardVisible = ref(false);
+const inviteSheetOpen = ref(false);
+const inviteEvent = ref<EventItem | null>(null);
+
+function openInviteDecision(event: EventItem) {
+  inviteEvent.value = event;
+  inviteSheetOpen.value = true;
+}
 
 // Event interface structure
 interface EventItem {
@@ -234,6 +271,7 @@ interface EventItem {
   roles?: { name: string; type: 'organizer' | 'contributor' | 'participant' }[];
   userStatusName?: string;
   userStatusColor?: string;
+  needUserApproval?: boolean;
   isProfitability?: boolean;
 }
 
@@ -310,6 +348,7 @@ const mapToUIEvent = (dbEvent: any): EventItem => {
     roles: myRoles,
     userStatusName: myStatus?.name,
     userStatusColor: myStatus?.color,
+    needUserApproval: !!myStatus?.needUserApproval,
     isProfitability: isProfitabilityEventType(dbEvent.EventTypeID),
     onlineUrl: dbEvent.OnlineURL || dbEvent.OnlineUrl || null,
     onlineFlg: dbEvent.OnlineFlg === 1 || dbEvent.OnlineFlg === true
@@ -321,7 +360,10 @@ const mapToUIEvent = (dbEvent: any): EventItem => {
 const upcomingEvents = computed(() => {
   return eventStore.activeMyEvents
     .map((e: any) => mapToUIEvent(e))
-    .sort((a, b) => new Date(a.dateISO).getTime() - new Date(b.dateISO).getTime());
+    .sort((a, b) => {
+      if (a.needUserApproval !== b.needUserApproval) return a.needUserApproval ? -1 : 1;
+      return new Date(a.dateISO).getTime() - new Date(b.dateISO).getTime();
+    });
 });
 
 // 2. Closed events (completed), newest (closest to now backwards) first
@@ -380,6 +422,28 @@ function openEventDetails(event: EventItem) {
 .no-scrollbar {
   -ms-overflow-style: none;  /* IE and Edge */
   scrollbar-width: none;  /* Firefox */
+}
+
+.invite-bang {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  border: 1px solid rgba(251, 191, 36, 0.55);
+  background: rgba(251, 191, 36, 0.18);
+  color: #fbbf24;
+  font-size: 15px;
+  font-weight: 900;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 0 10px rgba(251, 191, 36, 0.22);
+}
+
+.invite-bang:active {
+  transform: scale(0.94);
 }
 
 /* Keresőmező formázása */

@@ -151,7 +151,6 @@ function roleCheckedIn(
   role: EnterableEventRole | null | undefined
 ): boolean {
   const eventStore = useEventStore();
-  eventStore.reapplyLocalEventUserStatuses();
   const master = useMasterDataStore();
   const eventUserId = role?.eventUserId;
   const eu =

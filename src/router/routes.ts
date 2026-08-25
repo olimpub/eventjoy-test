@@ -8,6 +8,12 @@ const routes: RouteRecordRaw[] = [
     component: () => import('pages/LoginPage.vue')
   },
   {
+    path: '/invite/:uid',
+    name: 'invite',
+    component: () => import('pages/InvitePage.vue'),
+    meta: { public: true },
+  },
+  {
     path: '/',
     component: () => import('layouts/MainLayout.vue'),
     children: [

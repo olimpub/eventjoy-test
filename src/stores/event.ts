@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { api } from 'src/boot/axios';
-import { nullableNumericId, pickDataset, unwrapApiPayload, warnIfDatasetMissing } from 'src/utils/apiPayload';
+import { isTruthyFlag, nullableNumericId, pickDataset, unwrapApiPayload, warnIfDatasetMissing } from 'src/utils/apiPayload';
 import { eventUserUidsMatch, normalizeEventUserUid } from 'src/utils/eventUserQr';
 import { membershipRoleKind, pickDisplayEventUser } from 'src/utils/eventUserStatus';
 import {
@@ -20,6 +20,11 @@ import {
   computePublishedPlayerFinals,
 } from 'src/modules/profitability/standings';
 import { findEventStatusIdByNameHints } from 'src/utils/eventFlow';
+import {
+  eventUserStatusColor,
+  eventUserStatusName,
+  findEventUserStatus,
+} from 'src/utils/eventUserFlow';
 import { useMasterDataStore } from './masterData';
 
 /** GetEventData RS: EventUsers — a belépett user saját sorai */
@@ -277,6 +282,30 @@ function rememberEventUserStatus(eventUserId: number | string, statusId: number,
   writeLocalJson(LS_EVENT_USER_STATUS, patches);
 }
 
+/**
+ * Login / event/data után az API a forrás.
+ * A helyi TEMP státusz-patch csak a következő event/data-ig élhet —
+ * meghívó (NeedUserApproval) esetén azonnal eldobjuk, hogy ne legyen Belépett.
+ */
+function pruneLocalEventUserStatusPatches(eventUsers: EventUser[]) {
+  const patches = readLocalJson<Record<string, LocalStatusPatch>>(LS_EVENT_USER_STATUS, {});
+  const master = useMasterDataStore();
+  let changed = false;
+  for (const eu of eventUsers || []) {
+    const key = String(eu.id);
+    const patch = patches[key];
+    if (!patch) continue;
+    const apiNeedsUserApproval = master.eventUserStatusNeedsUserApproval(eu.EventUserStatusID);
+    const patchDiffers = Number(patch.statusId) !== Number(eu.EventUserStatusID);
+    // Meghívott API státusz, vagy eltérő helyi override → API nyer
+    if (apiNeedsUserApproval || patchDiffers) {
+      delete patches[key];
+      changed = true;
+    }
+  }
+  if (changed) writeLocalJson(LS_EVENT_USER_STATUS, patches);
+}
+
 function rememberEventStatus(eventId: number | string, statusId: number, prevStatusId: number | null) {
   const patches = readLocalJson<Record<string, LocalStatusPatch>>(LS_EVENT_STATUS, {});
   patches[String(eventId)] = { statusId, prevStatusId };
@@ -345,8 +374,8 @@ export const useEventStore = defineStore('event', {
   getters: {
     // A felhasználóhoz kapcsolódó események (amiben EventUser-ként benne van)
     myEvents: (state) => {
-      const myEventIds = state.eventUsers.map(eu => eu.EventID);
-      return state.events.filter(e => myEventIds.includes(e.id));
+      const myEventIds = new Set(state.eventUsers.map((eu) => Number(eu.EventID)));
+      return state.events.filter((e) => myEventIds.has(Number(e.id)));
     },
     activeMyEvents(): any[] {
       return this.myEvents.filter((e: any) => new Date(e.EndAtUtc) >= new Date());
@@ -526,20 +555,53 @@ export const useEventStore = defineStore('event', {
     getMyEventUserStatus() {
       return (
         eventId: number | string
-      ): { statusId: number; name: string; color: string } | null => {
-        const eu = this.getDisplayEventUserForEvent(eventId);
-        const statusId = nullableNumericId(eu?.EventUserStatusID);
-        if (statusId == null) return null;
+      ): {
+        eventUserId: number;
+        statusId: number;
+        name: string;
+        color: string;
+        needUserApproval: boolean;
+        needOrganizerApproval: boolean;
+      } | null => {
         const masterDataStore = useMasterDataStore();
-        const row = (masterDataStore.eventUserStatuses || []).find(
-          (s: any) => Number(s.id ?? s.ID ?? s.Id) === statusId
-        ) as Record<string, unknown> | undefined;
-        const name = String(row?.StatusName ?? row?.Name ?? row?.statusName ?? '').trim();
-        if (!name) return null;
-        const color = String(
-          row?.ColorCode ?? row?.ColorHex ?? row?.colorCode ?? row?.colorHex ?? ''
-        ).trim();
-        return { statusId, name, color: color || '#38bdf8' };
+        const rows = this.getEventUsersForEvent(eventId);
+        const pendingUserRow = rows.find((eu) => {
+          const sid = nullableNumericId(eu.EventUserStatusID);
+          return (
+            masterDataStore.eventUserStatusNeedsUserApproval(sid) ||
+            isTruthyFlag(eu.NeedUserApprovalFlg ?? eu.needUserApprovalFlg)
+          );
+        });
+        const eu = pendingUserRow || this.getDisplayEventUserForEvent(eventId);
+        const statusId = nullableNumericId(eu?.EventUserStatusID);
+        const eventUserId = nullableNumericId(eu?.id);
+        if (statusId == null || eventUserId == null) return null;
+
+        const row = findEventUserStatus(masterDataStore.eventUserStatuses, statusId);
+        const catalogName = eventUserStatusName(row);
+        const fallbackName = masterDataStore.getEventUserStatusName(statusId);
+        const resolvedName =
+          catalogName || (fallbackName && fallbackName !== 'Ismeretlen' ? fallbackName : '');
+        if (!resolvedName) return null;
+
+        const needUserApproval =
+          masterDataStore.eventUserStatusNeedsUserApproval(statusId) ||
+          isTruthyFlag(eu?.NeedUserApprovalFlg ?? eu?.needUserApprovalFlg) ||
+          resolvedName
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toLowerCase()
+            .includes('meghivott');
+        const needOrganizerApproval = masterDataStore.eventUserStatusNeedsOrganizerApproval(statusId);
+
+        return {
+          eventUserId,
+          statusId,
+          name: resolvedName,
+          color: eventUserStatusColor(row) || '#38bdf8',
+          needUserApproval,
+          needOrganizerApproval,
+        };
       };
     },
     /**
@@ -591,8 +653,15 @@ export const useEventStore = defineStore('event', {
       this.tickets = normalizeTickets(data.Tickets || data.tickets || []);
       this.eventUsers = normalizeEventUsers(data.EventUsers || data.eventUsers || []);
       this.eventTypeOwners = data.EventTypeOwners || [];
+      pruneLocalEventUserStatusPatches(this.eventUsers);
+      this.reapplyLocalEventUserStatuses();
       this.reapplyLocalEventStatuses();
       this.reapplyAllLocalPtaDraws();
+    },
+
+    async refreshEventData() {
+      const response = await api.get('/api/event/data');
+      this.setEventData(unwrapApiPayload(response.data));
     },
 
     upsertEvents(rows: unknown[]) {
@@ -695,11 +764,24 @@ export const useEventStore = defineStore('event', {
         warnIfDatasetMissing('event.userdata.EventParticpants', participants, data);
       }
 
+      // userdata EventUsers (saját sorok) — meghívó státusz ne legyen helyi Belépett alá írva
+      if (userdataUsers.length) {
+        const byId = new Map(this.eventUsers.map((row) => [row.id, row]));
+        for (const row of userdataUsers) byId.set(row.id, row);
+        this.eventUsers = [...byId.values()];
+        pruneLocalEventUserStatusPatches(userdataUsers);
+      }
+
       this.reapplyLocalEventUserStatuses();
       this.reapplyLocalEventStatuses();
       this.reapplyLocalPtaDraw(this.eventUserScreenContext?.eventId ?? null);
 
       return this.eventUserScreenContext;
+    },
+
+    /** Ha az API meghívott (NeedUserApproval), a helyi patch ne írja felül. */
+    pruneStaleEventUserStatusPatches() {
+      pruneLocalEventUserStatusPatches(this.eventUsers);
     },
 
     reapplyAllLocalPtaDraws() {

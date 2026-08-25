@@ -1,5 +1,15 @@
 import { isActiveFlag, isTruthyFlag, nullableNumericId } from './apiPayload';
 
+/** tblEventUserStatus — master EventUserStatuses */
+export interface EventUserStatus {
+  id: number;
+  StatusName: string;
+  ColorCode?: string;
+  NeedUserApprovalFlg: boolean;
+  NeedOrganizerApprovalFlg: boolean;
+  ActiveFlg?: boolean | number;
+}
+
 /** tblEventUserFlowTemplate — master RS20 JSON: EventUserFlowTemplates */
 export interface EventUserFlowTemplate {
   id: number;
@@ -152,10 +162,63 @@ function rowActive(row: Record<string, unknown>): boolean {
   return isActiveFlag(row.ActiveFlg ?? row.activeFlg);
 }
 
+export const PENDING_USER_APPROVAL_LABEL = 'Megerősítésre vár';
+export const PENDING_USER_APPROVAL_COLOR = '#fbbf24';
+
+export function eventUserStatusNeedsUserApproval(row: unknown): boolean {
+  if (!row || typeof row !== 'object') return false;
+  const rec = row as Record<string, unknown>;
+  return isTruthyFlag(
+    rec.NeedUserApprovalFlg ?? rec.needUserApprovalFlg ?? rec.NeedUserApprovalFLG
+  );
+}
+
+export function eventUserStatusNeedsOrganizerApproval(row: unknown): boolean {
+  if (!row || typeof row !== 'object') return false;
+  const rec = row as Record<string, unknown>;
+  return isTruthyFlag(
+    rec.NeedOrganizerApprovalFlg ??
+      rec.needOrganizerApprovalFlg ??
+      rec.NeedOrganizerApprovalFLG
+  );
+}
+
+export function statusIdNeedsUserApproval(
+  eventUserStatuses: unknown[],
+  statusId: number | null | undefined
+): boolean {
+  return eventUserStatusNeedsUserApproval(findEventUserStatus(eventUserStatuses, statusId));
+}
+
+export function statusIdNeedsOrganizerApproval(
+  eventUserStatuses: unknown[],
+  statusId: number | null | undefined
+): boolean {
+  return eventUserStatusNeedsOrganizerApproval(findEventUserStatus(eventUserStatuses, statusId));
+}
+
+export function normalizeEventUserStatuses(rows: unknown[]): EventUserStatus[] {
+  return (rows || [])
+    .filter((row): row is Record<string, unknown> => !!row && typeof row === 'object')
+    .filter(rowActive)
+    .map((row) => ({
+      ...row,
+      id: rowId(row) as number,
+      StatusName: eventUserStatusName(row),
+      ColorCode: eventUserStatusColor(row) || undefined,
+      NeedUserApprovalFlg: eventUserStatusNeedsUserApproval(row),
+      NeedOrganizerApprovalFlg: eventUserStatusNeedsOrganizerApproval(row),
+      ActiveFlg: row.ActiveFlg ?? row.activeFlg,
+    }))
+    .filter((row) => row.id !== undefined && Number.isFinite(row.id));
+}
+
 export function eventUserStatusName(row: unknown): string {
   if (!row || typeof row !== 'object') return '';
   const rec = row as Record<string, unknown>;
-  return String(rec.StatusName ?? rec.Name ?? rec.statusName ?? '').trim();
+  return String(
+    rec.StatusName ?? rec.Name ?? rec.statusName ?? rec.SName ?? rec.EventUserStatusName ?? ''
+  ).trim();
 }
 
 export function findEventUserStatus(
