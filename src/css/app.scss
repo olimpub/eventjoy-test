@@ -28,9 +28,14 @@ body {
   background: #0f172a;
 }
 
+/* Scroll here — html/body/#q-app stay overflow:hidden so the bottom nav
+   is not clipped. Pages without their own scroller (Résztvevők, stb.)
+   need this pane to be overflow-y: auto. */
 .ej-app__main {
   min-height: 0;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   position: relative;
 }
 
