@@ -8,8 +8,10 @@ declare module '@vue/runtime-core' {
   }
 }
 
-// Beállíthatjuk az Azure Functions alap URL-t
-const api = axios.create({ baseURL: process.env.API_URL || 'https://testapi.eventjoy.hu/' });
+// Lokálisan a .env.local VITE_API_URL értékét, buildben a publikus API-t használjuk.
+const api = axios.create({
+  baseURL: import.meta.env.VITE_API_URL || 'https://testapi.eventjoy.hu/api',
+});
 
 // AXIOS INTERCEPTOR: Automatikusan hozzáfűzi a JWT Token-t minden kéréshez!
 api.interceptors.request.use((config) => {

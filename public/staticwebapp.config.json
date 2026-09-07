@@ -1,0 +1,13 @@
+{
+  "navigationFallback": {
+    "rewrite": "/index.html",
+    "exclude": [
+      "/assets/*",
+      "/icons/*",
+      "/*.{css,js,ico,png,svg,jpg,jpeg,gif,webp,woff,woff2,ttf,map,webmanifest,json}"
+    ]
+  },
+  "globalHeaders": {
+    "Cross-Origin-Opener-Policy": "same-origin-allow-popups"
+  }
+}

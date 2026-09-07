@@ -133,6 +133,6 @@ export function parseInvitePayload(raw: unknown, fallbackUid = ''): InviteSnapsh
 }
 
 export async function fetchInviteByUid(uid: string): Promise<InviteSnapshot> {
-  const response = await api.get(`/api/invite/${encodeURIComponent(uid)}`);
+  const response = await api.get(`/invite/${encodeURIComponent(uid)}`);
   return parseInvitePayload(response.data, uid);
 }

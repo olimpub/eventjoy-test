@@ -183,11 +183,18 @@
       <ComingSoonCube :title="soonLabel" :icon="soonIcon" />
     </q-dialog>
 
+    <EventProgramEditor
+      v-model="isProgramEditorOpen"
+      :event-id="eventId"
+      @saved="onWizardSaved"
+    />
+
     <CreateEventWizard
       v-if="wizardVisible"
       v-model="wizardVisible"
       mode="edit"
       :event-id="eventId"
+      @saved="onWizardSaved"
     />
   </q-page>
 </template>
@@ -198,12 +205,14 @@ import { useRoute, useRouter } from 'vue-router';
 import { useQuasar } from 'quasar';
 import CreateEventWizard from 'src/components/event-wizard/CreateEventWizard.vue';
 import ComingSoonCube from 'src/components/event/ComingSoonCube.vue';
+import EventProgramEditor from 'src/components/event/EventProgramEditor.vue';
 import RoleSwitchChip from 'src/components/event/RoleSwitchChip.vue';
 import { useCommunicationStore } from 'src/stores/communication';
 import { useEventStore } from 'src/stores/event';
 import { useMasterDataStore } from 'src/stores/masterData';
 import { findEventStatus, type EventStatusTransition } from 'src/utils/eventFlow';
-import { nullableNumericId } from 'src/utils/apiPayload';
+import { nullableNumericId, readAxiosErrorMessage } from 'src/utils/apiPayload';
+import { setEventStatus } from 'src/utils/eventChange';
 
 const route = useRoute();
 const router = useRouter();
@@ -216,6 +225,7 @@ const isSoonOpen = ref(false);
 const soonLabel = ref('Hamarosan');
 const soonIcon = ref('sym_r_schedule');
 const isStatusSheetOpen = ref(false);
+const isProgramEditorOpen = ref(false);
 const transitioning = ref(false);
 const isConfirmOpen = ref(false);
 const confirmTitle = ref('Megerősítés');
@@ -457,6 +467,8 @@ const manageActions = computed(() => {
   }> = [
     { id: 'participants', label: 'Résztvevők', icon: 'sym_r_group', onClick: openParticipants },
     { id: 'edit', label: 'Szerkesztés', icon: 'sym_r_edit_square', onClick: openWizard },
+    { id: 'cover', label: 'Borítókép', icon: 'sym_r_add_a_photo', onClick: () => comingSoon('Borítókép', 'sym_r_add_a_photo') },
+    { id: 'program', label: 'Programok', icon: 'sym_r_view_timeline', onClick: openProgramEditor },
     { id: 'tickets', label: 'Jegykezelés', icon: 'sym_r_qr_code_scanner', onClick: openScan },
     { id: 'files', label: 'Anyagok', icon: 'sym_r_folder', onClick: () => comingSoon('Anyagok', 'sym_r_folder') },
     {
@@ -520,7 +532,7 @@ function onConfirmHide() {
 }
 
 function closePanel() {
-  router.push({ path: `/event/${eventId.value}` });
+  void router.push({ name: 'my_events' });
 }
 
 async function loadDataSheet() {
@@ -539,6 +551,10 @@ async function loadDataSheet() {
       style: 'background: rgba(11, 15, 25, 0.85);',
     });
   }
+}
+
+function onWizardSaved() {
+  void loadDataSheet();
 }
 
 onMounted(() => {
@@ -581,7 +597,9 @@ async function onUndoClick() {
 
   transitioning.value = true;
   try {
-    eventStore.applyEventStatus(eventId.value, prevId, null);
+    const id = nullableNumericId(eventId.value);
+    if (id == null) throw new Error('Hiányzó esemény.');
+    await setEventStatus({ eventId: id, toStatusId: prevId, prevStatusId: null });
     $q.notify({
       message: `Visszavonva: ${prevName}`,
       color: 'dark',
@@ -589,6 +607,16 @@ async function onUndoClick() {
       position: 'top',
       timeout: 1800,
       classes: 'border border-blue-500/30 rounded-xl q-px-lg q-py-md font-bold text-[13px] mt-4',
+      style: 'background: rgba(11, 15, 25, 0.85);',
+    });
+  } catch (error) {
+    $q.notify({
+      message: readAxiosErrorMessage(error, 'A visszavonás sikertelen.'),
+      color: 'dark',
+      textColor: 'red-4',
+      position: 'top',
+      timeout: 2400,
+      classes: 'border border-red-500/30 rounded-xl q-px-lg q-py-md font-bold text-[13px] mt-4',
       style: 'background: rgba(11, 15, 25, 0.85);',
     });
   } finally {
@@ -626,8 +654,14 @@ async function onSelectTransition(item: EventStatusTransition) {
 
   transitioning.value = true;
   try {
+    const id = nullableNumericId(eventId.value);
+    if (id == null) throw new Error('Hiányzó esemény.');
     const prevToStore = item.canRecordPrev ? nullableNumericId(eventStatusId.value) : null;
-    eventStore.applyEventStatus(eventId.value, item.toStatusId, prevToStore);
+    await setEventStatus({
+      eventId: id,
+      toStatusId: item.toStatusId,
+      prevStatusId: prevToStore,
+    });
     isStatusSheetOpen.value = false;
     $q.notify({
       message: `Státusz: ${item.toStatusName}`,
@@ -638,6 +672,16 @@ async function onSelectTransition(item: EventStatusTransition) {
       classes: 'border border-blue-500/30 rounded-xl q-px-lg q-py-md font-bold text-[13px] mt-4',
       style: 'background: rgba(11, 15, 25, 0.85);',
     });
+  } catch (error) {
+    $q.notify({
+      message: readAxiosErrorMessage(error, 'A státuszváltás sikertelen.'),
+      color: 'dark',
+      textColor: 'red-4',
+      position: 'top',
+      timeout: 2400,
+      classes: 'border border-red-500/30 rounded-xl q-px-lg q-py-md font-bold text-[13px] mt-4',
+      style: 'background: rgba(11, 15, 25, 0.85);',
+    });
   } finally {
     transitioning.value = false;
   }
@@ -645,6 +689,10 @@ async function onSelectTransition(item: EventStatusTransition) {
 
 function openWizard() {
   wizardVisible.value = true;
+}
+
+function openProgramEditor() {
+  isProgramEditorOpen.value = true;
 }
 
 function comingSoon(label: string, icon = 'sym_r_schedule') {

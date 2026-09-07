@@ -289,23 +289,26 @@
         </div>
       </q-page>
     </q-page-container>
+    <PtaBusyOverlay :model-value="workBusy" :label="workLabel" />
   </q-layout>
 </template>
 
 <script setup lang="ts">
 import { ref, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
-import { useQuasar, QSpinnerOrbit, QSpinnerPuff, QSpinnerGrid, QSpinnerAudio } from 'quasar'
+import { useQuasar } from 'quasar'
 import { useAuthStore } from 'src/stores/auth'
 import { api } from 'src/boot/axios'
 import { AsYouType, isValidPhoneNumber } from 'libphonenumber-js'
-import { googleTokenLogin } from 'vue3-google-login'
-import axios from 'axios'
-import { EVENTJOY_BRAND } from 'src/assets/brand'
+import { fetchSocialProfile, socialApiErrorMessage, SocialAuthError } from 'src/utils/socialAuth'
+import { EVENTJOY_BRAND } from 'src/assets/brand/eventjoy'
+import PtaBusyOverlay from 'src/modules/profitability/components/PtaBusyOverlay.vue'
 
 const router = useRouter()
 const $q = useQuasar()
 const authStore = useAuthStore()
+const workBusy = ref(false)
+const workLabel = ref('Bejelentkezés…')
 
 // State
 const step = ref<'identity' | 'password' | 'otp' | 'register'>('identity')
@@ -370,7 +373,7 @@ async function handleCheckIdentity() {
   
   try {
     const result = await authStore.checkIdentity(rawIdentity)
-    $q.loading.hide()
+    hideLoading()
     
     if (result.StatusID === 4) {
       showToast('Ez a fiók fel lett függesztve!', 'warning')
@@ -391,7 +394,7 @@ async function handleCheckIdentity() {
       step.value = 'register'
     }
   } catch (error: any) {
-    $q.loading.hide()
+    hideLoading()
     const msg = error.response?.data?.Result1?.ReturnDescription || 'Hiba történt a szerverrel való kommunikációban.'
     showToast(msg, 'warning')
   }
@@ -407,13 +410,13 @@ async function requestOtpDirectly() {
     const isEmail = rawIdentity.includes('@')
     const payload = isEmail ? { EmailAddress: rawIdentity } : { PhoneNumber: rawIdentity }
     
-    await api.post('/api/auth/request-otp', payload)
+    await api.post('/auth/request-otp', payload)
     
-    $q.loading.hide()
+    hideLoading()
     step.value = 'otp'
     showToast('Kódot elküldtük az azonosítódra!', 'info')
   } catch (error: any) {
-    $q.loading.hide()
+    hideLoading()
     const msg = error.response?.data?.Result1?.ReturnDescription || 'Nem sikerült elküldeni a kódot.'
     showToast(msg, 'warning')
   }
@@ -449,11 +452,11 @@ async function handlePasswordLogin() {
     showLoading('Adatok szinkronizálása...')
     await authStore.fetchBootData()
     
-    $q.loading.hide()
+    hideLoading()
     showToast(`Üdvözlünk újra az EventJoy-ban!`, 'positive')
     router.push('/')
   } catch (error: any) {
-    $q.loading.hide()
+    hideLoading()
     const msg = error.response?.data?.Result1?.ReturnDescription || 'Hibás jelszó!'
     showToast(msg, 'warning')
   }
@@ -489,11 +492,11 @@ async function handleOtpLogin() {
     showLoading('Adatok szinkronizálása...')
     await authStore.fetchBootData()
     
-    $q.loading.hide()
+    hideLoading()
     showToast('Sikeres belépés!', 'positive')
     router.push('/')
   } catch (error: any) {
-    $q.loading.hide()
+    hideLoading()
     const msg = error.response?.data?.Result1?.ReturnDescription || 'Hibás vagy lejárt kód!'
     showToast(msg, 'warning')
   }
@@ -527,11 +530,11 @@ async function handleRegister() {
     showLoading('Környezet előkészítése...')
     await authStore.fetchBootData()
     
-    $q.loading.hide()
+    hideLoading()
     showToast('Fiók sikeresen létrehozva!', 'positive')
     router.push('/')
   } catch (error: any) {
-    $q.loading.hide()
+    hideLoading()
     const msg = error.response?.data?.Result1?.ReturnDescription || 'Hiba a regisztráció során!'
     showToast(msg, 'warning')
   }
@@ -539,117 +542,52 @@ async function handleRegister() {
 
 // 5. Social Login
 async function socialLogin(provider: string) {
-  if (provider === 'Google') {
-    try {
-      showLoading('Google bejelentkezés inicializálása...')
-      
-      const response = await googleTokenLogin()
-      if (!response?.access_token) {
-        $q.loading.hide()
-        showToast('Nem sikerült a Google bejelentkezés.', 'warning')
-        return
-      }
-
-      showLoading('Felhasználói adatok lekérése...')
-      
-      // Get user info from Google using the access token
-      const userInfoRes = await axios.get(`https://www.googleapis.com/oauth2/v3/userinfo?access_token=${response.access_token}`)
-      const userInfo = userInfoRes.data
-
-      let deviceId = localStorage.getItem('device_uuid')
-      if (!deviceId) {
-        deviceId = crypto.randomUUID()
-        localStorage.setItem('device_uuid', deviceId)
-      }
-
-      const payload = {
-        Provider: 'Google',
-        ProviderId: userInfo.sub, // Google egyedi ID
-        EmailAddress: userInfo.email,
-        FirstName: userInfo.given_name,
-        LastName: userInfo.family_name,
-        DeviceId: deviceId,
-        DeviceName: 'EventJoy WebApp'
-      }
-
-      showLoading('Bejelentkezés a rendszerbe...')
-      await authStore.socialLogin(payload)
-      
-      showLoading('Adatok szinkronizálása...')
-      await authStore.fetchBootData()
-      
-      $q.loading.hide()
-      showToast('Sikeres belépés a Google fiókkal!', 'positive')
-      router.push('/')
-      
-    } catch (error: any) {
-      $q.loading.hide()
-      console.error(error)
-      const msg = error.response?.data?.Result1?.ReturnDescription || `Hiba történt a Google bejelentkezés során.`
-      showToast(msg, 'warning')
-    }
-    return
-  }
-
-  if (provider === 'Facebook') {
-    try {
-      showLoading('Facebook bejelentkezés inicializálása...')
-      
-      window.FB.login((response: any) => {
-        if (response.authResponse) {
-          showLoading('Felhasználói adatok lekérése...')
-          
-          window.FB.api('/me', { fields: 'id,email,first_name,last_name' }, async (userInfo: any) => {
-            let deviceId = localStorage.getItem('device_uuid')
-            if (!deviceId) {
-              deviceId = crypto.randomUUID()
-              localStorage.setItem('device_uuid', deviceId)
-            }
-
-            const payload = {
-              Provider: 'Facebook',
-              ProviderId: userInfo.id, // Facebook egyedi ID
-              EmailAddress: userInfo.email,
-              FirstName: userInfo.first_name,
-              LastName: userInfo.last_name,
-              DeviceId: deviceId,
-              DeviceName: 'EventJoy WebApp'
-            }
-
-            try {
-              showLoading('Bejelentkezés a rendszerbe...')
-              await authStore.socialLogin(payload)
-              
-              showLoading('Adatok szinkronizálása...')
-              await authStore.fetchBootData()
-              
-              $q.loading.hide()
-              showToast('Sikeres belépés a Facebook fiókkal!', 'positive')
-              router.push('/')
-            } catch (err: any) {
-              $q.loading.hide()
-              console.error(err)
-              const msg = err.response?.data?.Result1?.ReturnDescription || `Hiba történt a Facebook bejelentkezés során.`
-              showToast(msg, 'warning')
-            }
-          })
-        } else {
-          $q.loading.hide()
-          showToast('A Facebook bejelentkezés megszakítva.', 'warning')
-        }
-      }, { scope: 'public_profile,email' })
-      
-    } catch (error: any) {
-      $q.loading.hide()
-      console.error(error)
-      showToast('Hiba a Facebook inicializálása közben.', 'warning')
-    }
-    return
-  }
-
   if (provider === 'Apple') {
     showToast('Az Apple bejelentkezés hamarosan elérhető lesz az iOS verzióval!', 'info')
     return
+  }
+
+  if (provider !== 'Google' && provider !== 'Facebook') return
+
+  try {
+    showLoading(provider === 'Google' ? 'Google bejelentkezés inicializálása...' : 'Facebook bejelentkezés inicializálása...')
+    const profile = await fetchSocialProfile(provider)
+
+    let deviceId = localStorage.getItem('device_uuid')
+    if (!deviceId) {
+      deviceId = crypto.randomUUID()
+      localStorage.setItem('device_uuid', deviceId)
+    }
+
+    showLoading('Bejelentkezés a rendszerbe...')
+    await authStore.socialLogin({
+      ...profile,
+      DeviceId: deviceId,
+      DeviceName: 'EventJoy WebApp',
+    })
+
+    showLoading('Adatok szinkronizálása...')
+    await authStore.fetchBootData()
+
+    hideLoading()
+    showToast(
+      provider === 'Google' ? 'Sikeres belépés a Google fiókkal!' : 'Sikeres belépés a Facebook fiókkal!',
+      'positive'
+    )
+    router.push('/')
+  } catch (error: unknown) {
+    hideLoading()
+    console.error(error)
+    const cancelled = error instanceof SocialAuthError && error.cancelled
+    showToast(
+      socialApiErrorMessage(
+        error,
+        provider === 'Google'
+          ? 'Hiba történt a Google bejelentkezés során.'
+          : 'Hiba történt a Facebook bejelentkezés során.'
+      ),
+      cancelled ? 'warning' : 'warning'
+    )
   }
 }
 
@@ -671,15 +609,12 @@ function showToast(message: string, type: 'positive' | 'warning' | 'info') {
 }
 
 function showLoading(message: string) {
-  $q.loading.show({
-    message,
-    spinner: QSpinnerAudio, // ALTERNATÍVÁK: QSpinnerOrbit, QSpinnerPuff, QSpinnerGrid
-    spinnerSize: 80,
-    boxClass: 'bg-transparent border-none shadow-none', // Eltüntetjük a négyzetes dobozt!
-    spinnerColor: 'brand-primary',
-    messageColor: 'white',
-    customClass: 'font-black tracking-widest text-lg mt-4'
-  })
+  workLabel.value = message
+  workBusy.value = true
+}
+
+function hideLoading() {
+  workBusy.value = false
 }
 </script>
 

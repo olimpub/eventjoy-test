@@ -16,7 +16,6 @@ export interface BuildPtaDrawInput {
   reserves: PtaDrawPlayerDraft[];
   templateRounds: PtaGameTypeRound[];
   drawnStatusId: number | null;
-  gameMasterUserIds: number[];
   remainingDesks: Record<string, unknown>[];
   remainingRounds: Record<string, unknown>[];
   remainingRoundDesks: Record<string, unknown>[];
@@ -150,16 +149,14 @@ export function buildPtaDraw(input: BuildPtaDrawInput): PtaDrawBuildResult {
 
   const desks = Array.from({ length: deskCount }, (_, index) => {
     const eventDeskId = deskSeq.next();
-    const gm = input.gameMasterUserIds.length
-      ? input.gameMasterUserIds[index % input.gameMasterUserIds.length]
-      : null;
     return {
       EventDeskID: eventDeskId,
       id: eventDeskId,
       EventID: input.eventId,
+      DeskNumber: index + 1,
       DeskNo: index + 1,
       DName: `${index + 1}. asztal`,
-      GameMasterUserID: gm,
+      GameMasterUserID: null,
       ActiveFlg: true,
     } as Record<string, unknown>;
   });

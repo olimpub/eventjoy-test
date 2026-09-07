@@ -8,6 +8,15 @@ import { nullableNumericId } from 'src/utils/apiPayload';
 
 export type EventDatasheetKind = 'organizer' | 'gamemaster' | 'contributor' | 'player';
 
+/** SignalR role group: event_{id}_{role} */
+export type SignalRLiveRole = 'organizer' | 'contributor' | 'participant';
+
+export function signalRRoleFromDatasheetKind(kind: EventDatasheetKind): SignalRLiveRole {
+  if (kind === 'organizer') return 'organizer';
+  if (kind === 'player') return 'participant';
+  return 'contributor';
+}
+
 function foldLabel(value: string): string {
   return value
     .normalize('NFD')
@@ -94,7 +103,6 @@ export function eventGameMasterPath(eventId: string | number): string {
 
 function eventStatusContext(eventId: string | number) {
   const eventStore = useEventStore();
-  eventStore.reapplyLocalEventStatuses();
   const ev = resolveEventRecord(eventId);
   const statusId = ev
     ? Number(ev.EventStatusID ?? ev.eventStatusID ?? ev.StatusID ?? ev.StatusId ?? NaN)
@@ -135,7 +143,7 @@ function eventReachedCheckIn(eventId: string | number): boolean {
   });
 }
 
-function isEventUserCheckedInName(name: string): boolean {
+export function isEventUserCheckedInName(name: string): boolean {
   const hay = foldLabel(name);
   if (!hay || hay === 'ismeretlen') return false;
   return (
@@ -218,6 +226,20 @@ export function eventRolePath(
     default:
       return `/event/${eventId}/contribute`;
   }
+}
+
+export function navigateToOrganizerDatasheet(
+  router: Router,
+  eventId: string | number,
+  eventTypeId?: number | null
+) {
+  const eventStore = useEventStore();
+  const roles = eventStore.getEnterableRolesForEvent(eventId, eventTypeId);
+  const organizer = roles.find((r) => r.isOrganizer) || roles[0] || null;
+  return router.push({
+    path: eventOrganizerManagePath(eventId, eventTypeId),
+    query: eventRoleQuery(organizer),
+  });
 }
 
 export function navigateToEventRole(

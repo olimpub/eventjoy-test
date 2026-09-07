@@ -4,7 +4,7 @@
       <img src="~assets/eventjoy_icon.svg" alt="" class="w-full h-full object-contain" />
     </div>
 
-    <div class="relative z-10 px-3 sm:px-6 pt-4 pb-24 max-w-2xl mx-auto w-full">
+    <div class="relative z-10 game-shell">
       <header class="game-header">
         <button type="button" class="game-back" aria-label="Vissza" @click="goBack">
           <q-icon name="arrow_back" size="20px" />
@@ -32,12 +32,18 @@
           type="button"
           class="game-ctrl game-ctrl--start"
           :disabled="checkedInCount < 4 || drawing"
-          @click="runDraw"
+          @click="onStartDraw"
         >
           <q-icon name="shuffle" size="20px" />
           {{ drawing ? 'Sorsolás…' : 'Fordulók generálása' }}
         </button>
-        <p v-else class="game-empty__wait">A sorsolást a szervező indítja.</p>
+        <p v-else class="game-empty__wait">
+          {{
+            isOrganizerView && !isDrawStatus
+              ? 'A sorsolás a Sorsolás státuszban indítható, amíg nincs rögzített eredmény.'
+              : 'A sorsolást a szervező indítja.'
+          }}
+        </p>
       </section>
 
       <template v-else>
@@ -130,10 +136,23 @@
               />
             </template>
           </q-input>
+          <button
+            v-if="canRedraw"
+            type="button"
+            class="game-ctrl game-ctrl--start"
+            :disabled="drawing || drawSaving || checkedInCount < 4"
+            @click="onRedrawDraw"
+          >
+            <q-icon name="shuffle" size="20px" />
+            {{ drawing ? 'Újrasorsolás…' : 'Újrasorsolás' }}
+          </button>
         </div>
 
         <p v-if="reserveCount" class="game-hint">
           Tartalék / csere: {{ reserveCount }} fő
+        </p>
+        <p v-if="resultsEntryHint" class="game-hint">
+          {{ resultsEntryHint }}
         </p>
         <p v-if="canClaimTables && !hasClaimedTables && filteredTables.length" class="game-hint">
           A pajzs ikonnal jelöld meg a saját asztalaidat — azok felülre kerülnek.
@@ -158,13 +177,10 @@
                 :key="table.id"
                 class="game-table"
                 :class="{
-                  'is-selected': selectedTableId === table.id,
+                  'is-selected': selectedTableId === table.id && isTableSheetOpen,
                   'is-mine': table.isMine,
                 }"
-                role="button"
-                tabindex="0"
-                @click="onTableClick(table.id)"
-                @keydown.enter.prevent="onTableClick(table.id)"
+                @click="onTableClick(table.id, $event)"
               >
             <div class="game-table__head">
               <span class="game-table__name">
@@ -177,11 +193,13 @@
                 class="game-table__claim"
                 :class="{
                   'is-on': table.isMine,
-                  'is-taken': !!table.gameMasterUserId && !table.isMine,
+                  'is-taken': isClaimTaken(table),
                 }"
+                :disabled="isClaimTaken(table)"
                 :title="claimTitle(table)"
                 :aria-label="claimTitle(table)"
-                @click.stop="toggleClaim(table)"
+                @pointerdown.stop.prevent="onClaimPointerDown(table, $event)"
+                @click.stop.prevent
               >
                 <q-icon name="sym_r_swords" size="14px" />
                 JM
@@ -201,7 +219,7 @@
             >
               <span class="game-seat__dot" :style="{ background: seat.color }" />
               <span class="game-seat__name" :style="{ color: seat.color }">{{ seat.name }}</span>
-              <span v-if="table.isClosed" class="game-seat__points">
+              <span v-if="table.isClosed || tableHasScores(table)" class="game-seat__points">
                 {{ seat.resultPoint == null ? '—' : seat.resultPoint + ' e' }}
               </span>
             </div>
@@ -240,6 +258,10 @@
             <span class="game-round__status" :class="statusClass(statusSheetRound.status)">
               {{ statusSheetRound.status }}
             </span>
+          </p>
+          <p class="game-sheet__hint">
+            Lezárt: a fordulónak vége, a játékosok még nem látják az eredményt.
+            Publikált: a játékosok SignalR-en megkapják és megjelenik náluk.
           </p>
           <div class="game-sheet__list">
             <button
@@ -315,10 +337,13 @@
               <span>{{ photoMandatory ? 'Kamera (kötelező)' : 'Kamera' }}</span>
             </span>
           </button>
-          <p v-if="deskHasTie && !selectedTable.manualOrder" class="game-desk__tie">
+          <p v-if="resultsEntryHint" class="game-desk__tie">
+            {{ resultsEntryHint }}
+          </p>
+          <p v-else-if="deskHasTie && !selectedTable.manualOrder" class="game-desk__tie">
             Holtverseny — húzd a sorokat a végső sorrendhez.
           </p>
-          <div class="game-rank">
+          <div class="game-rank" :class="{ 'is-locked': deskLocked }">
             <div class="game-rank__cols" aria-hidden="true">
               <span class="game-rank__grip" />
               <span class="game-rank__place" />
@@ -349,10 +374,11 @@
                 enterkeyhint="next"
                 maxlength="2"
                 :disabled="deskLocked"
-                :value="seat.amount ?? ''"
+                :value="amountDraftOf(seat.playerId, seat.amount)"
                 placeholder="1–99"
                 aria-label="Összeg"
-                @focus="onAmountFocus($event)"
+                @focus="onAmountFocus(seat.playerId, $event)"
+                @input="onAmountInput(seat.playerId, $event)"
                 @blur="onAmountBlur(seat.playerId, $event)"
                 @keydown.enter.prevent="onAmountEnter(index, $event)"
               />
@@ -363,10 +389,11 @@
                 enterkeyhint="next"
                 maxlength="2"
                 :disabled="deskLocked"
-                :value="seat.onTrack ?? 0"
+                :value="truckDraftOf(seat.playerId, seat.onTrack)"
                 placeholder="0"
                 aria-label="Kamion"
-                @focus="onTruckFocus($event)"
+                @focus="onTruckFocus(seat.playerId, $event)"
+                @input="onTruckInput(seat.playerId, $event)"
                 @blur="onTruckBlur(seat.playerId, $event)"
                 @keydown.enter.prevent="onTruckEnter(index, $event)"
               />
@@ -377,20 +404,25 @@
           </div>
 
           <button
-            v-if="!selectedTable.isClosed"
+            v-if="canEnterResults && !selectedTable.isClosed"
             type="button"
             class="game-close-desk"
+            :disabled="deskSaving"
             @click="closeDesk"
           >
-            Asztal lezárása
+            {{ deskSaving ? 'Mentés…' : 'Asztal lezárása' }}
           </button>
 
           <button
             v-if="canClaimTables"
             type="button"
             class="game-desk__claim"
-            :class="{ 'is-on': selectedTable.isMine }"
-            @click="toggleClaim(selectedTable)"
+            :class="{
+              'is-on': selectedTable.isMine,
+              'is-taken': isClaimTaken(selectedTable),
+            }"
+            :disabled="isClaimTaken(selectedTable)"
+            @click.stop.prevent="onClaimClick(selectedTable)"
           >
             <span class="game-desk__claim-icon">
               <q-icon name="sym_r_swords" size="26px" />
@@ -434,6 +466,16 @@
       class="hidden"
       @change="onPhotoPicked"
     />
+
+    <DrawSummarySheet
+      v-model="isDrawSummaryOpen"
+      :summary="drawSummary"
+      :busy="workBusy"
+      @redraw="onRedrawDraw"
+      @finalize="onFinalizeDraw"
+    />
+
+    <PtaBusyOverlay :model-value="workBusy" :label="workLabel" />
   </q-page>
 </template>
 
@@ -441,20 +483,36 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useQuasar } from 'quasar';
-import { nullableNumericId } from 'src/utils/apiPayload';
-import { membershipRoleKind } from 'src/utils/eventUserStatus';
-import { PLAYERS_PER_DESK, PTA_SEAT_COLORS } from 'src/modules/profitability/drawEngine';
+import { eventDatasheetKind, eventRolePath, eventRoleQuery } from 'src/utils/eventRoleNav';
+import { nullableNumericId, readAxiosErrorMessage } from 'src/utils/apiPayload';
+import { claimPtaDesk, closePtaRound, patchPtaDesk, publishPtaRound, replacePtaDraw, setPtaDeskResults, setPtaRoundStatus } from 'src/utils/eventChange';
+import { eventPlayPhase } from 'src/utils/eventFlow';
+import { summarizePtaDraw, type PtaDrawQuality } from 'src/modules/profitability/drawQuality';
+import DrawSummarySheet from 'src/modules/profitability/components/DrawSummarySheet.vue';
+import PtaBusyOverlay from 'src/modules/profitability/components/PtaBusyOverlay.vue';
+import { paintBusy } from 'src/modules/profitability/paintBusy';
+import { pickOpenRoundId, ptaRoundStatusKind, isPublishedStatus, canEnterRoundResults, findPtaRoundStatusIdByNameHints, isLiveStatus as isRoundLiveStatus, isSettledRoundStatus, deskHasRecordedResults } from 'src/modules/profitability/standings';
+import { PLAYERS_PER_DESK, ptaSeatColorFromRow } from 'src/modules/profitability/drawEngine';
+import {
+  bindSchedulesToRoundDesk,
+  ptaDeskNumber,
+  ptaEventDeskId,
+  ptaEventRoundId,
+  ptaRoundDeskId,
+  ptaSchedulePlayerId,
+  resolvePtaSeatName,
+} from 'src/modules/profitability/ptaData';
 import {
   AMOUNT_MAX,
   AMOUNT_MIN,
   rankDeskSeats,
+  scoreNumber,
   TRUCK_MAX,
   TRUCK_MIN,
 } from 'src/modules/profitability/scoreTable';
 import { useEventStore } from 'src/stores/event';
 import { useAuthStore } from 'src/stores/auth';
 import { useMasterDataStore } from 'src/stores/masterData';
-import { eventDatasheetKind, eventRolePath, eventRoleQuery } from 'src/utils/eventRoleNav';
 import '../theme.css';
 import scoreIcon from '../assets/Score.png';
 import scoreTruckIcon from '../assets/ScoreTruck.png';
@@ -462,6 +520,7 @@ import tableIcon from '../assets/Table.png';
 
 interface GameRoundRow {
   id: number;
+  order: number;
   label: string;
   status: string;
   statusId: number | null;
@@ -502,6 +561,11 @@ const masterDataStore = useMasterDataStore();
 
 const eventId = computed(() => String(route.params.id));
 const drawing = ref(false);
+const isDrawSummaryOpen = ref(false);
+const drawSummary = ref<PtaDrawQuality | null>(null);
+const drawSaving = ref(false);
+const workLabel = ref('Sorsolás…');
+const workBusy = computed(() => drawing.value || drawSaving.value || deskSaving.value || roundSaving.value);
 const selectedRoundId = ref<number | null>(null);
 const selectedTableId = ref<number | null>(null);
 const roundsPanelOpen = ref(false);
@@ -513,6 +577,18 @@ const isPhotoPreviewOpen = ref(false);
 const cameraInput = ref<HTMLInputElement | null>(null);
 const dragFromIndex = ref<number | null>(null);
 let rankDragMoved = false;
+const sheetSeats = ref<GameSeatRow[]>([]);
+const sheetManualOrder = ref(false);
+const amountDrafts = ref<Record<number, string>>({});
+const truckDrafts = ref<Record<number, string>>({});
+const focusedScore = ref<{ playerId: number; field: 'amount' | 'truck' } | null>(null);
+const claimingDeskId = ref<number | null>(null);
+let claimPointerAt = 0;
+const deskSaving = ref(false);
+const roundSaving = ref(false);
+let resultsSyncTimer: ReturnType<typeof setTimeout> | null = null;
+let promotingRound = false;
+let pendingRoundPromote = false;
 
 const dbEvent = computed(() => {
   const targetId = eventId.value;
@@ -528,6 +604,20 @@ const eventName = computed(() => {
   if (!e) return 'Esemény';
   return e.Title || e.EventName || e.Name || 'Esemény';
 });
+
+const eventStatusId = computed(() => {
+  const e = dbEvent.value;
+  if (!e) return null;
+  return nullableNumericId(e.EventStatusID ?? e.eventStatusID ?? e.StatusID ?? e.StatusId);
+});
+
+const playPhase = computed(() =>
+  eventPlayPhase(masterDataStore.getEventStatusNameById(eventStatusId.value, ''))
+);
+const isDrawStatus = computed(() => playPhase.value === 'draw');
+const eventReachedGame = computed(
+  () => playPhase.value === 'game' || playPhase.value === 'ceremony' || playPhase.value === 'ended'
+);
 
 const enterableRoles = computed(() => {
   const e = dbEvent.value;
@@ -552,9 +642,10 @@ const enteredRole = computed(() => {
 
 const isOrganizerView = computed(() => eventDatasheetKind(enteredRole.value) === 'organizer');
 const isGameMasterView = computed(() => eventDatasheetKind(enteredRole.value) === 'gamemaster');
-const canChangeRoundStatus = computed(() => isOrganizerView.value);
-const canRunDraw = computed(() => isOrganizerView.value);
-const deskLocked = computed(() => !!selectedTable.value?.isClosed && !isOrganizerView.value);
+const deskLocked = computed(() => {
+  if (!canEnterResults.value) return true;
+  return !!selectedTable.value?.isClosed && !isOrganizerView.value;
+});
 
 const currentUserId = computed(() => {
   const fromAuth = nullableNumericId(
@@ -602,19 +693,22 @@ function roundStatusName(row: Record<string, unknown>): string {
   return String(fromMaster || row.SName || 'Kisorsolva');
 }
 
-function playerName(playerId: number | null): string {
-  if (playerId == null) return '—';
-  const player = eventStore.getPtaPlayersForEvent(eventId.value).find((row) => {
-    return nullableNumericId(row.EventPlayerID ?? row.id) === playerId;
+function seatPeople(): Record<string, unknown>[] {
+  return [
+    ...eventStore.getParticipantDirectoryForEvent(eventId.value),
+    ...eventStore.getEventParticipantsForEvent(eventId.value),
+    ...eventStore.getEventUsersForEvent(eventId.value),
+  ];
+}
+
+function playerName(playerId: number | null, schedule?: Record<string, unknown> | null): string {
+  return resolvePtaSeatName({
+    playerId,
+    players: [...eventStore.getPtaPlayersForEvent(eventId.value), ...eventStore.ptaEventPlayers],
+    people: seatPeople(),
+    eventId: eventId.value,
+    schedule,
   });
-  if (!player) return 'Játékos';
-  const fromPlayer = String(player.DisplayName ?? player.Name ?? '').trim();
-  if (fromPlayer) return fromPlayer;
-  const eventUserId = nullableNumericId(player.EventUserID);
-  if (eventUserId == null) return 'Játékos';
-  const eu = eventStore.getEventParticipantsForEvent(eventId.value).find((row) => row.id === eventUserId);
-  if (!eu) return 'Játékos';
-  return personName(eu as Record<string, unknown>);
 }
 
 function personName(row: Record<string, unknown> | null | undefined): string {
@@ -635,7 +729,7 @@ function gameMasterName(userId: number | null): string {
   const fromEu = eventStore
     .getEventUsersForEvent(eventId.value)
     .find((row) => nullableNumericId(row.UserID ?? row.userID) === userId);
-  return personName(fromEu as Record<string, unknown> | undefined);
+  return personName(fromEu as Record<string, unknown> | undefined) || `GM ${userId}`;
 }
 
 function deskStatusOf(rd: Record<string, unknown>, roundStatus: string): string {
@@ -646,49 +740,41 @@ function deskStatusOf(rd: Record<string, unknown>, roundStatus: string): string 
   return 'Kisorsolva';
 }
 
-const checkedInCount = computed(() => {
-  return eventStore.getEventParticipantsForEvent(eventId.value).filter((eu) => {
-    const eventRole = (eventStore.roles || []).find(
-      (er: any) => Number(er.id) === Number(eu.EventRoleID) || Number(er.ID) === Number(eu.EventRoleID)
-    );
-    const masterRoleId = nullableNumericId(
-      eventRole?.RoleID ?? eventRole?.RoleId ?? eu.RoleID ?? eu.RoleId ?? eu.EventRoleID
-    );
-    const kind = membershipRoleKind({
-      isOrganizer: masterDataStore.isOrganizerRole(masterRoleId),
-      roleTypeName: masterRoleId != null ? masterDataStore.getRoleTypeNameByRoleId(masterRoleId) : '',
-      roleName: masterRoleId != null ? masterDataStore.getRoleNameById(masterRoleId) : '',
-    });
-    if (kind !== 'participant') return false;
-    const statusId = nullableNumericId(eu.EventUserStatusID);
-    const statusName = statusId != null ? masterDataStore.getEventUserStatusName(statusId) : '';
-    return foldText(statusName).includes('belep');
-  }).length;
-});
+const checkedInCount = computed(
+  () => eventStore.getPtaCheckedInDrawPlayers(eventId.value).drafts.length
+);
 
 const expectedDeskCount = computed(() => Math.floor(checkedInCount.value / PLAYERS_PER_DESK));
 const expectedReserveCount = computed(() => checkedInCount.value % PLAYERS_PER_DESK);
 
 const rounds = computed<GameRoundRow[]>(() => {
   const roundDesks = eventStore.getPtaRoundDesksForEvent(eventId.value);
+  const schedules = eventStore.getPtaSchedulesForEvent(eventId.value);
   return eventStore.getPtaRoundsForEvent(eventId.value).map((row, index) => {
-    const id = nullableNumericId(row.EventRoundID ?? row.id) ?? index + 1;
+    const id = ptaEventRoundId(row) ?? nullableNumericId(row.id) ?? index + 1;
     const order = Number(row.OrderIndex ?? index + 1);
     const name = String(row.RName || '').trim();
     const status = roundStatusName(row);
-    const desks = roundDesks.filter((desk) => nullableNumericId(desk.EventRoundID) === id);
+    const desks = roundDesks.filter((desk) => ptaEventRoundId(desk) === id);
     return {
       id,
+      order,
       label: name || `${order}. forduló`,
       status,
       statusId: nullableNumericId(row.EventRoundStatusID),
       deskCount: desks.length,
-      closedDeskCount: desks.filter((desk) => isClosedStatus(deskStatusOf(desk, status))).length,
+      closedDeskCount: desks.filter((desk) => deskHasRecordedResults(desk, status, schedules, desks)).length,
     };
   });
 });
 
 const hasDraw = computed(() => rounds.value.length > 0);
+const hasRecordedResults = computed(() => eventStore.hasPtaRecordedResults(eventId.value));
+const canRunDraw = computed(() => isOrganizerView.value && isDrawStatus.value && !hasDraw.value);
+const canRedraw = computed(
+  () => isOrganizerView.value && isDrawStatus.value && hasDraw.value && !hasRecordedResults.value
+);
+const canChangeRoundStatus = computed(() => isOrganizerView.value && eventReachedGame.value);
 const reserveCount = computed(
   () => eventStore.getPtaPlayersForEvent(eventId.value).filter((row) => row.ReserveFlg === true || row.ReserveFlg === 1).length
 );
@@ -697,57 +783,70 @@ watch(
   rounds,
   (list) => {
     if (selectedRoundId.value != null && list.some((round) => round.id === selectedRoundId.value)) return;
-    selectedRoundId.value = list[0]?.id ?? null;
+    selectedRoundId.value = pickOpenRoundId(list);
   },
   { immediate: true }
 );
 
 const currentRound = computed(() => rounds.value.find((round) => round.id === selectedRoundId.value) || rounds.value[0] || null);
 
+const canEnterResults = computed(
+  () => playPhase.value === 'game' && canEnterRoundResults(currentRound.value?.status || '')
+);
+
+const resultsEntryHint = computed(() => {
+  if (canEnterResults.value) return '';
+  if (playPhase.value !== 'game') {
+    return 'Eredményt csak Játék státuszban lehet felvinni.';
+  }
+  const status = currentRound.value?.status || '';
+  if (isSettledRoundStatus(status)) {
+    return 'Eredményt lezárt vagy publikált fordulóban nem lehet felvinni.';
+  }
+  return 'Eredményt csak Megnyitva vagy Folyamatban fordulóban lehet felvinni.';
+});
+
 const currentTables = computed<GameTableRow[]>(() => {
   const roundId = currentRound.value?.id;
   if (roundId == null) return [];
   const desks = eventStore.getPtaDesksForEvent(eventId.value);
   const roundDesks = eventStore.getPtaRoundDesksForEvent(eventId.value).filter((row) => {
-    return nullableNumericId(row.EventRoundID) === roundId;
+    return ptaEventRoundId(row) === roundId;
   });
   const schedules = eventStore.getPtaSchedulesForEvent(eventId.value);
 
   return roundDesks
     .map((rd) => {
-      const roundDeskId = nullableNumericId(rd.EventRoundDeskID ?? rd.id);
-      const deskId = nullableNumericId(rd.EventDeskID);
+      const roundDeskId = ptaRoundDeskId(rd);
+      const deskId = ptaEventDeskId(rd);
       const desk = desks.find((d) => nullableNumericId(d.EventDeskID ?? d.id) === deskId);
-      const seats = schedules
-        .filter((row) => nullableNumericId(row.EventRoundDeskID) === roundDeskId)
+      const seats = bindSchedulesToRoundDesk(rd, schedules, roundDesks)
         .slice()
         .sort((a, b) => Number(a.SeatNo ?? a.ColorIndex ?? 0) - Number(b.SeatNo ?? b.ColorIndex ?? 0))
         .map((row) => {
-          const colorIndex = Number(row.ColorIndex ?? 0);
-          const resultPoint = nullableNumericId(row.ResultPoint ?? row.resultPoint ?? row.Point);
-          const amount = nullableNumericId(row.Amount ?? row.amount);
+          const playerId = ptaSchedulePlayerId(row);
           return {
-            playerId: nullableNumericId(row.PlayerID) ?? 0,
-            name: playerName(nullableNumericId(row.PlayerID)),
-            color: String(row.ColorHex || PTA_SEAT_COLORS[colorIndex] || PTA_SEAT_COLORS[0]),
-            position: nullableNumericId(row.Position ?? row.RankAtTable),
-            resultPoint,
-            amount,
-            onTrack: nullableNumericId(row.OnTrack ?? row.onTrack ?? row.TruckValue),
+            playerId: playerId ?? 0,
+            name: playerName(playerId, row),
+            color: ptaSeatColorFromRow(row),
+            position: scoreNumber(row.Position ?? row.RankAtTable),
+            resultPoint: scoreNumber(row.ResultPoint ?? row.resultPoint ?? row.Point),
+            amount: scoreNumber(row.Amount ?? row.amount),
+            onTrack: scoreNumber(row.OnTrack ?? row.onTrack ?? row.TruckValue),
           };
         });
-      const gmId = nullableNumericId(rd.GameMasterUserID ?? rd.gameMasterUserID ?? desk?.GameMasterUserID);
+      const gmId = nullableNumericId(rd.GameMasterUserID ?? rd.gameMasterUserID);
       const deskStatus = deskStatusOf(rd, currentRound.value?.status || '');
       const mineId = currentUserId.value;
       return {
         id: roundDeskId ?? deskId ?? 0,
-        name: String(desk?.DName || `${desk?.DeskNo || '?'}. asztal`),
-        deskNo: Number(desk?.DeskNo ?? 0),
+        name: String(desk?.DName || `${(ptaDeskNumber(rd) || ptaDeskNumber(desk) || '?')}. asztal`),
+        deskNo: ptaDeskNumber(rd) || ptaDeskNumber(desk),
         deskStatus,
         gameMasterUserId: gmId,
         gameMasterName: gameMasterName(gmId),
         isMine: mineId != null && gmId === mineId,
-        photoUrl: String(rd.PhotoUrl ?? rd.PhotoDataUrl ?? ''),
+        photoUrl: String(rd.AzurePhotoUrl ?? rd.azurePhotoUrl ?? rd.PhotoUrl ?? rd.PhotoDataUrl ?? ''),
         manualOrder: rd.ManualOrderFlg === true || rd.ManualOrderFlg === 1,
         isClosed: isClosedStatus(deskStatus),
         seats,
@@ -771,16 +870,7 @@ const filteredTables = computed(() => {
 const hasClaimedTables = computed(() => currentTables.value.some((table) => table.isMine));
 
 const tableGroups = computed(() => {
-  const list = filteredTables.value;
-  if (!canClaimTables.value) {
-    return [{ key: 'all', label: '', tables: list }];
-  }
-  const mine = list.filter((table) => table.isMine);
-  const others = list.filter((table) => !table.isMine);
-  if (!mine.length) return [{ key: 'all', label: '', tables: others }];
-  const groups = [{ key: 'mine', label: 'Saját asztalaim', tables: mine }];
-  if (others.length) groups.push({ key: 'other', label: 'Többi asztal', tables: others });
-  return groups;
+  return [{ key: 'all', label: '', tables: filteredTables.value }];
 });
 
 const roundStatusOptions = computed(() => {
@@ -789,9 +879,11 @@ const roundStatusOptions = computed(() => {
   const list = (active.length ? active : rows).slice();
   if (list.length) return list;
   return [
-    { id: -1, SName: 'Kisorsolva', ActiveFlg: true },
-    { id: -2, SName: 'Folyamatban', ActiveFlg: true },
-    { id: -3, SName: 'Lezárt', ActiveFlg: true },
+    { id: -1, SName: 'Megnyitva', ActiveFlg: true },
+    { id: -2, SName: 'Kisorsolva', ActiveFlg: true },
+    { id: -3, SName: 'Folyamatban', ActiveFlg: true },
+    { id: -4, SName: 'Lezárt', ActiveFlg: true },
+    { id: -5, SName: 'Publikált', ActiveFlg: true },
   ];
 });
 
@@ -802,10 +894,36 @@ const photoMandatory = computed(() => !!ptaSettings.value?.PhotoUploadMadatoryFl
 
 const selectedTable = computed(() => currentTables.value.find((table) => table.id === selectedTableId.value) || null);
 
+function clearScoreDrafts() {
+  amountDrafts.value = {};
+  truckDrafts.value = {};
+  focusedScore.value = null;
+}
+
+function hydrateSheetSeats() {
+  const table = selectedTable.value;
+  if (!table) {
+    sheetSeats.value = [];
+    sheetManualOrder.value = false;
+    clearScoreDrafts();
+    return;
+  }
+  sheetSeats.value = table.seats.map((seat) => ({ ...seat }));
+  sheetManualOrder.value = table.manualOrder;
+  amountDrafts.value = Object.fromEntries(
+    table.seats.map((seat) => [seat.playerId, seat.amount == null ? '' : String(seat.amount)])
+  );
+  truckDrafts.value = Object.fromEntries(
+    table.seats.map((seat) => [seat.playerId, String(seat.onTrack ?? 0)])
+  );
+}
+
 const rankedSeats = computed(() => {
   const table = selectedTable.value;
-  if (!table) return [];
-  const ranked = rankDeskSeats(table.seats, ptaSettings.value, table.manualOrder);
+  const useSheet = isTableSheetOpen.value && sheetSeats.value.length > 0;
+  const seats = useSheet ? sheetSeats.value : table?.seats || [];
+  const manual = useSheet ? sheetManualOrder.value : !!table?.manualOrder;
+  const ranked = rankDeskSeats(seats, ptaSettings.value, manual);
   return ranked.seats.map((seat) => ({
     ...seat,
     place: seat.position,
@@ -814,32 +932,62 @@ const rankedSeats = computed(() => {
 
 const deskHasTie = computed(() => {
   const table = selectedTable.value;
-  if (!table) return false;
-  return rankDeskSeats(table.seats, ptaSettings.value, table.manualOrder).hasTie;
+  const useSheet = isTableSheetOpen.value && sheetSeats.value.length > 0;
+  const seats = useSheet ? sheetSeats.value : table?.seats || [];
+  const manual = useSheet ? sheetManualOrder.value : !!table?.manualOrder;
+  if (!seats.length) return false;
+  return rankDeskSeats(seats, ptaSettings.value, manual).hasTie;
 });
 
-watch(isTableSheetOpen, (open) => {
-  if (!open) {
-    isPhotoPreviewOpen.value = false;
-    return;
+watch(
+  () => [isTableSheetOpen.value, selectedTableId.value] as const,
+  ([open]) => {
+    if (!open) {
+      isPhotoPreviewOpen.value = false;
+      sheetSeats.value = [];
+      sheetManualOrder.value = false;
+      clearScoreDrafts();
+      return;
+    }
+    hydrateSheetSeats();
+    if (deskLocked.value) return;
+    void nextTick(() => {
+      const firstEmpty = rankedSeats.value.find((seat) => seat.amount == null) || rankedSeats.value[0];
+      if (firstEmpty) focusAmount(firstEmpty.playerId);
+    });
   }
-  if (selectedTable.value?.isClosed) return;
-  void nextTick(() => {
-    const firstEmpty = rankedSeats.value.find((seat) => seat.amount == null) || rankedSeats.value[0];
-    if (firstEmpty) focusAmount(firstEmpty.playerId);
-  });
-});
+);
+
+watch(
+  () =>
+    selectedTable.value?.seats
+      .map((seat) => `${seat.playerId}:${seat.amount}:${seat.onTrack}:${seat.resultPoint}`)
+      .join('|'),
+  () => {
+    if (!isTableSheetOpen.value || focusedScore.value) return;
+    const table = selectedTable.value;
+    if (!table) return;
+    const storeHas = table.seats.some(
+      (seat) => seat.amount != null || seat.resultPoint != null || seat.position != null
+    );
+    const sheetHas = sheetSeats.value.some(
+      (seat) => seat.amount != null || seat.resultPoint != null || seat.position != null
+    );
+    if (storeHas && !sheetHas) hydrateSheetSeats();
+  }
+);
 
 function isLiveStatus(status: string) {
   return foldText(status).includes('folyamat');
 }
 function isClosedStatus(status: string) {
-  return foldText(status).includes('lezar');
+  const hay = foldText(status);
+  return hay.includes('lezar') || hay.includes('lejatszott');
 }
 
 function statusClass(status: string) {
   if (isLiveStatus(status)) return 'is-live';
-  if (isClosedStatus(status)) return 'is-done';
+  if (isPublishedStatus(status) || isClosedStatus(status)) return 'is-done';
   return 'is-drawn';
 }
 
@@ -849,8 +997,14 @@ function deskStatusIcon(status: string) {
   return 'casino';
 }
 
+function tableHasScores(table: GameTableRow) {
+  return table.seats.some(
+    (seat) => seat.amount != null || seat.resultPoint != null || seat.position != null
+  );
+}
+
 function seatsForCard(table: GameTableRow) {
-  if (!table.isClosed) return table.seats;
+  if (!table.isClosed && !tableHasScores(table)) return table.seats;
   const ranked = table.seats.some((seat) => seat.position != null || seat.resultPoint != null)
     ? table.seats.slice()
     : rankDeskSeats(table.seats, ptaSettings.value, table.manualOrder).seats;
@@ -869,49 +1023,200 @@ function openRoundStatus(roundId: number) {
   isStatusSheetOpen.value = true;
 }
 
-function setRoundStatus(statusId: number, statusName: string) {
+async function setRoundStatus(statusId: number, statusName: string) {
+  if (!canChangeRoundStatus.value || roundSaving.value) return;
   const roundId = statusSheetRoundId.value ?? selectedRoundId.value;
   if (roundId == null) return;
+  const prevId = statusSheetRound.value?.statusId ?? null;
+  const prevName = statusSheetRound.value?.status || '';
   eventStore.applyEventRoundStatus(roundId, statusId, statusName);
   isStatusSheetOpen.value = false;
+  const id = nullableNumericId(eventId.value);
+  if (id == null) return;
+  const kind = ptaRoundStatusKind(statusName);
+  roundSaving.value = true;
+  workLabel.value = kind === 'publish' ? 'Publikálás…' : kind === 'close' ? 'Lezárás…' : 'Mentés…';
+  try {
+    if (kind === 'close') {
+      await closePtaRound({ eventId: id, eventRoundId: roundId, toStatusId: statusId });
+    } else if (kind === 'publish') {
+      await publishPtaRound({ eventId: id, eventRoundId: roundId, toStatusId: statusId });
+    } else {
+      await setPtaRoundStatus({ eventId: id, eventRoundId: roundId, toStatusId: statusId });
+    }
+  } catch (error) {
+    eventStore.applyEventRoundStatus(roundId, prevId, prevName);
+    $q.notify({
+      message: readAxiosErrorMessage(error, 'A forduló státusza nem változott.'),
+      color: 'dark',
+      textColor: 'red-4',
+      position: 'top',
+    });
+  } finally {
+    roundSaving.value = false;
+  }
 }
 
-function onTableClick(tableId: number) {
+function onTableClick(tableId: number, event?: Event) {
+  const target = event?.target as HTMLElement | undefined;
+  if (target?.closest('.game-table__claim')) return;
+  if (Date.now() - claimPointerAt < 500) return;
   selectedTableId.value = tableId;
+  hydrateSheetSeats();
   isTableSheetOpen.value = true;
+}
+
+function onClaimPointerDown(table: GameTableRow, event: PointerEvent) {
+  if (event.pointerType === 'mouse' && event.button !== 0) return;
+  event.preventDefault();
+  event.stopPropagation();
+  claimPointerAt = Date.now();
+  if (isClaimTaken(table)) return;
+  void toggleClaim(table);
+}
+
+function onClaimClick(table: GameTableRow) {
+  if (isClaimTaken(table)) return;
+  void toggleClaim(table);
+}
+
+function isClaimTaken(table: GameTableRow) {
+  return table.gameMasterUserId != null && !table.isMine;
 }
 
 function claimTitle(table: GameTableRow): string {
   if (table.isMine) return 'Ez az én asztalom — koppints a levételehez';
-  if (table.gameMasterName) return `${table.gameMasterName} asztala — koppints az átvételhez`;
+  if (isClaimTaken(table)) {
+    const label = table.gameMasterName || `GM ${table.gameMasterUserId}`;
+    return `Foglalt (${label})`;
+  }
   return 'Megjelölöm, hogy ez az én asztalom';
 }
 
-function toggleClaim(table: GameTableRow) {
+async function toggleClaim(table: GameTableRow) {
   if (!canClaimTables.value || currentUserId.value == null) return;
+  if (isClaimTaken(table)) return;
+  if (claimingDeskId.value != null) return;
+  const id = nullableNumericId(eventId.value);
+  if (id == null) return;
+  const prev = table.gameMasterUserId;
   const next = table.isMine ? null : currentUserId.value;
+  claimingDeskId.value = table.id;
   eventStore.setDeskGameMaster(eventId.value, table.id, next);
+  try {
+    await claimPtaDesk({
+      eventId: id,
+      eventRoundDeskId: table.id,
+      gameMasterUserId: next,
+    });
+  } catch (error) {
+    eventStore.setDeskGameMaster(eventId.value, table.id, prev);
+    $q.notify({
+      message: readAxiosErrorMessage(error, 'Az asztal foglalása nem sikerült.'),
+      color: 'dark',
+      textColor: 'red-4',
+      position: 'top',
+    });
+  } finally {
+    claimingDeskId.value = null;
+  }
+}
+
+function deskResultPayload(seats: GameSeatRow[]) {
+  return seats.map((seat) => ({
+    playerId: seat.playerId,
+    amount: seat.amount,
+    onTrack: seat.onTrack ?? 0,
+    position: seat.position,
+    resultPoint: seat.resultPoint,
+  }));
+}
+
+async function ensureRoundInProgress() {
+  const round = currentRound.value;
+  if (!round) return;
+  if (isRoundLiveStatus(round.status) || isSettledRoundStatus(round.status)) return;
+  if (!canEnterRoundResults(round.status)) return;
+  const live = findPtaRoundStatusIdByNameHints(masterDataStore.ptaEventRoundStatuses, [
+    'folyamatban',
+    'folyamat',
+  ]);
+  if (!live) return;
+  if (promotingRound) return;
+  promotingRound = true;
+  const id = nullableNumericId(eventId.value);
+  if (id == null) {
+    promotingRound = false;
+    return;
+  }
+  try {
+    await setPtaRoundStatus({ eventId: id, eventRoundId: round.id, toStatusId: live.id });
+    eventStore.applyEventRoundStatus(round.id, live.id, live.name);
+  } catch (error) {
+    $q.notify({
+      message: readAxiosErrorMessage(error, 'A forduló státusza nem vált Folyamatban-ra.'),
+      color: 'dark',
+      textColor: 'red-4',
+      position: 'top',
+    });
+  } finally {
+    promotingRound = false;
+  }
 }
 
 function persistDeskRanking(seats: GameSeatRow[], manualOrder: boolean) {
+  if (!canEnterResults.value) return;
   const table = selectedTable.value;
   if (!table) return;
   const ranked = rankDeskSeats(seats, ptaSettings.value, manualOrder);
-  eventStore.applyDeskSeatResults(
-    eventId.value,
-    table.id,
-    ranked.seats.map((seat) => ({
-      playerId: seat.playerId,
-      amount: seat.amount,
-      onTrack: seat.onTrack ?? 0,
-      position: seat.position,
-      resultPoint: seat.resultPoint,
-    }))
-  );
-  eventStore.applyEventRoundDeskPatch(eventId.value, table.id, {
-    ManualOrderFlg: manualOrder,
-    SName: table.isClosed ? table.deskStatus : 'Folyamatban',
+  sheetSeats.value = ranked.seats.map((seat) => ({ ...seat }));
+  if (manualOrder) sheetManualOrder.value = true;
+  eventStore.applyDeskSeatResults(eventId.value, table.id, deskResultPayload(ranked.seats));
+  if (manualOrder) {
+    eventStore.applyEventRoundDeskPatch(eventId.value, table.id, { ManualOrderFlg: true });
+  }
+  queueDeskResultsSync(table.id, ranked.seats);
+  return ranked.seats;
+}
+
+function queueDeskResultsSync(tableId: number, seats: GameSeatRow[]) {
+  if (resultsSyncTimer) clearTimeout(resultsSyncTimer);
+  resultsSyncTimer = setTimeout(() => {
+    resultsSyncTimer = null;
+    void pushDeskResults(tableId, seats).catch((error) => {
+      $q.notify({
+        message: readAxiosErrorMessage(error, 'Az eredmény mentése nem sikerült.'),
+        color: 'dark',
+        textColor: 'red-4',
+        position: 'top',
+      });
+    });
+  }, 600);
+}
+
+function scoreInputFocused() {
+  return focusedScore.value != null;
+}
+
+function flushPendingRoundPromote() {
+  if (!pendingRoundPromote || scoreInputFocused()) return;
+  pendingRoundPromote = false;
+  void ensureRoundInProgress();
+}
+
+async function pushDeskResults(tableId: number, seats: GameSeatRow[]) {
+  const id = nullableNumericId(eventId.value);
+  if (id == null) return;
+  await setPtaDeskResults({
+    eventId: id,
+    eventRoundDeskId: tableId,
+    seats: deskResultPayload(seats),
   });
+  if (scoreInputFocused()) {
+    pendingRoundPromote = true;
+    return;
+  }
+  void ensureRoundInProgress();
 }
 
 function parseAmount(raw: string): number | null {
@@ -930,21 +1235,46 @@ function parseTruck(raw: string): number {
   return Math.min(TRUCK_MAX, n);
 }
 
+function amountDraftOf(playerId: number, amount: number | null) {
+  const draft = amountDrafts.value[playerId];
+  if (draft !== undefined) return draft;
+  return amount == null ? '' : String(amount);
+}
+
+function truckDraftOf(playerId: number, onTrack: number | null) {
+  const draft = truckDrafts.value[playerId];
+  if (draft !== undefined) return draft;
+  return String(onTrack ?? 0);
+}
+
+function setAmountDraft(playerId: number, raw: string) {
+  amountDrafts.value = { ...amountDrafts.value, [playerId]: raw };
+}
+
+function setTruckDraft(playerId: number, raw: string) {
+  truckDrafts.value = { ...truckDrafts.value, [playerId]: raw };
+}
+
 function patchSeat(playerId: number, fields: Partial<GameSeatRow>, keepOrder: boolean) {
-  const table = selectedTable.value;
-  if (!table || deskLocked.value) return;
-  const nextSeats = table.seats.map((seat) =>
+  if (deskLocked.value) return;
+  const source = sheetSeats.value.length ? sheetSeats.value : selectedTable.value?.seats;
+  if (!source) return;
+  const nextSeats = source.map((seat) =>
     seat.playerId === playerId ? { ...seat, ...fields } : seat
   );
-  persistDeskRanking(nextSeats, keepOrder && table.manualOrder);
+  persistDeskRanking(nextSeats, keepOrder && sheetManualOrder.value);
 }
 
 function commitAmount(playerId: number, raw: string) {
-  patchSeat(playerId, { amount: parseAmount(raw) }, false);
+  const parsed = parseAmount(raw);
+  setAmountDraft(playerId, parsed == null ? '' : String(parsed));
+  patchSeat(playerId, { amount: parsed }, false);
 }
 
 function commitTruck(playerId: number, raw: string) {
-  patchSeat(playerId, { onTrack: parseTruck(raw) }, false);
+  const parsed = parseTruck(raw);
+  setTruckDraft(playerId, String(parsed));
+  patchSeat(playerId, { onTrack: parsed }, false);
 }
 
 function focusAmount(playerId: number) {
@@ -959,37 +1289,68 @@ function inputValue(event: Event): string {
   return (event.target as HTMLInputElement).value;
 }
 
-function onAmountFocus(event: Event) {
+function onAmountInput(playerId: number, event: Event) {
+  const raw = inputValue(event).replace(/\D/g, '').slice(0, 2);
+  setAmountDraft(playerId, raw);
+  const el = event.target as HTMLInputElement;
+  if (el.value !== raw) el.value = raw;
+}
+
+function onTruckInput(playerId: number, event: Event) {
+  const raw = inputValue(event).replace(/\D/g, '').slice(0, 2);
+  setTruckDraft(playerId, raw);
+  const el = event.target as HTMLInputElement;
+  if (el.value !== raw) el.value = raw;
+}
+
+function onAmountFocus(playerId: number, event: Event) {
+  focusedScore.value = { playerId, field: 'amount' };
+  if (amountDrafts.value[playerId] === undefined) {
+    setAmountDraft(playerId, inputValue(event));
+  }
   (event.target as HTMLInputElement).select();
 }
 
-function onTruckFocus(event: Event) {
-  const input = event.target as HTMLInputElement;
-  if (!input.value || input.value === '0') input.value = '';
-  input.select();
+function onTruckFocus(playerId: number, event: Event) {
+  focusedScore.value = { playerId, field: 'truck' };
+  const current = truckDraftOf(playerId, null);
+  if (!current || current === '0') setTruckDraft(playerId, '');
+  (event.target as HTMLInputElement).select();
 }
 
 function onAmountBlur(playerId: number, event: Event) {
   commitAmount(playerId, inputValue(event));
+  if (focusedScore.value?.playerId === playerId && focusedScore.value.field === 'amount') {
+    focusedScore.value = null;
+  }
+  flushPendingRoundPromote();
 }
 
 function onTruckBlur(playerId: number, event: Event) {
   commitTruck(playerId, inputValue(event));
+  if (focusedScore.value?.playerId === playerId && focusedScore.value.field === 'truck') {
+    focusedScore.value = null;
+  }
+  flushPendingRoundPromote();
 }
 
 function onAmountEnter(index: number, event: Event) {
-  const seat = rankedSeats.value[index];
-  if (!seat) return;
-  commitAmount(seat.playerId, inputValue(event));
-  const next = rankedSeats.value[index + 1];
-  if (next) focusAmount(next.playerId);
+  const playerId = rankedSeats.value[index]?.playerId;
+  if (playerId == null) return;
+  commitAmount(playerId, inputValue(event));
+  const list = rankedSeats.value;
+  const at = list.findIndex((seat) => seat.playerId === playerId);
+  const next = (at >= 0 ? list[at + 1] : null) || list.find((seat) => seat.amount == null);
+  if (next && next.playerId !== playerId) focusAmount(next.playerId);
 }
 
 function onTruckEnter(index: number, event: Event) {
-  const seat = rankedSeats.value[index];
-  if (!seat) return;
-  commitTruck(seat.playerId, inputValue(event));
-  const next = rankedSeats.value[index + 1];
+  const playerId = rankedSeats.value[index]?.playerId;
+  if (playerId == null) return;
+  commitTruck(playerId, inputValue(event));
+  const list = rankedSeats.value;
+  const at = list.findIndex((seat) => seat.playerId === playerId);
+  const next = at >= 0 ? list[at + 1] : null;
   if (next) focusAmount(next.playerId);
 }
 
@@ -997,10 +1358,12 @@ function onRankPointerDown(index: number, event: PointerEvent) {
   if (deskLocked.value) return;
   dragFromIndex.value = index;
   rankDragMoved = false;
+  const rankRoot = (event.currentTarget as HTMLElement).closest('.game-rank');
   const onMove = (move: PointerEvent) => {
     const from = dragFromIndex.value;
     if (from == null) return;
-    const rows = document.querySelectorAll('.game-rank__row');
+    const rows = rankRoot?.querySelectorAll('.game-rank__row');
+    if (!rows?.length) return;
     rows.forEach((row, to) => {
       const box = row.getBoundingClientRect();
       if (move.clientY >= box.top && move.clientY <= box.bottom && to !== from) {
@@ -1023,9 +1386,8 @@ function onRankPointerDown(index: number, event: PointerEvent) {
 }
 
 function reorderSeats(from: number, to: number) {
-  const table = selectedTable.value;
-  if (!table || deskLocked.value || from === to) return;
-  const next = rankedSeats.value.map((seat) => ({ ...seat }));
+  if (deskLocked.value || from === to) return;
+  const next = (sheetSeats.value.length ? sheetSeats.value : rankedSeats.value).map((seat) => ({ ...seat }));
   const [moved] = next.splice(from, 1);
   if (!moved) return;
   next.splice(to, 0, moved);
@@ -1074,15 +1436,16 @@ function compressPhoto(file: File): Promise<string> {
   });
 }
 
-function closeDesk() {
+async function closeDesk() {
   const table = selectedTable.value;
-  if (!table) return;
-  const ranked = rankDeskSeats(table.seats, ptaSettings.value, table.manualOrder);
+  if (!table || !canEnterResults.value || deskSaving.value) return;
+  const source = sheetSeats.value.length ? sheetSeats.value : table.seats;
+  const ranked = rankDeskSeats(source, ptaSettings.value, sheetManualOrder.value || table.manualOrder);
   if (!ranked.allFilled) {
     $q.notify({ message: 'Mind a négy összeg kell a lezáráshoz.', color: 'dark', textColor: 'red-4', position: 'top' });
     return;
   }
-  if (ranked.hasTie && !table.manualOrder) {
+  if (ranked.hasTie && !(sheetManualOrder.value || table.manualOrder)) {
     $q.notify({
       message: 'Holtverseny van — húzd a sorrendet a helyezéshez.',
       color: 'dark',
@@ -1109,14 +1472,44 @@ function closeDesk() {
     });
     return;
   }
-  persistDeskRanking(ranked.seats, table.manualOrder || ranked.hasTie);
+  persistDeskRanking(ranked.seats, sheetManualOrder.value || table.manualOrder || ranked.hasTie);
+  if (resultsSyncTimer) {
+    clearTimeout(resultsSyncTimer);
+    resultsSyncTimer = null;
+  }
+  const prevStatus = table.deskStatus;
   eventStore.applyEventRoundDeskPatch(eventId.value, table.id, { SName: 'Lezárt' });
-  $q.notify({
-    message: `${table.name} lezárva`,
-    color: 'dark',
-    textColor: 'orange-4',
-    position: 'top',
-  });
+  const id = nullableNumericId(eventId.value);
+  if (id == null) return;
+  deskSaving.value = true;
+  workLabel.value = 'Mentés…';
+  try {
+    await pushDeskResults(table.id, ranked.seats);
+    await patchPtaDesk({
+      eventId: id,
+      eventRoundDeskId: table.id,
+      sName: 'Lezárt',
+      photoUrl: table.photoUrl,
+    });
+    $q.notify({
+      message: `${table.name} lezárva`,
+      color: 'dark',
+      textColor: 'orange-4',
+      position: 'top',
+    });
+    isTableSheetOpen.value = false;
+    selectedTableId.value = null;
+  } catch (error) {
+    eventStore.applyEventRoundDeskPatch(eventId.value, table.id, { SName: prevStatus });
+    $q.notify({
+      message: readAxiosErrorMessage(error, 'Az asztal lezárása nem sikerült.'),
+      color: 'dark',
+      textColor: 'red-4',
+      position: 'top',
+    });
+  } finally {
+    deskSaving.value = false;
+  }
 }
 
 function goBack() {
@@ -1144,38 +1537,95 @@ onMounted(() => {
   void loadDataSheet();
 });
 
-function notifyDraw(result: { ok: true; roundCount: number; deskCount: number; playerCount: number; reserveCount: number } | { ok: false; message: string }) {
-  if (!result.ok) {
-    $q.notify({
-      message: result.message,
-      color: 'dark',
-      textColor: 'red-4',
-      position: 'top',
-      timeout: 2400,
-    });
-    return;
-  }
-  const reserve = result.reserveCount ? `, ${result.reserveCount} tartalék` : '';
+function notifyDrawFail(message: string) {
   $q.notify({
-    message: `Sorsolás: ${result.roundCount} forduló, ${result.deskCount} asztal, ${result.playerCount} játékos${reserve}`,
+    message,
     color: 'dark',
-    textColor: 'orange-4',
+    textColor: 'red-4',
     position: 'top',
-    timeout: 2200,
+    timeout: 2400,
   });
 }
 
-function runDraw() {
+function openDrawSummary() {
+  drawSummary.value = summarizePtaDraw(eventId.value);
+  isDrawSummaryOpen.value = true;
+}
+
+function onStartDraw() {
+  if (!canRunDraw.value) return;
+  void runDraw('Sorsolás…');
+}
+
+async function runDraw(label = 'Sorsolás…') {
+  if (drawSaving.value || drawing.value) return;
+  if (!isDrawStatus.value || hasRecordedResults.value) {
+    notifyDrawFail(
+      hasRecordedResults.value
+        ? 'Már van rögzített eredmény, az újrasorsolás nem lehetséges.'
+        : 'Újrasorsolás csak Sorsolás státuszban indítható.'
+    );
+    return;
+  }
+  workLabel.value = label;
   drawing.value = true;
+  await paintBusy();
   try {
     const result = eventStore.runPtaDraw(eventId.value);
-    notifyDraw(result);
-    if (result.ok) {
-      const first = eventStore.getPtaRoundsForEvent(eventId.value)[0];
-      selectedRoundId.value = nullableNumericId(first?.EventRoundID ?? first?.id);
+    if (!result.ok) {
+      notifyDrawFail(result.message);
+      return;
     }
+    selectedRoundId.value = pickOpenRoundId(rounds.value);
+    openDrawSummary();
   } finally {
     drawing.value = false;
+  }
+}
+
+function onRedrawDraw() {
+  if (drawSaving.value) return;
+  if (!isDrawStatus.value || hasRecordedResults.value) {
+    notifyDrawFail(
+      hasRecordedResults.value
+        ? 'Már van rögzített eredmény, az újrasorsolás nem lehetséges.'
+        : 'Újrasorsolás csak Sorsolás státuszban indítható.'
+    );
+    return;
+  }
+  void runDraw('Újrasorsolás…');
+}
+
+async function onFinalizeDraw() {
+  if (drawSaving.value) return;
+  const id = nullableNumericId(eventId.value);
+  if (id == null) return;
+  workLabel.value = 'Mentés…';
+  drawSaving.value = true;
+  await paintBusy();
+  try {
+    await replacePtaDraw(id);
+    isDrawSummaryOpen.value = false;
+    const gamePath = `/profitability/event/${id}/game`;
+    if (route.path !== gamePath) {
+      await router.push({ path: gamePath, query: route.query });
+    }
+    $q.notify({
+      message: 'Sorsolás mentve.',
+      color: 'dark',
+      textColor: 'orange-4',
+      position: 'top',
+      timeout: 1800,
+    });
+  } catch (error) {
+    $q.notify({
+      message: readAxiosErrorMessage(error, 'A sorsolás mentése sikertelen.'),
+      color: 'dark',
+      textColor: 'red-4',
+      position: 'top',
+    });
+  } finally {
+    drawSaving.value = false;
   }
 }
 </script>
@@ -1183,11 +1633,29 @@ function runDraw() {
 <style scoped>
 .pta-game {
   background: var(--pta-page);
+  overflow-x: hidden;
+}
+
+.game-shell {
+  width: 100%;
+  max-width: 42rem;
+  margin: 0 auto;
+  padding: 16px 16px 96px;
+  box-sizing: border-box;
+  overflow-x: hidden;
+}
+
+.game-shell *,
+.game-shell *::before,
+.game-shell *::after {
+  box-sizing: border-box;
 }
 .game-header {
   display: flex;
   align-items: center;
   gap: 10px;
+  width: 100%;
+  box-sizing: border-box;
   margin-bottom: 14px;
   padding: 8px 12px 8px 8px;
   border-radius: 18px;
@@ -1278,6 +1746,8 @@ function runDraw() {
 .game-rounds-panel {
   margin-bottom: 14px;
   padding: 14px;
+  box-sizing: border-box;
+  width: 100%;
   border-radius: 20px;
   border: 1px solid rgba(246, 139, 41, 0.22);
   background: rgba(16, 17, 18, 0.92);
@@ -1303,6 +1773,7 @@ function runDraw() {
   align-items: center;
   gap: 12px;
   width: 100%;
+  box-sizing: border-box;
   min-height: 60px;
   margin-bottom: 14px;
   padding: 10px 12px;
@@ -1372,6 +1843,8 @@ function runDraw() {
   align-items: center;
   gap: 8px;
   width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   min-height: 52px;
   padding: 6px 6px 6px 14px;
   border-radius: 16px;
@@ -1403,6 +1876,9 @@ function runDraw() {
   font-size: 14px;
   font-weight: 800;
   color: #f8fafc;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .game-round__desks {
@@ -1424,6 +1900,8 @@ function runDraw() {
   display: inline-flex;
   align-items: center;
   gap: 2px;
+  flex-shrink: 0;
+  max-width: 48%;
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.04em;
@@ -1432,6 +1910,7 @@ function runDraw() {
   border-radius: 9999px;
   border: 0;
   cursor: pointer;
+  overflow: hidden;
 }
 
 .game-round__status.is-readonly {
@@ -1454,7 +1933,24 @@ function runDraw() {
 }
 
 .game-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 10px;
+  width: 100%;
+  box-sizing: border-box;
   margin-bottom: 12px;
+}
+
+.game-search {
+  flex: 1 1 100%;
+  min-width: 0;
+  width: 100%;
+}
+
+.game-search :deep(.q-field) {
+  width: 100%;
+  max-width: 100%;
 }
 
 .game-search :deep(.q-field__control) {
@@ -1473,8 +1969,11 @@ function runDraw() {
 .game-ctrl {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
+  box-sizing: border-box;
   min-height: 44px;
+  max-width: 100%;
   padding: 10px 16px;
   border-radius: 14px;
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -1491,6 +1990,8 @@ function runDraw() {
 }
 
 .game-ctrl--start {
+  flex: 1 1 100%;
+  width: 100%;
   border-color: rgba(40, 199, 111, 0.4);
   background: rgba(40, 199, 111, 0.16);
   color: #28c76f;
@@ -1511,8 +2012,10 @@ function runDraw() {
 
 .game-tables {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 148px), 1fr));
   gap: 6px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .game-table {
@@ -1558,15 +2061,17 @@ function runDraw() {
 }
 
 .game-table__claim {
+  position: relative;
+  z-index: 2;
   justify-self: center;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 3px;
-  min-width: 0;
+  min-width: 44px;
   max-width: 100%;
-  height: 26px;
-  padding: 0 6px;
+  height: 32px;
+  padding: 0 8px;
   border-radius: 9999px;
   border: 1.5px dashed rgba(246, 139, 41, 0.55);
   background: rgba(246, 139, 41, 0.08);
@@ -1577,6 +2082,11 @@ function runDraw() {
   line-height: 1;
   white-space: nowrap;
   cursor: pointer;
+  pointer-events: auto;
+}
+
+.game-table__claim :deep(.q-icon) {
+  pointer-events: none;
 }
 
 .game-table__claim:hover {
@@ -1595,6 +2105,8 @@ function runDraw() {
   border-color: rgba(148, 163, 184, 0.45);
   background: rgba(148, 163, 184, 0.1);
   color: #94a3b8;
+  cursor: default;
+  pointer-events: none;
 }
 
 .game-table__name {
@@ -1895,6 +2407,11 @@ function runDraw() {
   text-align: center;
 }
 
+.game-rank.is-locked .game-rank__grip {
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .game-rank__grip {
   display: inline-flex;
   color: #64748b;
@@ -1963,6 +2480,20 @@ function runDraw() {
   border-style: solid;
   border-color: rgba(246, 139, 41, 0.7);
   background: rgba(246, 139, 41, 0.16);
+}
+
+.game-desk__claim.is-taken,
+.game-desk__claim:disabled {
+  border-style: solid;
+  border-color: rgba(148, 163, 184, 0.45);
+  background: rgba(148, 163, 184, 0.08);
+  cursor: default;
+}
+
+.game-desk__claim.is-taken .game-desk__claim-icon,
+.game-desk__claim:disabled .game-desk__claim-icon {
+  color: #94a3b8;
+  background: rgba(148, 163, 184, 0.16);
 }
 
 .game-desk__claim-icon {

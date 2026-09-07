@@ -1,6 +1,14 @@
 import { isTruthyFlag } from 'src/utils/apiPayload';
-import { PTA_SEAT_COLORS } from './drawEngine';
-import type { PtaEventPlayer } from './ptaData';
+import { ptaSeatColorFromRow } from './drawEngine';
+import {
+  ptaDeskNumber,
+  ptaEventDeskId,
+  ptaEventRoundId,
+  ptaRoundDeskId,
+  ptaSchedulePlayerId,
+  ptaScheduleRoundDeskId,
+  type PtaEventPlayer,
+} from './ptaData';
 
 function nullableNumber(value: unknown): number | null {
   if (value === undefined || value === null || value === '') return null;
@@ -38,28 +46,30 @@ export function isReservePlayer(player: PtaEventPlayer | null | undefined): bool
 
 export function findPlayerSeat(args: {
   playerId: number;
+  eventUserId?: number | null;
   roundId: number;
   desks: Record<string, unknown>[];
   roundDesks: Record<string, unknown>[];
   schedules: Record<string, unknown>[];
 }): PlayerRoundSeat | null {
   const roundDesks = args.roundDesks.filter(
-    (row) => nullableNumber(row.EventRoundID) === args.roundId
+    (row) => ptaEventRoundId(row) === args.roundId
   );
   for (const rd of roundDesks) {
-    const roundDeskId = nullableNumber(rd.EventRoundDeskID ?? rd.id);
+    const roundDeskId = ptaRoundDeskId(rd);
     const seat = args.schedules.find((row) => {
+      const playerId = ptaSchedulePlayerId(row);
       return (
-        nullableNumber(row.EventRoundDeskID) === roundDeskId &&
-        nullableNumber(row.PlayerID) === args.playerId
+        ptaScheduleRoundDeskId(row) === roundDeskId &&
+        (playerId === args.playerId ||
+          (args.eventUserId != null && playerId === args.eventUserId))
       );
     });
     if (!seat) continue;
-    const deskId = nullableNumber(rd.EventDeskID);
+    const deskId = ptaEventDeskId(rd);
     const desk = args.desks.find((row) => nullableNumber(row.EventDeskID ?? row.id) === deskId);
-    const deskNo = Number(desk?.DeskNo ?? 0);
-    const colorIndex = Number(seat.ColorIndex ?? 0);
-    const color = String(seat.ColorHex || PTA_SEAT_COLORS[colorIndex] || PTA_SEAT_COLORS[0]);
+    const deskNo = ptaDeskNumber(rd) || ptaDeskNumber(desk);
+    const color = ptaSeatColorFromRow(seat);
     return {
       roundId: args.roundId,
       deskNo,

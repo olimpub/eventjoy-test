@@ -23,17 +23,10 @@
           type="button"
           class="part-excel-btn"
           aria-label="Excel feltöltés"
-          @click="openExcelPicker"
+          @click="isImportOpen = true"
         >
           <q-icon name="sym_r_upload_file" size="26px" />
         </button>
-        <input
-          ref="excelInput"
-          type="file"
-          accept=".xlsx,.xls,.csv"
-          class="hidden"
-          @change="onExcelSelected"
-        />
       </header>
 
       <div class="part-kpis">
@@ -50,11 +43,6 @@
           <span class="part-kpi__label">Kapacitás</span>
         </div>
       </div>
-
-      <!-- TEMP: tömeges beléptetés a sorsoláshoz — később töröljük -->
-      <button type="button" class="part-temp-checkin" @click="checkInEveryone">
-        Mindenki bejelentkezik
-      </button>
 
       <div class="part-toolbar" :class="{ 'has-chips': activeFilterChips.length > 0 }">
         <q-input
@@ -114,7 +102,7 @@
         <p class="part-empty__hint">
           {{ participants.length === 0 ? 'Oszd meg a meghívót, hogy jelentkezni tudjanak.' : 'Próbálj másik keresést vagy szűrőt.' }}
         </p>
-        <button v-if="participants.length === 0" type="button" class="part-empty__btn" @click="comingSoon('Meghívó')">
+        <button v-if="participants.length === 0" type="button" class="part-empty__btn" @click="isImportOpen = true">
           <q-icon name="sym_r_share" size="18px" />
           Meghívó
         </button>
@@ -386,6 +374,12 @@
         </div>
       </q-card>
     </q-dialog>
+    <InviteExcelImport
+      v-model="isImportOpen"
+      :event-id="eventId"
+      :event-name="eventName"
+      @imported="onInvitesImported"
+    />
   </q-page>
 </template>
 
@@ -396,9 +390,11 @@ import { useQuasar } from 'quasar';
 import { useAuthStore } from 'src/stores/auth';
 import { useEventStore, type EventUser } from 'src/stores/event';
 import { useMasterDataStore, ORGANIZER_ROLE_TYPE_ID } from 'src/stores/masterData';
-import { nullableNumericId } from 'src/utils/apiPayload';
-import { EVENT_USER_FLOW_TEMPLATE_CODE, findEventUserStatusByName, type EventUserStatusTransition } from 'src/utils/eventUserFlow';
+import { nullableNumericId, readAxiosErrorMessage } from 'src/utils/apiPayload';
+import { EVENT_USER_FLOW_TEMPLATE_CODE, type EventUserStatusTransition } from 'src/utils/eventUserFlow';
 import { membershipRoleKind } from 'src/utils/eventUserStatus';
+import { setEventUserStatus } from 'src/utils/eventChange';
+import InviteExcelImport from 'src/components/event/InviteExcelImport.vue';
 
 interface ParticipantRow {
   id: number;
@@ -426,7 +422,7 @@ const authStore = useAuthStore();
 const eventStore = useEventStore();
 const masterDataStore = useMasterDataStore();
 
-const excelInput = ref<HTMLInputElement | null>(null);
+const isImportOpen = ref(false);
 const searchQuery = ref('');
 const roleFilterIds = ref<number[]>([]);
 const statusFilterIds = ref<number[]>([]);
@@ -686,61 +682,6 @@ const kpiCapacity = computed(() => {
   return Number.isFinite(n) ? String(n) : '∞';
 });
 
-/** TEMP: sorsolás előtt minden játékos Belépett — később töröljük */
-function checkInEveryone() {
-  const statusRow = findEventUserStatusByName(masterDataStore.eventUserStatuses, 'Belépett');
-  const toId = nullableNumericId(statusRow?.id ?? statusRow?.ID ?? statusRow?.Id);
-  if (toId == null) {
-    $q.notify({
-      message: 'Nincs „Belépett” státusz a masterben',
-      color: 'dark',
-      textColor: 'red-4',
-      position: 'top',
-      timeout: 2200,
-    });
-    return;
-  }
-
-  const targets = participants.value.filter((row) => {
-    if (row.checkedIn || row.statusId === toId) return false;
-    return (
-      membershipRoleKind({
-        isOrganizer: masterDataStore.isOrganizerRole(row.masterRoleId),
-        roleTypeName: masterDataStore.getRoleTypeNameByRoleId(row.masterRoleId),
-        roleName: row.roleName,
-      }) === 'participant'
-    );
-  });
-
-  for (const row of targets) {
-    eventStore.applyEventUserStatus(row.id, toId, row.statusId);
-  }
-  refreshSelected();
-  $q.notify({
-    message: targets.length
-      ? `${targets.length} játékos belépett`
-      : 'Nincs beléptethető játékos',
-    color: 'dark',
-    textColor: 'blue-4',
-    position: 'top',
-    timeout: 1800,
-    classes: 'border border-blue-500/30 rounded-xl q-px-lg q-py-md font-bold text-[13px] mt-4',
-    style: 'background: rgba(11, 15, 25, 0.85);',
-  });
-}
-
-function openExcelPicker() {
-  excelInput.value?.click();
-}
-
-function onExcelSelected(event: Event) {
-  const input = event.target as HTMLInputElement;
-  const file = input.files?.[0];
-  input.value = '';
-  if (!file) return;
-  comingSoon(`Excel feltöltés (${file.name})`);
-}
-
 function openDetail(row: ParticipantRow) {
   selected.value = row;
   isDetailOpen.value = true;
@@ -819,6 +760,14 @@ async function onUndoClick() {
 
   transitioning.value = true;
   try {
+    const numericEventId = nullableNumericId(eventId.value);
+    if (numericEventId == null) return;
+    await setEventUserStatus({
+      eventId: numericEventId,
+      eventUserId: selected.value.id,
+      toStatusId: prevId,
+      prevStatusId: null,
+    });
     eventStore.applyEventUserStatus(selected.value.id, prevId, null);
     refreshSelected();
     $q.notify({
@@ -830,6 +779,14 @@ async function onUndoClick() {
       classes: 'border border-blue-500/30 rounded-xl q-px-lg q-py-md font-bold text-[13px] mt-4',
       style: 'background: rgba(11, 15, 25, 0.85);',
     });
+  } catch (error) {
+    $q.notify({
+      message: readAxiosErrorMessage(error, 'A visszavonás sikertelen.'),
+      color: 'dark',
+      textColor: 'red-4',
+      position: 'top',
+      timeout: 2400,
+    });
   } finally {
     transitioning.value = false;
   }
@@ -840,7 +797,15 @@ async function onSelectTransition(item: EventUserStatusTransition) {
 
   transitioning.value = true;
   try {
+    const numericEventId = nullableNumericId(eventId.value);
+    if (numericEventId == null) return;
     const prevToStore = item.canRecordPrev ? selected.value.statusId : null;
+    await setEventUserStatus({
+      eventId: numericEventId,
+      eventUserId: selected.value.id,
+      toStatusId: item.toStatusId,
+      prevStatusId: prevToStore,
+    });
     eventStore.applyEventUserStatus(selected.value.id, item.toStatusId, prevToStore);
     isStatusSheetOpen.value = false;
     refreshSelected();
@@ -852,6 +817,14 @@ async function onSelectTransition(item: EventUserStatusTransition) {
       timeout: 1800,
       classes: 'border border-blue-500/30 rounded-xl q-px-lg q-py-md font-bold text-[13px] mt-4',
       style: 'background: rgba(11, 15, 25, 0.85);',
+    });
+  } catch (error) {
+    $q.notify({
+      message: readAxiosErrorMessage(error, 'A státuszváltás sikertelen.'),
+      color: 'dark',
+      textColor: 'red-4',
+      position: 'top',
+      timeout: 2400,
     });
   } finally {
     transitioning.value = false;
@@ -886,6 +859,10 @@ async function loadDataSheet() {
 onMounted(() => {
   void loadDataSheet();
 });
+
+function onInvitesImported() {
+  void loadDataSheet();
+}
 
 function comingSoon(label: string) {
   $q.notify({
@@ -955,20 +932,6 @@ function comingSoon(label: string) {
   grid-template-columns: repeat(3, 1fr);
   gap: 8px;
   margin-bottom: 14px;
-}
-
-.part-temp-checkin {
-  display: block;
-  width: 100%;
-  margin: 0 0 12px;
-  padding: 8px 12px;
-  border: 1px dashed rgba(255, 255, 255, 0.25);
-  border-radius: 8px;
-  background: transparent;
-  color: #94a3b8;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
 }
 
 .part-kpi {

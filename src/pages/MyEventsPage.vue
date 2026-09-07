@@ -1,6 +1,6 @@
 <template>
-  <q-page class="bg-brand-dark text-white relative overflow-hidden q-pa-md flex flex-col justify-start">
-    
+  <q-page class="bg-brand-dark text-white relative q-pa-md">
+    <CatalogPullRefresh @refresh="onPullRefresh">
     <!-- Title + Új gomb -->
     <div class="relative z-10 q-mb-md mt-4">
       <div class="flex items-center justify-between gap-3">
@@ -9,15 +9,28 @@
           Eseményeim
         </h2>
 
-        <button
-          type="button"
-          class="new-event-btn"
-          @click="wizardVisible = true"
-        >
-          <span class="new-event-btn__glow" aria-hidden="true" />
-          <q-icon name="add" size="18px" />
-          <span>Új</span>
-        </button>
+        <div class="flex items-center gap-2">
+          <q-btn
+            flat
+            round
+            dense
+            icon="sym_r_refresh"
+            color="cyan-4"
+            size="sm"
+            :loading="catalogRefreshing"
+            aria-label="Események frissítése"
+            @click="reloadCatalog"
+          />
+          <button
+            type="button"
+            class="new-event-btn"
+            @click="wizardVisible = true"
+          >
+            <span class="new-event-btn__glow" aria-hidden="true" />
+            <q-icon name="add" size="18px" />
+            <span>Új</span>
+          </button>
+        </div>
       </div>
     </div>
 
@@ -127,7 +140,7 @@
       </q-slide-transition>
 
       <!-- Scrollable Feed -->
-      <div class="flex-grow overflow-y-auto no-scrollbar q-pb-xl" style="max-height: calc(100vh - 250px);">
+      <div class="q-pb-xl">
         <div v-if="filteredEvents.length > 0" style="display: flex; flex-direction: column; gap: 8px;">
           <div 
             v-for="event in filteredEvents" 
@@ -225,6 +238,8 @@
       </div>
     </div>
 
+    </CatalogPullRefresh>
+
     <InviteDecisionSheet
       v-model="inviteSheetOpen"
       :event-id="inviteEvent?.id ?? null"
@@ -240,6 +255,8 @@ import { useEventStore } from 'src/stores/event';
 import { useMasterDataStore } from 'src/stores/masterData';
 import CreateEventWizard from 'src/components/event-wizard/CreateEventWizard.vue';
 import InviteDecisionSheet from 'src/components/event/InviteDecisionSheet.vue';
+import CatalogPullRefresh from 'src/components/layout/CatalogPullRefresh.vue';
+import { refreshEventCatalog } from 'src/utils/eventCatalogRefresh';
 import { resolveIconName } from 'src/components/event-wizard/groupIcons';
 import { isProfitabilityEventType } from 'src/modules/profitability/constants';
 
@@ -247,12 +264,26 @@ const router = useRouter();
 const eventStore = useEventStore();
 const masterDataStore = useMasterDataStore();
 const wizardVisible = ref(false);
+const catalogRefreshing = ref(false);
 const inviteSheetOpen = ref(false);
 const inviteEvent = ref<EventItem | null>(null);
 
 function openInviteDecision(event: EventItem) {
   inviteEvent.value = event;
   inviteSheetOpen.value = true;
+}
+
+async function reloadCatalog() {
+  catalogRefreshing.value = true;
+  try {
+    await refreshEventCatalog({ force: true });
+  } finally {
+    catalogRefreshing.value = false;
+  }
+}
+
+function onPullRefresh(done: () => void) {
+  void reloadCatalog().finally(() => done());
 }
 
 // Event interface structure
@@ -292,7 +323,7 @@ const mapToUIEvent = (dbEvent: any): EventItem => {
   const eventType = masterDataStore.eventTypes?.find((t: any) => t.id === dbEvent.EventTypeID);
   const location = eventStore.locations?.find((l: any) => l.id === dbEvent.EventLocationID) || {};
   
-  const eventLabelIds = eventStore.eventLabels?.filter((el: any) => el.EventID === dbEvent.id).map((el: any) => el.LabelID) || [];
+  const eventLabelIds = eventStore.eventLabels?.filter((el: any) => String(el.EventID ?? el.eventID) === String(dbEvent.id)).map((el: any) => el.LabelID) || [];
   const tags = masterDataStore.labels?.filter((l: any) => eventLabelIds.includes(l.id)).map((l: any) => l.LabelName || l.Name) || [];
   
   // Szerepkörök 2-lépcsős feloldással: EventUser.EventRoleID -> EventRoles.id -> EventRoles.RoleID -> MasterData.Roles.id
@@ -342,7 +373,7 @@ const mapToUIEvent = (dbEvent: any): EventItem => {
     status: 'applied', // TODO: Map real status
     location: location.LocationName || location.Name || 'Online/Ismeretlen',
     city: location.City || 'Budapest',
-    tags: tags.length > 0 ? tags : ['rendezvény'],
+    tags,
     isMyEvent: true,
     logo: resolveIconName(eventType?.IconName || eventType?.iconName),
     roles: myRoles,

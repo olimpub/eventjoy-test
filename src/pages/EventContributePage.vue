@@ -25,6 +25,13 @@
         <h1 class="contribute-panel__title">{{ eventName }}</h1>
       </section>
 
+      <EventClosedFollowUp
+        :event-id="eventId"
+        :event-ended="playPhase === 'ended'"
+        :current-role="enteredRole"
+        :roles="enterableRoles"
+      />
+
       <div class="contribute-empty">
         <ComingSoonCube />
       </div>
@@ -37,8 +44,11 @@ import { computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useQuasar } from 'quasar';
 import RoleSwitchChip from 'src/components/event/RoleSwitchChip.vue';
+import EventClosedFollowUp from 'src/components/event/EventClosedFollowUp.vue';
 import ComingSoonCube from 'src/components/event/ComingSoonCube.vue';
 import { useEventStore } from 'src/stores/event';
+import { useMasterDataStore } from 'src/stores/masterData';
+import { eventPlayPhase, findEventStatus } from 'src/utils/eventFlow';
 import {
   eventDatasheetKind,
   eventGameMasterPath,
@@ -50,6 +60,7 @@ const route = useRoute();
 const router = useRouter();
 const $q = useQuasar();
 const eventStore = useEventStore();
+const masterDataStore = useMasterDataStore();
 
 const eventId = computed(() => String(route.params.id));
 
@@ -94,6 +105,25 @@ const enteredRole = computed(() => {
     null
   );
 });
+
+const eventStatusId = computed(() => {
+  const e = dbEvent.value;
+  if (!e) return null;
+  return e.EventStatusID ?? e.eventStatusID ?? e.StatusID ?? e.StatusId ?? null;
+});
+
+const statusRecord = computed(() => findEventStatus(masterDataStore.eventStatuses, eventStatusId.value));
+
+const statusLabel = computed(() => {
+  const rec = statusRecord.value;
+  if (rec) return String(rec.StatusName || rec.Name || 'Státusz');
+  return masterDataStore.getEventStatusNameById(
+    eventStatusId.value,
+    eventStatusId.value == null ? 'Tervezés' : 'Státusz'
+  );
+});
+
+const playPhase = computed(() => eventPlayPhase(statusLabel.value));
 
 watch(
   enteredRole,

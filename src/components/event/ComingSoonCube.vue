@@ -4,7 +4,7 @@
       <q-icon :name="icon" size="32px" />
     </span>
     <span v-if="title" class="soon-cube__title">{{ title }}</span>
-    <span class="soon-cube__label">Hamarosan</span>
+    <span class="soon-cube__label">Hamarosan elérhető</span>
   </div>
 </template>
 
@@ -54,8 +54,10 @@ defineProps<{
 .soon-cube__label {
   font-size: 12px;
   font-weight: 800;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
+  text-align: center;
+  line-height: 1.35;
   color: #64748b;
 }
 </style>

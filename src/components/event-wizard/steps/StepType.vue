@@ -14,8 +14,18 @@
           :class="{ 'is-on': groupId === entityId(group) }"
           @click="selectGroup(group)"
         >
-          <div class="wizard-card__icon">
-            <q-icon :name="getGroupIcon(group)" size="28px" />
+          <div class="wizard-card__icon" :class="{ 'is-img': iconOfGroup(group).kind === 'img' }">
+            <img
+              v-if="iconOfGroup(group).kind === 'img'"
+              :src="iconOfGroup(group).value"
+              alt=""
+              class="wizard-card__img"
+            />
+            <q-icon
+              v-else
+              :name="iconOfGroup(group).value"
+              size="28px"
+            />
           </div>
           <div class="wizard-card__body">
             <span class="wizard-card__title">{{ groupNameOf(group) }}</span>
@@ -56,7 +66,7 @@
               :class="{ 'is-selected': typeId === entityId(type) }"
               @click="selectType(type)"
             >
-              <div class="wizard-type-card__icon">
+              <div class="wizard-type-card__icon" :class="{ 'is-img': iconOf(type).kind === 'img' }">
                 <img
                   v-if="iconOf(type).kind === 'img'"
                   :src="iconOf(type).value"
@@ -89,7 +99,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { useMasterDataStore } from 'src/stores/masterData';
-import { getGroupIcon, resolveTypeIcon } from '../groupIcons';
+import { resolveEventGroupIcon, resolveEventTypeIcon, typeIconToken } from '../brandedTypeIcons';
 import { entityId, isActiveFlag, type WizardMode } from '../types';
 import WizardModeIcon from '../WizardModeIcon.vue';
 
@@ -162,8 +172,20 @@ function typeName(t: any): string {
   return t.TypeName || t.typeName || t.Name || 'Névtelen típus';
 }
 
+function typesInGroup(g: any) {
+  const gid = entityId(g);
+  return ((masterData.eventTypes || []) as any[]).filter((t) => {
+    const tg = Number(t.EventTypeGroupID ?? t.eventTypeGroupId ?? t.GroupID ?? 0);
+    return tg === gid && isActiveFlag(t.ActiveFlg ?? t.activeFlg);
+  });
+}
+
+function iconOfGroup(g: any) {
+  return resolveEventGroupIcon(g, typesInGroup(g));
+}
+
 function iconOf(t: any) {
-  return resolveTypeIcon(t.IconName || t.iconName);
+  return resolveEventTypeIcon(t);
 }
 
 function selectGroup(g: any) {
@@ -175,7 +197,7 @@ function selectType(t: any) {
     id: entityId(t),
     code: String(t.Code || t.code || ''),
     name: typeName(t),
-    icon: String(t.IconName || t.iconName || ''),
+    icon: typeIconToken(t),
   });
 }
 </script>

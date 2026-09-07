@@ -9,6 +9,8 @@ export const GROUP_ICON_MAP: Record<number, string> = {
   99: 'sym_r_workspace_premium',
 };
 
+export type ResolvedIcon = { kind: 'icon' | 'img'; value: string };
+
 export function getGroupIcon(group: { id?: number | string; IconName?: string; iconName?: string } | null | undefined): string {
   if (!group) return 'sym_r_category';
   const fromApi = group.IconName || group.iconName;
@@ -40,7 +42,7 @@ function imageSrc(raw: string): string {
 }
 
 /** Material Symbol név vagy képútvonal → render tip */
-export function resolveTypeIcon(iconName?: string | null): { kind: 'icon' | 'img'; value: string } {
+export function resolveTypeIcon(iconName?: string | null): ResolvedIcon {
   const raw = (iconName || '').trim();
   if (!raw) return { kind: 'icon', value: 'sym_r_event' };
   if (looksLikeImagePath(raw)) {
@@ -55,7 +57,7 @@ export function resolveTypeIcon(iconName?: string | null): { kind: 'icon' | 'img
   return { kind: 'icon', value: name };
 }
 
-/** Plain icon name for q-icon :name (cards, lists). Képeknél üres — használd a resolveTypeIcon-t. */
+/** Plain icon name for q-icon :name (cards, lists). Képeknél generic fallback. */
 export function resolveIconName(iconName?: string | null): string {
   const resolved = resolveTypeIcon(iconName);
   return resolved.kind === 'icon' ? resolved.value : 'sym_r_event';

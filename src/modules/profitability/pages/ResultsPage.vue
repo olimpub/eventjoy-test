@@ -187,18 +187,21 @@ import { useMasterDataStore } from 'src/stores/masterData';
 import { eventDatasheetKind, eventRolePath, eventRoleQuery } from 'src/utils/eventRoleNav';
 import {
   collectGroupingValues,
+  findPtaPlayerByRef,
   listEnabledGroupingAttrs,
   pickGroupingText,
+  ptaEventRoundId,
+  resolvePtaSeatName,
   type EventGroupingKey,
 } from 'src/modules/profitability/ptaData';
 import {
   aggregateStandings,
   buildStandings,
-  catalogHasPublishedStatus,
-  deskStatusOf,
+  deskHasRecordedResults,
   foldText,
   isClosedStatus,
   isLiveStatus,
+  pickOpenRoundId,
   roundResultsReleased,
   type ResultsScope,
 } from 'src/modules/profitability/standings';
@@ -263,7 +266,10 @@ const enteredRole = computed(() => {
   return roles.find((r) => r.isOrganizer) || roles[0] || null;
 });
 
-const isOrganizerView = computed(() => eventDatasheetKind(enteredRole.value) === 'organizer');
+const isStaffView = computed(() => {
+  const kind = eventDatasheetKind(enteredRole.value);
+  return kind === 'organizer' || kind === 'gamemaster';
+});
 const showUserPosition = computed(() => {
   if (eventDatasheetKind(enteredRole.value) !== 'player') return true;
   return eventStore.getPtaSettingsForEvent(eventId.value)?.ShowUserPositionFlg !== false;
@@ -276,37 +282,29 @@ function roundStatusName(row: Record<string, unknown>): string {
   return String(fromMaster || row.SName || 'Kisorsolva');
 }
 
-function personName(row: Record<string, unknown> | null | undefined): string {
-  if (!row) return '';
-  const last = String(row.LastName ?? row.lastName ?? '').trim();
-  const first = String(row.FirstName ?? row.firstName ?? '').trim();
-  const display = String(row.DisplayName ?? row.UserName ?? row.Name ?? '').trim();
-  return [last, first].filter(Boolean).join(' ') || display;
-}
-
 function playerName(playerId: number | null): string {
-  if (playerId == null) return '—';
-  const player = eventStore.getPtaPlayersForEvent(eventId.value).find((row) => {
-    return nullableNumericId(row.EventPlayerID ?? row.id) === playerId;
+  return resolvePtaSeatName({
+    playerId,
+    players: [...eventStore.getPtaPlayersForEvent(eventId.value), ...eventStore.ptaEventPlayers],
+    people: [
+      ...eventStore.getParticipantDirectoryForEvent(eventId.value),
+      ...eventStore.getEventParticipantsForEvent(eventId.value),
+      ...eventStore.getEventUsersForEvent(eventId.value),
+    ],
+    eventId: eventId.value,
   });
-  if (!player) return 'Játékos';
-  const fromPlayer = String(player.DisplayName ?? player.Name ?? '').trim();
-  if (fromPlayer) return fromPlayer;
-  const eventUserId = nullableNumericId(player.EventUserID);
-  if (eventUserId == null) return 'Játékos';
-  const eu = eventStore.getEventParticipantsForEvent(eventId.value).find((row) => row.id === eventUserId);
-  if (!eu) return 'Játékos';
-  return personName(eu as Record<string, unknown>);
 }
 
 function groupingValueForPlayer(playerId: number, key: EventGroupingKey): string {
-  const player = eventStore.getPtaPlayersForEvent(eventId.value).find((row) => {
-    return nullableNumericId(row.EventPlayerID ?? row.id) === playerId;
-  });
+  const player = findPtaPlayerByRef(
+    [...eventStore.getPtaPlayersForEvent(eventId.value), ...eventStore.ptaEventPlayers],
+    eventId.value,
+    playerId
+  );
   const eventUserId = nullableNumericId(player?.EventUserID);
   const eu =
     eventUserId != null
-      ? eventStore.getEventParticipantsForEvent(eventId.value).find((row) => row.id === eventUserId)
+      ? eventStore.getParticipantDirectoryForEvent(eventId.value).find((row) => row.id === eventUserId)
       : null;
   const source: Record<string, unknown> = {
     ...(player || {}),
@@ -329,41 +327,36 @@ function statusClass(status: string) {
 
 const rounds = computed<ResultsRoundRow[]>(() => {
   const roundDesks = eventStore.getPtaRoundDesksForEvent(eventId.value);
+  const schedules = eventStore.getPtaSchedulesForEvent(eventId.value);
   return eventStore.getPtaRoundsForEvent(eventId.value).map((row, index) => {
-    const id = nullableNumericId(row.EventRoundID ?? row.id) ?? index + 1;
+    const id = ptaEventRoundId(row) ?? nullableNumericId(row.id) ?? index + 1;
     const order = Number(row.OrderIndex ?? index + 1);
     const name = String(row.RName || '').trim();
     const status = roundStatusName(row);
-    const desks = roundDesks.filter((desk) => nullableNumericId(desk.EventRoundID) === id);
+    const desks = roundDesks.filter((desk) => ptaEventRoundId(desk) === id);
     return {
       id,
       order,
       label: name || `${order}. forduló`,
       status,
       deskCount: desks.length,
-      closedDeskCount: desks.filter((desk) => isClosedStatus(deskStatusOf(desk, status))).length,
+      closedDeskCount: desks.filter((desk) => deskHasRecordedResults(desk, status, schedules, desks)).length,
     };
   });
 });
 
 const hasDraw = computed(() => rounds.value.length > 0);
 
-const catalogHasPublished = computed(() =>
-  catalogHasPublishedStatus(masterDataStore.ptaEventRoundStatuses)
-);
-
 const visibleRounds = computed(() => {
-  if (isOrganizerView.value) return rounds.value;
-  return rounds.value.filter((round) =>
-    roundResultsReleased(round.status, catalogHasPublished.value)
-  );
+  if (isStaffView.value) return rounds.value;
+  return rounds.value.filter((round) => roundResultsReleased(round.status));
 });
 
 watch(
   visibleRounds,
   (list) => {
     if (selectedRoundId.value != null && list.some((round) => round.id === selectedRoundId.value)) return;
-    selectedRoundId.value = list[0]?.id ?? null;
+    selectedRoundId.value = pickOpenRoundId(list);
   },
   { immediate: true }
 );

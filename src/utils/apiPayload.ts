@@ -44,6 +44,12 @@ export function pickDataset(source: unknown, ...keys: string[]): unknown[] {
   return [];
 }
 
+export function hasDatasetKey(source: unknown, ...keys: string[]): boolean {
+  if (!source || typeof source !== 'object') return false;
+  const wanted = new Set(keys.map((k) => k.toLowerCase()));
+  return Object.keys(source as Record<string, unknown>).some((k) => wanted.has(k.toLowerCase()));
+}
+
 export function warnIfDatasetMissing(
   label: string,
   rows: unknown[],
@@ -73,4 +79,77 @@ export function nullableNumericId(value: unknown): number | null {
   const num = Number(value);
   if (!Number.isFinite(num) || num === 0) return null;
   return num;
+}
+
+export function readApiReturnValue(raw: unknown): number {
+  const data = unwrapApiPayload(raw);
+  if (data.ReturnValue != null && data.ReturnValue !== '') {
+    const n = Number(data.ReturnValue);
+    if (Number.isFinite(n)) return n;
+  }
+  const result1 = data.Result1;
+  const row = Array.isArray(result1) ? result1[0] : result1;
+  if (row && typeof row === 'object') {
+    const n = Number((row as Record<string, unknown>).ReturnValue);
+    if (Number.isFinite(n)) return n;
+  }
+  return 1;
+}
+
+export function readApiReturnDescription(raw: unknown): string {
+  const data = unwrapApiPayload(raw);
+  const top = String(data.ReturnDescription ?? '').trim();
+  if (top) return top;
+  const result1 = data.Result1;
+  const row = Array.isArray(result1) ? result1[0] : result1;
+  if (row && typeof row === 'object') {
+    return String((row as Record<string, unknown>).ReturnDescription ?? '').trim();
+  }
+  return '';
+}
+
+export function throwIfApiFailed(raw: unknown, fallback = 'A művelet sikertelen.') {
+  const rv = readApiReturnValue(raw);
+  if (Number.isFinite(rv) && rv < 0) {
+    throw new Error(readApiReturnDescription(raw) || fallback);
+  }
+}
+
+export function readCreatedEntityId(raw: unknown, ...keys: string[]): number | null {
+  const wanted = keys.length ? keys : ['EventID', 'eventID', 'id'];
+  const data = unwrapApiPayload(raw);
+  for (const key of wanted) {
+    const n = nullableNumericId(data[key]);
+    if (n != null) return n;
+  }
+  const nested = data.Event;
+  if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+    for (const key of wanted) {
+      const n = nullableNumericId((nested as Record<string, unknown>)[key]);
+      if (n != null) return n;
+    }
+  }
+  const result1 = data.Result1;
+  const row = Array.isArray(result1) ? result1[0] : result1;
+  if (row && typeof row === 'object') {
+    for (const key of wanted) {
+      const n = nullableNumericId((row as Record<string, unknown>)[key]);
+      if (n != null) return n;
+    }
+  }
+  const rv = readApiReturnValue(raw);
+  return rv > 1 ? rv : null;
+}
+
+export function readAxiosErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message && !('response' in error)) {
+    return error.message;
+  }
+  const response = (error as { response?: { data?: unknown } } | null)?.response;
+  if (response?.data) {
+    const desc = readApiReturnDescription(response.data);
+    if (desc) return desc;
+  }
+  if (error instanceof Error && error.message) return error.message;
+  return fallback;
 }

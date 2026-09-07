@@ -78,10 +78,10 @@
 </template>
 
 <script setup lang="ts">
-import { BRAND_MODULES } from 'src/assets/brand';
+import { KLUBHUB_BRAND } from 'src/assets/brand/klubhub';
 
 /** Eredeti KH app ikon (gradient) — nagy méretben */
-const klubhubLogo = BRAND_MODULES.klubhub.appIcon;
+const klubhubLogo = KLUBHUB_BRAND.appIcon;
 </script>
 
 <style scoped lang="scss">

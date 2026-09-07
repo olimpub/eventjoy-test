@@ -10,19 +10,31 @@
       <!-- Back Button -->
       <q-btn 
         icon="arrow_back" 
-        flat 
-        round 
+        round
+        unelevated
         dense
-        color="white"
-        class="absolute top-4 left-4 z-20 bg-black/30 backdrop-blur-md"
+        class="absolute top-4 left-4 z-20 text-white event-cover-btn"
+        aria-label="Vissza"
         @click="router.go(-1)"
       />
-      
+
       <!-- Image -->
-      <img :src="event.coverImage" class="w-full h-full object-cover object-center scale-105" />
-      
+      <div
+        class="w-full h-full"
+        :class="event.isDefaultCover ? 'event-cover-default' : ''"
+      >
+        <img
+          :src="event.coverImage"
+          alt=""
+          class="w-full h-full"
+          :class="event.isDefaultCover
+            ? 'object-contain p-16 sm:p-24 scale-100'
+            : 'object-cover object-center scale-105'"
+        />
+      </div>
+
       <!-- Premium Gradient overlay to blend with the background -->
-      <div class="absolute inset-0 bg-gradient-to-t from-[#0F172A] via-[#0F172A]/60 to-transparent"></div>
+      <div class="absolute inset-0 bg-gradient-to-t from-[#0F172A] via-[#0F172A]/60 to-transparent pointer-events-none"></div>
     </div>
 
     <!-- MAIN CONTENT CONTAINER -->
@@ -100,7 +112,7 @@
             }"
           >
             <div v-if="event.status === 'active'" class="event-status-chip__dot"></div>
-            {{ getStatusLabel(event.status) }}
+            {{ event.statusName }}
           </div>
 
           <button
@@ -128,35 +140,17 @@
           
           <!-- STATE A: COMPLETED (Lezárt) & HAS PARTICIPATED -->
           <template v-if="event.status === 'completed' && hasParticipated">
-            <q-btn v-if="event.hasDownloadableFiles" unelevated class="w-full rounded-[16px] py-3.5" style="background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3);" @click="modals.downloads = true">
-               <div class="flex items-center justify-center gap-3 w-full">
-                  <q-icon name="folder_zip" size="20px" />
-                  <span class="font-bold text-[14px] tracking-wide uppercase">Anyagok letöltése</span>
-               </div>
-            </q-btn>
-
             <!-- HÍRFOLYAM -->
             <q-btn 
               unelevated
               class="w-full rounded-[16px] py-3.5 outline-none"
               style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);"
-              @click="router.push(`/feed?eventId=${event.id}`)"
+              @click="comingSoon('Hírfolyam', 'sym_r_newspaper')"
             >
               <div class="flex items-center justify-center gap-3 w-full">
                 <q-icon name="sym_r_newspaper" color="white" size="20px" />
                 <span class="text-white font-bold text-[14px] tracking-wide uppercase">Esemény Hírei</span>
-                <div v-if="unreadNewsCount > 0" class="text-white" :style="{ backgroundColor: accentColor, width: '24px', height: '24px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '900', fontSize: '13px', marginLeft: '6px', boxShadow: '0 0 10px ' + accentBg(0.6), lineHeight: '1' }">
-                  {{ unreadNewsCount }}
-                </div>
               </div>
-            </q-btn>
-
-            <!-- SZÁMLA (EventUsers.InvoiceID) -->
-            <q-btn v-if="event.hasInvoice" unelevated class="w-full rounded-[16px] py-3.5" style="background: rgba(255,255,255,0.05); color: white; border: 1px solid rgba(255,255,255,0.1);">
-               <div class="flex items-center justify-center gap-3 w-full">
-                  <q-icon name="receipt_long" size="20px" />
-                  <span class="font-bold text-[14px] tracking-wide uppercase">Számla letöltése</span>
-               </div>
             </q-btn>
             
             <!-- INFORMÁCIÓK -->
@@ -203,23 +197,12 @@
               unelevated
               class="w-full rounded-[16px] py-3.5 outline-none"
               style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);"
-              @click="router.push(`/feed?eventId=${event.id}`)"
+              @click="comingSoon('Hírfolyam', 'sym_r_newspaper')"
             >
               <div class="flex items-center justify-center gap-3 w-full">
                 <q-icon name="sym_r_newspaper" color="white" size="20px" />
                 <span class="text-white font-bold text-[14px] tracking-wide uppercase">Esemény Hírei</span>
-                <div v-if="unreadNewsCount > 0" class="text-white" :style="{ backgroundColor: accentColor, width: '24px', height: '24px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '900', fontSize: '13px', marginLeft: '6px', boxShadow: '0 0 10px ' + accentBg(0.6), lineHeight: '1' }">
-                  {{ unreadNewsCount }}
-                </div>
               </div>
-            </q-btn>
-
-            <!-- SZÁMLA -->
-            <q-btn v-if="event.hasInvoice" unelevated class="w-full rounded-[16px] py-3.5" style="background: rgba(255,255,255,0.05); color: white; border: 1px solid rgba(255,255,255,0.1);">
-               <div class="flex items-center justify-center gap-3 w-full">
-                  <q-icon name="receipt_long" size="20px" />
-                  <span class="font-bold text-[14px] tracking-wide uppercase">Számla letöltése</span>
-               </div>
             </q-btn>
             
             <!-- INFORMÁCIÓK -->
@@ -240,25 +223,34 @@
       </div>
 
       <!-- 4. PROGRAM PANEL -->
-      <div v-if="event.hasProgram" class="mb-8">
+      <div class="mb-8">
         <div class="flex items-center gap-2 px-2" style="margin-bottom: 12px;">
           <q-icon name="sym_r_view_timeline" :style="{ color: accentColor }" size="20px" />
           <h2 style="font-size: 13px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em; margin: 0;">Esemény Programja</h2>
         </div>
-        
-        <div class="flex flex-col gap-3">
-          <div v-for="(p, idx) in event.program" :key="idx" class="flex items-center gap-4 p-2 pr-4 transition-colors" style="background: rgba(255,255,255,0.03); border-radius: 20px; border: 1px solid rgba(255,255,255,0.05);">
+        <div v-if="!hasPrograms" class="event-program-empty">
+          Nincs Program
+        </div>
+        <div v-else-if="programView.kind === 'flat'" class="event-program">
+          <div
+            v-for="item in programView.items"
+            :key="item.id"
+            class="event-program__row"
+          >
+            <span class="event-program__time" :style="{ color: accentColor }">{{ item.time }}</span>
+            <span class="event-program__name">{{ item.name }}</span>
+          </div>
+        </div>
+        <div v-else class="event-program">
+          <div v-for="day in programView.days" :key="day.dateKey" class="event-program__day">
+            <div class="event-program__day-label">{{ day.label }}</div>
             <div
-              class="px-3 py-2 rounded-xl text-white font-black text-[13px] tracking-wider text-center min-w-[65px]"
-              :style="idx === 0 && event.status === 'active'
-                ? { backgroundColor: accentColor, boxShadow: '0 0 15px ' + accentBg(0.5) }
-                : { backgroundColor: '#0B0F19' }"
+              v-for="item in day.items"
+              :key="item.id"
+              class="event-program__row"
             >
-              {{ p.time }}
-            </div>
-            <div class="flex flex-col">
-              <span class="text-white font-bold text-[14px] leading-tight">{{ p.title }}</span>
-              <span v-if="idx === 0 && event.status === 'active'" class="text-[10px] uppercase font-black tracking-widest mt-0.5 animate-pulse" :style="{ color: accentColor }">Most zajlik</span>
+              <span class="event-program__time" :style="{ color: accentColor }">{{ item.time }}</span>
+              <span class="event-program__name">{{ item.name }}</span>
             </div>
           </div>
         </div>
@@ -336,73 +328,69 @@
       </q-card>
     </q-dialog>
 
-    <!-- Downloads Modal -->
-    <q-dialog v-model="modals.downloads" position="bottom" transition-show="slide-up" transition-hide="slide-down">
-      <q-card class="bg-[#0B0F19] text-white rounded-t-3xl border-t border-white/10 w-full max-w-2xl mx-auto pb-8">
-        <q-card-section class="flex justify-between items-center pt-6 pb-2 border-b border-white/5">
-          <h2 class="text-lg font-black uppercase tracking-widest m-0 flex items-center gap-2">
-            <q-icon name="folder_zip" :style="{ color: accentColor }" size="24px"/>
-            Letölthető anyagok
-          </h2>
-          <q-btn icon="close" flat round dense v-close-popup class="text-slate-400 hover:text-white" />
-        </q-card-section>
-        <q-card-section class="pt-4 flex flex-col gap-3">
-          <q-btn outline color="slate-400" align="left" class="w-full rounded-2xl py-3 px-4" no-caps>
-            <div class="flex items-center gap-3 w-full">
-              <q-icon name="receipt_long" size="24px" :style="{ color: accentColor }" />
-              <div class="flex flex-col items-start">
-                <span class="font-bold text-white text-sm">Számla letöltése</span>
-                <span class="text-[10px] text-slate-500 uppercase font-bold">PDF • 120 KB</span>
-              </div>
-              <q-icon name="download" size="20px" class="ml-auto text-slate-500" />
-            </div>
-          </q-btn>
-          <q-btn outline color="slate-400" align="left" class="w-full rounded-2xl py-3 px-4" no-caps>
-            <div class="flex items-center gap-3 w-full">
-              <q-icon name="workspace_premium" size="24px" class="text-amber-400" />
-              <div class="flex flex-col items-start">
-                <span class="font-bold text-white text-sm">Részvételi Oklevél</span>
-                <span class="text-[10px] text-slate-500 uppercase font-bold">PDF • 2.1 MB</span>
-              </div>
-              <q-icon name="download" size="20px" class="ml-auto text-slate-500" />
-            </div>
-          </q-btn>
-        </q-card-section>
-      </q-card>
-    </q-dialog>
-
     <!-- TICKET MODAL -->
     <q-dialog v-model="modals.ticket" transition-show="scale" transition-hide="scale">
-      <q-card class="bg-white text-slate-900 rounded-3xl w-full max-w-sm pb-6 overflow-hidden relative">
-        <div class="h-24 w-full flex items-center justify-center relative" :style="{ backgroundColor: accentColor }">
-          <q-btn icon="close" flat round dense v-close-popup class="absolute top-2 right-2 text-white" />
-          <h2 class="text-white font-black uppercase tracking-widest text-lg m-0">Belépőjegy</h2>
-        </div>
-        
-        <!-- Ticket cutouts -->
-        <div class="absolute w-8 h-8 bg-black/50 rounded-full -left-4 top-20 mix-blend-overlay"></div>
-        <div class="absolute w-8 h-8 bg-black/50 rounded-full -right-4 top-20 mix-blend-overlay"></div>
+      <q-card class="event-ticket">
+        <q-btn
+          icon="close"
+          round
+          unelevated
+          v-close-popup
+          class="event-ticket__close"
+          aria-label="Bezárás"
+        />
 
-        <q-card-section class="pt-8 text-center flex flex-col items-center">
-          <div class="text-xl font-black mb-1">{{ event.name }}</div>
-          <div class="text-slate-500 text-sm font-bold mb-6">{{ event.date }}</div>
-          
-          <!-- Ticket QR — EventUser.EventUserUID -->
-          <div class="bg-white p-2 rounded-xl shadow-lg border border-slate-200 mb-4 inline-block">
+        <div class="event-ticket__band" :style="{ background: accentGradient }">
+          <span class="event-ticket__kicker">Belépőjegy</span>
+          <span class="event-ticket__brand">{{ event.isProfitability || isDemoProfitabilityRoute ? 'PROFI-T-ABILITY' : 'EVENTJOY' }}</span>
+        </div>
+
+        <div class="event-ticket__perforation" aria-hidden="true">
+          <span class="event-ticket__notch event-ticket__notch--left" />
+          <span class="event-ticket__dash" />
+          <span class="event-ticket__notch event-ticket__notch--right" />
+        </div>
+
+        <q-card-section class="event-ticket__body">
+          <h2 class="event-ticket__title">{{ event.name }}</h2>
+          <p class="event-ticket__meta">
+            <q-icon name="calendar_today" size="16px" :style="{ color: accentColor }" />
+            {{ event.date }}
+          </p>
+          <p class="event-ticket__meta">
+            <q-icon name="place" size="16px" :style="{ color: accentColor }" />
+            {{ event.location }}
+          </p>
+          <div v-if="event.roles && event.roles.length" class="event-ticket__roles">
+            <span
+              v-for="role in event.roles"
+              :key="role.name || role"
+              class="event-ticket__role"
+              :style="{
+                color: getRoleStyle(role.color).color,
+                backgroundColor: getRoleStyle(role.color).bg,
+                border: '1px solid ' + getRoleStyle(role.color).border
+              }"
+            >
+              {{ role.name || role }}
+            </span>
+          </div>
+
+          <div class="event-ticket__qr">
             <img
               v-if="ticketQrUrl"
               :src="ticketQrUrl"
               alt="Jegy QR-kód"
-              width="160"
-              height="160"
-              class="block"
+              width="200"
+              height="200"
             />
-            <q-icon v-else name="qr_code_2" size="160px" class="text-slate-900" />
+            <q-icon v-else name="qr_code_2" size="120px" class="text-slate-400" />
           </div>
-          
-          <div class="text-sm font-mono font-bold text-slate-400 tracking-widest uppercase">
+
+          <div class="event-ticket__code">
             {{ ticketUid ? ticketUid.slice(0, 8).toUpperCase() : 'QR nem elérhető' }}
           </div>
+          <p class="event-ticket__hint">Mutasd a beléptetésnél</p>
         </q-card-section>
       </q-card>
     </q-dialog>
@@ -426,6 +414,7 @@
               :key="role.eventRoleId ?? role.eventUserId"
               type="button"
               class="event-enter-role"
+              :disabled="enterBusy"
               @click="enterAsRole(role)"
             >
               <span
@@ -479,6 +468,8 @@
           border: '1px solid rgba(255,255,255,0.3)',
           boxShadow: isDemoProfitabilityRoute ? '0 10px 20px rgba(246,139,41,0.4)' : '0 10px 20px rgba(16,185,129,0.4)'
         }"
+        :disable="enterBusy"
+        :loading="enterBusy"
         @click="enterEvent"
       />
     </q-page-sticky>
@@ -488,6 +479,10 @@
       :event-id="event.id"
       :event-name="event.name"
     />
+
+    <q-dialog v-model="isSoonOpen" transition-show="scale" transition-hide="scale">
+      <ComingSoonCube :title="soonLabel" :icon="soonIcon" />
+    </q-dialog>
 
   </q-page>
 </template>
@@ -500,9 +495,16 @@ import QRCode from 'qrcode';
 import { useEventStore, type EnterableEventRole } from 'src/stores/event';
 import { useMasterDataStore } from 'src/stores/masterData';
 import { isProfitabilityEventType } from 'src/modules/profitability/constants';
+import defaultCover from 'src/assets/eventjoy_icon_gradient.svg';
+import ptaCover from 'src/assets/PTA2_back.png';
 import { eventDatasheetKind, eventRoleEnterBlocked, eventRolePath, eventRoleQuery } from 'src/utils/eventRoleNav';
+import { enterEventSession } from 'src/utils/eventEnter';
+import { nullableNumericId, readAxiosErrorMessage } from 'src/utils/apiPayload';
 import { normalizeEventUserUid } from 'src/utils/eventUserQr';
 import InviteDecisionSheet from 'src/components/event/InviteDecisionSheet.vue';
+import ComingSoonCube from 'src/components/event/ComingSoonCube.vue';
+import { eventLocalDateRange, groupProgramsForDisplay } from 'src/utils/eventProgram';
+import { findEventStatus } from 'src/utils/eventFlow';
 
 const $q = useQuasar();
 const router = useRouter();
@@ -510,6 +512,73 @@ const route = useRoute();
 const eventStore = useEventStore();
 const masterDataStore = useMasterDataStore();
 const inviteSheetOpen = ref(false);
+const isSoonOpen = ref(false);
+const soonLabel = ref('Hamarosan elérhető');
+const soonIcon = ref('sym_r_schedule');
+
+function eventCoverUrl(row: Record<string, unknown> | null | undefined): string {
+  const raw = String(row?.EventImageUrl || row?.CoverImageUrl || row?.ImageUrl || '').trim();
+  if (!raw || raw === 'null' || raw === 'undefined') return '';
+  return raw;
+}
+
+function comingSoon(label: string, icon = 'sym_r_schedule') {
+  soonLabel.value = label;
+  soonIcon.value = icon;
+  isSoonOpen.value = true;
+}
+
+function eventTagNames(eventId: unknown): string[] {
+  const key = String(eventId ?? '');
+  const links = (eventStore.eventLabels || []).filter(
+    (el: any) => String(el.EventID ?? el.eventID ?? el.EventId ?? '') === key
+  );
+  const catalog = [...(eventStore.labels || []), ...(masterDataStore.labels || [])];
+  const names: string[] = [];
+  const seen = new Set<string>();
+  for (const link of links) {
+    const labelId = Number(link.LabelID ?? link.labelID ?? link.LabelId);
+    if (!Number.isFinite(labelId)) continue;
+    const row = catalog.find((l: any) => Number(l.id ?? l.ID ?? l.LabelID) === labelId);
+    const name = String(row?.LabelName || row?.Name || row?.labelName || '').trim();
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    names.push(name);
+  }
+  return names;
+}
+
+function eventStatusView(dbEvent: Record<string, unknown> | null | undefined): {
+  key: 'active' | 'upcoming' | 'completed' | 'other';
+  name: string;
+} {
+  const statusId = nullableNumericId(
+    dbEvent?.EventStatusID ?? dbEvent?.eventStatusID ?? dbEvent?.StatusID ?? dbEvent?.StatusId
+  );
+  const rec = findEventStatus(masterDataStore.eventStatuses, statusId);
+  const name = rec
+    ? String(rec.StatusName || rec.Name || 'Státusz')
+    : masterDataStore.getEventStatusNameById(statusId, statusId == null ? 'Tervezés' : 'Státusz');
+  const folded = name.toLowerCase();
+  if (
+    masterDataStore.isEventStatusClosed(statusId) ||
+    folded.includes('lezárt') ||
+    folded.includes('kész') ||
+    folded.includes('töröl')
+  ) {
+    return { key: 'completed', name };
+  }
+  if (
+    masterDataStore.isEventStatusInProgress(statusId) ||
+    folded.includes('folyamat') ||
+    folded.includes('fut') ||
+    folded.includes('élő') ||
+    folded.includes('live')
+  ) {
+    return { key: 'active', name };
+  }
+  return { key: 'other', name };
+}
 
 const isDemoProfitabilityRoute = computed(() => {
   if (isProfitabilityEventType(route.query.eventTypeId as string)) return true;
@@ -525,10 +594,10 @@ const isDemoProfitabilityRoute = computed(() => {
 
 const modals = ref({
   info: false,
-  downloads: false,
   ticket: false
 });
 const isEnterRolePickerOpen = ref(false);
+const enterBusy = ref(false);
 const ticketQrUrl = ref('');
 
 const ticketUid = computed(() => {
@@ -569,28 +638,21 @@ const event = computed(() => {
       location: 'Budapest, Bálna Rendezvényközpont',
       city: 'Budapest',
       type: 'PROFI-T-ABILITY',
-      status: 'active',
+      status: 'other',
       roles: [{ name: 'Résztvevő', color: '#34d399' }],
-      tags: ['üzlet', 'stratégia', 'networking'],
+      tags: [] as string[],
+      statusName: 'Státusz',
       organizer: {
         name: 'EventJoy Szervezőcsapat',
         allowChat: true
       },
-      coverImage: 'https://images.unsplash.com/photo-1540575467063-178a50c2df87?ixlib=rb-1.2.1&auto=format&fit=crop&w=1000&q=80',
+      coverImage: ptaCover,
+      isDefaultCover: false,
       description: 'A PROFI-T-ABILITY üzleti és stratégiai szimulációs bajnokság, ahol a résztvevők valós gazdasági döntéseket hozhatnak.',
       allowLateEntry: true,
-      hasProgram: true,
       userHasTicket: false,
       isTicketPurchasable: true,
-      hasDownloadableFiles: false,
-      hasInvoice: false,
       canEnter: false,
-      program: [
-        { time: '14:00', title: 'Regisztráció és sorsolás' },
-        { time: '14:30', title: '1. forduló játékindítás' },
-        { time: '16:00', title: '2. forduló és asztalváltás' },
-        { time: '17:30', title: 'Eredményhirdetés és díjátadó' }
-      ]
     };
   }
 
@@ -603,9 +665,8 @@ const event = computed(() => {
   const locName = locationObj.LocationName || locationObj.Name || dbEvent.LocationName || dbEvent.Location || 'Budapest, Bálna Rendezvényközpont';
   const cityName = locationObj.City || dbEvent.City || 'Budapest';
 
-  // Címkék
-  const eventLabelIds = eventStore.eventLabels?.filter((el: any) => el.EventID === dbEvent.id).map((el: any) => el.LabelID) || [];
-  const tags = masterDataStore.labels?.filter((l: any) => eventLabelIds.includes(l.id)).map((l: any) => l.LabelName || l.Name) || [];
+  // Címkék — csak a ténylegesen felvett EventLabel sorok, nincs dummy fallback
+  const tags = eventTagNames(dbEvent.id);
 
   // Szerepkörök (Duplikációk szűrésével, 2-lépcsős feloldással: EventUser -> EventRole -> MasterData.Role)
   const rawRoles: any[] = [];
@@ -651,27 +712,19 @@ const event = computed(() => {
   }
 
   // Cover Image
-  const imageUrl = dbEvent.CoverImageUrl || dbEvent.ImageUrl || 'https://images.unsplash.com/photo-1540575467063-178a50c2df87?ixlib=rb-1.2.1&auto=format&fit=crop&w=1000&q=80';
+  const isPtaEvent = isDemoProfitabilityRoute.value || isProfitabilityEventType(dbEvent.EventTypeID);
+  const uploadedCover = eventCoverUrl(dbEvent);
+  const imageUrl = uploadedCover || (isPtaEvent ? ptaCover : defaultCover);
 
   // Leírás
   const desc = dbEvent.Description || dbEvent.DescriptionText || 'A PROFI-T-ABILITY üzleti és stratégiai szimulációs bajnokság, ahol a résztvevők valós gazdasági döntéseket hozhatnak és hálózatot építhetnek.';
 
   // Szervező
-  const orgName = dbEvent.OrganizerName || dbEvent.Organizer || 'EventJoy Szervezőcsapat';
-
-  // Programok
-  const programsList = eventStore.eventPrograms?.filter((p: any) => String(p.EventID) === targetId) || [];
-  const formattedProgram = programsList.map((p: any) => ({
-    time: p.StartTime || p.Time || '14:00',
-    title: p.Title || p.Name || 'Programpont'
-  }));
+  const orgName =
+    dbEvent.ContactName || dbEvent.OrganizerName || dbEvent.Organizer || 'EventJoy Szervezőcsapat';
 
   // Jegy: EventUsers.EventTicketID
   const hasValidTicket = eventUserRows.some((eu: any) => eu.EventTicketID != null);
-
-  // Számla: EventUsers.InvoiceID
-  const invoiceId = eventStore.getInvoiceIdForEvent(dbEvent.id);
-  const hasValidInvoice = invoiceId != null;
 
   const isUserOnEvent = eventStore.isUserOnEvent(dbEvent.id);
   const isOrganizer = eventStore.isOrganizerOnEvent(dbEvent.id);
@@ -679,8 +732,12 @@ const event = computed(() => {
     isOrganizer ||
     (masterDataStore.eventTypeCanEnter(dbEvent.EventTypeID ?? dbEvent.eventTypeId) && isUserOnEvent);
 
-  // Jegyvásárlás: ha nincs még EventUser sora a felhasználónak és az esemény aktív
-  const canBuyTicket = eventUserRows.length === 0 && (dbEvent.Status === 'active' || !dbEvent.Status);
+  const statusView = eventStatusView(dbEvent);
+  const canBuyTicket =
+    eventUserRows.length === 0 &&
+    !masterDataStore.isEventStatusClosed(
+      nullableNumericId(dbEvent.EventStatusID ?? dbEvent.eventStatusID ?? dbEvent.StatusID)
+    );
 
   return {
     id: String(dbEvent.id),
@@ -689,32 +746,24 @@ const event = computed(() => {
     location: locName,
     city: cityName,
     type: typeName,
-    status: dbEvent.Status || 'active',
+    status: statusView.key,
+    statusName: statusView.name,
     roles: myRoles,
-    isProfitability: isDemoProfitabilityRoute.value || isProfitabilityEventType(dbEvent.EventTypeID),
-    tags: tags.length > 0 ? tags : (isDemoProfitabilityRoute.value ? ['üzlet', 'stratégia', 'networking'] : ['rendezvény']),
+    isProfitability: isPtaEvent,
+    tags,
     organizer: {
       name: orgName,
       allowChat: true
     },
     coverImage: imageUrl,
+    isDefaultCover: !uploadedCover && !isPtaEvent,
     description: desc,
     allowLateEntry: true,
-    hasProgram: true,
     userHasTicket: hasValidTicket,
     isTicketPurchasable: canBuyTicket,
-    hasDownloadableFiles: true,
-    hasInvoice: hasValidInvoice,
-    invoiceId,
     canEnter,
     onlineUrl: dbEvent.OnlineURL || dbEvent.OnlineUrl || null,
     onlineFlg: dbEvent.OnlineFlg === 1 || dbEvent.OnlineFlg === true,
-    program: formattedProgram.length > 0 ? formattedProgram : [
-      { time: '14:00', title: 'Regisztráció és sorsolás' },
-      { time: '14:30', title: '1. forduló játékindítás' },
-      { time: '16:00', title: '2. forduló és asztalváltás' },
-      { time: '17:30', title: 'Eredményhirdetés és díjátadó' }
-    ]
   };
 });
 
@@ -738,12 +787,6 @@ function accentBg(alpha: number): string {
 }
 
 
-// Unread news count logic
-const eventNews = ref(
-  Array.from({ length: 13 }, (_, i) => ({ id: i + 1, isRead: false }))
-);
-const unreadNewsCount = computed(() => eventNews.value.filter(n => !n.isRead).length);
-
 // Computed properties for logic
 const hasParticipated = computed(() => {
   return eventStore.isUserOnEvent(event.value.id);
@@ -761,6 +804,19 @@ const currentDbEvent = computed(() => {
     || eventStore.myEvents?.find((e: any) => String(e.id) === targetId)
     || eventStore.discoveryEvents?.find((e: any) => String(e.id) === targetId)
     || null;
+});
+
+const programView = computed(() => {
+  const db = currentDbEvent.value;
+  if (!db) return { kind: 'flat' as const, items: [] };
+  const { isMultiDay } = eventLocalDateRange(db as Record<string, unknown>);
+  return groupProgramsForDisplay(eventStore.getProgramsForEvent(db.id), isMultiDay);
+});
+
+const hasPrograms = computed(() => {
+  const view = programView.value;
+  if (view.kind === 'flat') return view.items.length > 0;
+  return view.days.some((day) => day.items.length > 0);
 });
 
 const enterableRoles = computed(() => {
@@ -793,17 +849,9 @@ function getStatusStyle(status: string) {
     case 'upcoming':
       return { bg: accentBg(0.15), text: accentColor.value, border: accentBg(0.3), glow: accentBg(0.4) };
     case 'completed':
+    case 'other':
     default:
       return { bg: 'rgba(255, 255, 255, 0.1)', text: '#94a3b8', border: 'rgba(255, 255, 255, 0.2)', glow: 'rgba(255, 255, 255, 0.2)' };
-  }
-}
-
-function getStatusLabel(status: string) {
-  switch(status) {
-    case 'active': return 'Jelenleg fut';
-    case 'upcoming': return 'Közelgő';
-    case 'completed': return 'Lezárt';
-    default: return status;
   }
 }
 
@@ -835,10 +883,11 @@ function enterEvent() {
     isEnterRolePickerOpen.value = true;
     return;
   }
-  enterAsRole(roles[0] ?? null);
+  void enterAsRole(roles[0] ?? null);
 }
 
-function enterAsRole(role: EnterableEventRole | null) {
+async function enterAsRole(role: EnterableEventRole | null) {
+  if (enterBusy.value) return;
   isEnterRolePickerOpen.value = false;
   const blocked = eventRoleEnterBlocked(event.value.id, role);
   if (blocked) {
@@ -850,15 +899,263 @@ function enterAsRole(role: EnterableEventRole | null) {
     });
     return;
   }
-  router.push({
-    path: eventRolePath(event.value.id, role),
-    query: eventRoleQuery(role),
-  });
+  enterBusy.value = true;
+  try {
+    await enterEventSession(event.value.id, role);
+    await router.push({
+      path: eventRolePath(event.value.id, role),
+      query: eventRoleQuery(role),
+    });
+  } catch (error) {
+    $q.notify({
+      message: readAxiosErrorMessage(error, 'A belépés sikertelen.'),
+      color: 'dark',
+      textColor: 'orange-4',
+      position: 'top',
+    });
+  } finally {
+    enterBusy.value = false;
+  }
 }
 
 </script>
 
 <style scoped>
+.event-cover-default {
+  background: radial-gradient(ellipse at 50% 40%, rgba(14, 165, 233, 0.45) 0%, #0f172a 72%);
+}
+
+.event-cover-btn {
+  background: rgba(15, 23, 42, 0.82) !important;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+}
+
+.event-program-empty {
+  padding: 20px 16px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.03);
+  color: #94a3b8;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.event-program {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 12px 12px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.event-program__day {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.event-program__day + .event-program__day {
+  margin-top: 10px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.event-program__day-label {
+  padding: 2px 4px 6px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: capitalize;
+  color: #cbd5e1;
+}
+
+.event-program__row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 8px 4px;
+}
+
+.event-program__time {
+  flex-shrink: 0;
+  width: 52px;
+  font-size: 13px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.event-program__name {
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.event-ticket {
+  position: relative;
+  width: min(100%, 380px);
+  margin: 16px;
+  overflow: hidden;
+  border-radius: 28px;
+  background: #0b1220;
+  color: #f8fafc;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+}
+
+.event-ticket__close {
+  position: absolute !important;
+  top: 12px;
+  right: 12px;
+  z-index: 5;
+  width: 44px;
+  height: 44px;
+  background: #ffffff !important;
+  color: #0f172a !important;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  border: 2px solid rgba(255, 255, 255, 0.95);
+}
+
+.event-ticket__band {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 88px;
+  padding: 20px 56px 18px 20px;
+}
+
+.event-ticket__kicker {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.event-ticket__brand {
+  font-size: 15px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #fff;
+}
+
+.event-ticket__perforation {
+  position: relative;
+  height: 20px;
+}
+
+.event-ticket__dash {
+  display: block;
+  height: 0;
+  margin: 10px 22px 0;
+  border-top: 2px dashed rgba(255, 255, 255, 0.18);
+}
+
+.event-ticket__notch {
+  position: absolute;
+  top: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #0f172a;
+}
+
+.event-ticket__notch--left {
+  left: -10px;
+}
+
+.event-ticket__notch--right {
+  right: -10px;
+}
+
+.event-ticket__body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 22px 24px;
+  text-align: center;
+}
+
+.event-ticket__title {
+  margin: 0 0 10px;
+  font-size: 20px;
+  font-weight: 800;
+  line-height: 1.25;
+  text-wrap: balance;
+}
+
+.event-ticket__meta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #cbd5e1;
+}
+
+.event-ticket__roles {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin: 10px 0 16px;
+}
+
+.event-ticket__role {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+
+.event-ticket__qr {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 220px;
+  height: 220px;
+  margin: 4px 0 14px;
+  padding: 10px;
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+}
+
+.event-ticket__qr img {
+  display: block;
+  width: 200px;
+  height: 200px;
+}
+
+.event-ticket__code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+.event-ticket__hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
 .animate-pulse-slow {
   animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }

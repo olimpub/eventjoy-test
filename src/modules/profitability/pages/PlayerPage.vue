@@ -33,23 +33,20 @@
             <span v-if="statusKey === 'active'" class="manage-status-btn__dot" />
             <span>{{ statusLabel }}</span>
           </span>
-          <span v-if="showOverallPosition && overallPosition != null" class="player-place">
-            {{ overallPosition }}. hely
-          </span>
         </div>
 
         <div v-if="showTotals" class="manage-kpis">
           <div class="manage-kpi">
-            <span class="manage-kpi__value">{{ formatScore(myPlayer?.FinalPoint) }}</span>
-            <span class="manage-kpi__label">Össz pont</span>
+            <span class="manage-kpi__value">{{ formatScore(overallPoint) }}</span>
+            <span class="manage-kpi__label">Összpontszám</span>
           </div>
           <div class="manage-kpi">
-            <span class="manage-kpi__value">{{ formatScore(myPlayer?.FinalTruckPoint) }}</span>
-            <span class="manage-kpi__label">Kamion</span>
+            <span class="manage-kpi__value">{{ formatScore(overallTruck) }}</span>
+            <span class="manage-kpi__label">Összkamion</span>
           </div>
           <div class="manage-kpi">
             <span class="manage-kpi__value">{{ showOverallPosition && overallPosition != null ? overallPosition + '.' : '—' }}</span>
-            <span class="manage-kpi__label">Helyezés</span>
+            <span class="manage-kpi__label">Összhelyezés</span>
           </div>
         </div>
       </section>
@@ -121,20 +118,17 @@
             </span>
           </div>
 
-          <div v-if="showOverallPosition && overallPosition != null" class="player-seat__rank">
-            {{ overallPosition }}. hely
-          </div>
           <div v-if="roundResultVisible && currentSeat.resultPoint != null" class="player-seat__result">
             <div class="player-seat__stat">
               <img :src="scoreIcon" alt="Összeg" class="pta-icon" />
-              <span>{{ currentSeat.amount ?? '—' }}</span>
+              <span>{{ formatScore(currentSeat.amount) }}</span>
             </div>
             <div class="player-seat__stat">
               <img :src="scoreTruckIcon" alt="Kamion" class="pta-icon" />
-              <span>{{ currentSeat.onTrack ?? '—' }}</span>
+              <span>{{ formatScore(currentSeat.onTrack) }}</span>
             </div>
             <div class="player-seat__stat player-seat__stat--points">
-              <span>{{ currentSeat.resultPoint }} e</span>
+              <span>{{ formatScore(currentSeat.resultPoint) }}</span>
             </div>
           </div>
           <p v-else class="player-seat__pending">Az eredmény a forduló publikálása után jelenik meg.</p>
@@ -145,6 +139,13 @@
           <p class="player-wait__text">{{ emptySeatMessage }}</p>
         </section>
       </template>
+
+      <EventClosedFollowUp
+        :event-id="eventId"
+        :event-ended="playPhase === 'ended'"
+        :current-role="enteredRole"
+        :roles="enterableRoles"
+      />
     </div>
   </q-page>
 </template>
@@ -153,18 +154,26 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useQuasar } from 'quasar';
+import EventClosedFollowUp from 'src/components/event/EventClosedFollowUp.vue';
 import RoleSwitchChip from 'src/components/event/RoleSwitchChip.vue';
 import { nullableNumericId } from 'src/utils/apiPayload';
 import { useEventStore } from 'src/stores/event';
 import { useMasterDataStore } from 'src/stores/masterData';
 import { eventPlayPhase, findEventStatus } from 'src/utils/eventFlow';
 import { eventDatasheetKind, playerEnterBlocked } from 'src/utils/eventRoleNav';
-import { findPtaPlayerForEventUser } from 'src/modules/profitability/ptaData';
+import {
+  findPtaPlayerForEventUser,
+  ptaEventPlayerId,
+  ptaEventRoundId,
+  ptaEventUserId,
+} from 'src/modules/profitability/ptaData';
 import { findPlayerSeat, isReservePlayer } from 'src/modules/profitability/playerSheet';
 import {
   catalogHasPublishedStatus,
+  computePublishedPlayerFinals,
   isLiveStatus,
   isPublishedStatus,
+  pickOpenRoundId,
   roundResultsReleased,
   foldText,
 } from 'src/modules/profitability/standings';
@@ -314,18 +323,54 @@ const myPlayer = computed(() => {
   );
 });
 
-const myPlayerId = computed(() => nullableNumericId(myPlayer.value?.EventPlayerID ?? myPlayer.value?.id));
+const myPlayerId = computed(() => ptaEventPlayerId(myPlayer.value));
 
 const showUserPosition = computed(
   () => eventStore.getPtaSettingsForEvent(eventId.value)?.ShowUserPositionFlg !== false
 );
-const showTotals = computed(() => playPhase.value === 'ended');
-const overallPosition = computed(() => myPlayer.value?.FinalPosition ?? null);
-const showOverallPosition = computed(() => showTotals.value && showUserPosition.value);
 
-const catalogHasPublished = computed(() =>
-  catalogHasPublishedStatus(masterDataStore.ptaEventRoundStatuses)
+const publishedFinals = computed(() =>
+  computePublishedPlayerFinals({
+    rounds: eventStore.getPtaRoundsForEvent(eventId.value).map((row, index) => {
+      const id = ptaEventRoundId(row) ?? nullableNumericId(row.id) ?? index + 1;
+      return { id, status: roundStatusName(row) };
+    }),
+    roundDesks: eventStore.getPtaRoundDesksForEvent(eventId.value),
+    schedules: eventStore.getPtaSchedulesForEvent(eventId.value),
+    catalogHasPublished: catalogHasPublishedStatus(masterDataStore.ptaEventRoundStatuses),
+  })
 );
+
+const myPublishedTotals = computed(() => {
+  const id = myPlayerId.value;
+  if (id == null) return null;
+  const fromBoard = publishedFinals.value.find((row) => row.playerId === id);
+  if (fromBoard) return fromBoard;
+  const player = myPlayer.value;
+  if (!player) return null;
+  if (player.FinalPoint == null && player.FinalTruckPoint == null && player.FinalPosition == null) {
+    return null;
+  }
+  return {
+    playerId: id,
+    FinalPoint: Number(player.FinalPoint ?? 0),
+    FinalTruckPoint: Number(player.FinalTruckPoint ?? 0),
+    FinalPosition: Number(player.FinalPosition ?? 0) || 0,
+  };
+});
+
+const hasPublishedRound = computed(() =>
+  eventStore.getPtaRoundsForEvent(eventId.value).some((row) => roundResultsReleased(roundStatusName(row)))
+);
+
+const showTotals = computed(() => showUserPosition.value && (hasPublishedRound.value || myPublishedTotals.value != null));
+const overallPoint = computed(() => myPublishedTotals.value?.FinalPoint ?? null);
+const overallTruck = computed(() => myPublishedTotals.value?.FinalTruckPoint ?? null);
+const overallPosition = computed(() => {
+  const place = myPublishedTotals.value?.FinalPosition;
+  return place != null && place > 0 ? place : null;
+});
+const showOverallPosition = computed(() => showTotals.value && showUserPosition.value);
 
 function roundStatusName(row: Record<string, unknown>): string {
   const statusId = nullableNumericId(row.EventRoundStatusID);
@@ -336,7 +381,7 @@ function roundStatusName(row: Record<string, unknown>): string {
 
 const rounds = computed<PlayerRoundRow[]>(() =>
   eventStore.getPtaRoundsForEvent(eventId.value).map((row, index) => {
-    const id = nullableNumericId(row.EventRoundID ?? row.id) ?? index + 1;
+    const id = ptaEventRoundId(row) ?? nullableNumericId(row.id) ?? index + 1;
     const order = Number(row.OrderIndex ?? index + 1);
     const name = String(row.RName || '').trim();
     return {
@@ -350,18 +395,16 @@ const rounds = computed<PlayerRoundRow[]>(() =>
 
 const hasDraw = computed(() => rounds.value.length > 0);
 const showSeatBoard = computed(
-  () =>
-    hasDraw.value &&
-    (playPhase.value === 'game' || playPhase.value === 'ceremony' || playPhase.value === 'ended')
+  () => hasDraw.value && playPhase.value !== 'checkin' && playPhase.value !== 'before'
 );
 
 const waitMessage = computed(() => {
+  if (hasDraw.value) return '';
   if (playPhase.value === 'checkin' || playPhase.value === 'before') {
     return 'A sorsolás hamarosan megkezdődik.';
   }
   if (playPhase.value === 'draw') return 'A játék sorsolás alatt van.';
-  if (!hasDraw.value) return 'A sorsolás még nem készült el.';
-  return '';
+  return 'A sorsolás még nem készült el.';
 });
 
 const waitIcon = computed(() => {
@@ -373,8 +416,7 @@ watch(
   rounds,
   (list) => {
     if (selectedRoundId.value != null && list.some((round) => round.id === selectedRoundId.value)) return;
-    const live = list.find((round) => isLiveStatus(round.status));
-    selectedRoundId.value = live?.id ?? list[list.length - 1]?.id ?? null;
+    selectedRoundId.value = pickOpenRoundId(list);
   },
   { immediate: true }
 );
@@ -384,9 +426,12 @@ const currentRound = computed(
 );
 
 const currentSeat = computed(() => {
-  if (!showSeatBoard.value || myPlayerId.value == null || currentRound.value == null) return null;
+  if (!showSeatBoard.value || (myPlayerId.value == null && ptaEventUserId(myPlayer.value) == null) || currentRound.value == null) {
+    return null;
+  }
   return findPlayerSeat({
-    playerId: myPlayerId.value,
+    playerId: myPlayerId.value ?? ptaEventUserId(myPlayer.value) ?? 0,
+    eventUserId: ptaEventUserId(myPlayer.value),
     roundId: currentRound.value.id,
     desks: eventStore.getPtaDesksForEvent(eventId.value),
     roundDesks: eventStore.getPtaRoundDesksForEvent(eventId.value),
@@ -396,7 +441,7 @@ const currentSeat = computed(() => {
 
 const roundResultVisible = computed(() => {
   const status = currentRound.value?.status || '';
-  return roundResultsReleased(status, catalogHasPublished.value);
+  return roundResultsReleased(status);
 });
 
 const emptySeatMessage = computed(() => {
@@ -414,7 +459,7 @@ function statusClass(status: string) {
 
 function formatScore(value: number | null | undefined) {
   if (value == null) return '—';
-  return String(value);
+  return `${value} e`;
 }
 
 function closePanel() {
@@ -439,7 +484,6 @@ async function loadDataSheet() {
   if (id != null) {
     try {
       await eventStore.loadEventUserDataSheet(id);
-      eventStore.refreshPtaPlayerFinals(eventId.value);
     } catch (error) {
       $q.notify({
         message: error instanceof Error ? error.message : 'Adatlap betöltése sikertelen',
@@ -540,19 +584,6 @@ watch(sheetEventUserId, (id, prev) => {
   height: 7px;
   border-radius: 50%;
   background: #28c76f;
-}
-
-.player-place {
-  display: inline-flex;
-  align-items: center;
-  min-height: 36px;
-  padding: 6px 12px;
-  border-radius: 9999px;
-  border: 1px solid rgba(246, 139, 41, 0.45);
-  background: rgba(246, 139, 41, 0.16);
-  color: #fdba74;
-  font-size: 13px;
-  font-weight: 800;
 }
 
 .manage-kpis {
@@ -794,12 +825,6 @@ watch(sheetEventUserId, (id, prev) => {
 .player-seat__color-name {
   font-size: 20px;
   font-weight: 800;
-}
-
-.player-seat__rank {
-  font-size: 18px;
-  font-weight: 800;
-  color: #fdba74;
 }
 
 .player-seat__result {

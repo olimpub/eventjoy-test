@@ -73,15 +73,6 @@
         </div>
       </section>
 
-      <button type="button" class="manage-dummy-reset" @click="onDummyReset">
-        <q-icon name="restart_alt" size="16px" />
-        <span>Teszt reset</span>
-      </button>
-      <p class="manage-dummy-reset__hint">
-        Csak ezen a telefonon: szervezés státusz, sorsolás és eredmények törlése.
-        Később közös szerverállapot kell.
-      </p>
-
       <div class="manage-grid">
         <button type="button" class="manage-tile pta-play-tile" @click="openGame">
           <span class="manage-tile__icon">
@@ -206,11 +197,29 @@
       <ComingSoonCube :title="soonLabel" :icon="soonIcon" />
     </q-dialog>
 
+    <DrawSummarySheet
+      v-model="isDrawSummaryOpen"
+      :summary="drawSummary"
+      :busy="workBusy"
+      @redraw="onRedrawDraw"
+      @finalize="onFinalizeDraw"
+    />
+
+    <PtaBusyOverlay :model-value="workBusy" :label="workLabel" />
+
+    <EventProgramEditor
+      v-model="isProgramEditorOpen"
+      :event-id="eventId"
+      accent="pta"
+      @saved="onWizardSaved"
+    />
+
     <CreateEventWizard
       v-if="wizardVisible"
       v-model="wizardVisible"
       mode="edit"
       :event-id="eventId"
+      @saved="onWizardSaved"
     />
   </q-page>
 </template>
@@ -221,12 +230,18 @@ import { useRoute, useRouter } from 'vue-router';
 import { useQuasar } from 'quasar';
 import CreateEventWizard from 'src/components/event-wizard/CreateEventWizard.vue';
 import ComingSoonCube from 'src/components/event/ComingSoonCube.vue';
+import EventProgramEditor from 'src/components/event/EventProgramEditor.vue';
 import RoleSwitchChip from 'src/components/event/RoleSwitchChip.vue';
 import { useCommunicationStore } from 'src/stores/communication';
 import { useEventStore } from 'src/stores/event';
 import { useMasterDataStore } from 'src/stores/masterData';
-import { findEventStatus, type EventStatusTransition } from 'src/utils/eventFlow';
-import { nullableNumericId } from 'src/utils/apiPayload';
+import { eventPlayPhase, findEventStatus, findEventStatusIdByNameHints, type EventStatusTransition } from 'src/utils/eventFlow';
+import { nullableNumericId, readAxiosErrorMessage } from 'src/utils/apiPayload';
+import { resetPtaEvent, replacePtaDraw, setEventStatus } from 'src/utils/eventChange';
+import { summarizePtaDraw, type PtaDrawQuality } from 'src/modules/profitability/drawQuality';
+import DrawSummarySheet from 'src/modules/profitability/components/DrawSummarySheet.vue';
+import PtaBusyOverlay from 'src/modules/profitability/components/PtaBusyOverlay.vue';
+import { paintBusy } from 'src/modules/profitability/paintBusy';
 import '../theme.css';
 
 const route = useRoute();
@@ -240,6 +255,7 @@ const isSoonOpen = ref(false);
 const soonLabel = ref('Hamarosan');
 const soonIcon = ref('sym_r_schedule');
 const isStatusSheetOpen = ref(false);
+const isProgramEditorOpen = ref(false);
 const transitioning = ref(false);
 const isConfirmOpen = ref(false);
 const confirmTitle = ref('Megerősítés');
@@ -247,6 +263,11 @@ const confirmMessage = ref('');
 const confirmOkLabel = ref('Igen');
 const confirmDanger = ref(false);
 const confirmIsUndo = ref(false);
+const isDrawSummaryOpen = ref(false);
+const drawSummary = ref<PtaDrawQuality | null>(null);
+const drawSaving = ref(false);
+const workLabel = ref('Dolgozom…');
+const workBusy = computed(() => transitioning.value || drawSaving.value);
 let confirmResolver: ((ok: boolean) => void) | null = null;
 
 const eventId = computed(() => String(route.params.id));
@@ -344,10 +365,34 @@ const allowedTransitions = computed(() => {
   );
 });
 
-const sheetTransitions = computed(() => allowedTransitions.value);
+const currentIsDrawStatus = computed(() => {
+  const name = masterDataStore.getEventStatusNameById(eventStatusId.value, '');
+  return eventPlayPhase(name) === 'draw' || foldStatusName(name).includes('sorsol');
+});
 
-const canOpenStatusSheet = computed(() => allowedTransitions.value.length > 0);
-const canUndo = computed(() => prevEventStatusId.value != null);
+const drawUndoTargetStatusId = computed(() => {
+  if (prevEventStatusId.value != null) return prevEventStatusId.value;
+  const current = eventStatusId.value;
+  const flowId = masterDataStore.getEventFlowIdForType(eventTypeId.value);
+  const steps = masterDataStore.eventFlowStatuses || [];
+  const intoDraw = steps.find((row) => {
+    if (flowId != null && Number(row.EventFlowID) !== Number(flowId)) return false;
+    return Number(row.ToStatusID) === Number(current);
+  });
+  const fromId = nullableNumericId(intoDraw?.FromStatusID);
+  if (fromId != null) return fromId;
+  return findEventStatusIdByNameHints(masterDataStore.eventStatuses, [
+    'bejelentkez',
+    'checkin',
+    'check-in',
+  ]);
+});
+
+const sheetTransitions = computed(() =>
+  allowedTransitions.value.filter((item) => !item.canUndo)
+);
+
+const canOpenStatusSheet = computed(() => sheetTransitions.value.length > 0);
 
 const statusRecord = computed(() => findEventStatus(masterDataStore.eventStatuses, eventStatusId.value));
 
@@ -359,6 +404,12 @@ const statusLabel = computed(() => {
     eventStatusId.value == null ? 'Tervezés' : 'Státusz'
   );
 });
+
+const canUndo = computed(
+  () =>
+    prevEventStatusId.value != null ||
+    (currentIsDrawStatus.value && drawUndoTargetStatusId.value != null)
+);
 
 const statusKey = computed(() => {
   const name = (statusLabel.value || '').toLowerCase();
@@ -448,13 +499,7 @@ const kpiRegistered = computed(() => {
 });
 const kpiCheckedIn = computed(() => {
   if (!sheetLoaded.value) return '—';
-  return String(
-    sheetParticipants.value.filter((row) => {
-      const sid = Number(row.EventUserStatusID);
-      const name = masterDataStore.getEventUserStatusName(sid).toLowerCase();
-      return name.includes('belép');
-    }).length
-  );
+  return String(eventStore.getPtaCheckedInDrawPlayers(eventId.value).drafts.length);
 });
 const kpiCapacity = computed(() => {
   const cap = dbEvent.value?.Capacity ?? dbEvent.value?.capacity;
@@ -488,6 +533,8 @@ const manageActions = computed(() => {
   }> = [
     { id: 'participants', label: 'Résztvevők', icon: 'sym_r_group', onClick: openParticipants },
     { id: 'edit', label: 'Szerkesztés', icon: 'sym_r_edit_square', onClick: openWizard },
+    { id: 'cover', label: 'Borítókép', icon: 'sym_r_add_a_photo', onClick: () => comingSoon('Borítókép', 'sym_r_add_a_photo') },
+    { id: 'program', label: 'Programok', icon: 'sym_r_view_timeline', onClick: openProgramEditor },
     { id: 'tickets', label: 'Jegykezelés', icon: 'sym_r_qr_code_scanner', onClick: openScan },
     { id: 'files', label: 'Anyagok', icon: 'sym_r_folder', onClick: () => comingSoon('Anyagok', 'sym_r_folder') },
     {
@@ -551,7 +598,7 @@ function onConfirmHide() {
 }
 
 function closePanel() {
-  router.push({ path: `/event/${eventId.value}` });
+  void router.push({ name: 'my_events' });
 }
 
 async function loadDataSheet() {
@@ -570,6 +617,10 @@ async function loadDataSheet() {
       style: 'background: rgba(11, 15, 25, 0.85);',
     });
   }
+}
+
+function onWizardSaved() {
+  void loadDataSheet();
 }
 
 onMounted(() => {
@@ -598,36 +649,76 @@ function onStatusClick() {
   isStatusSheetOpen.value = true;
 }
 
-async function onDummyReset() {
-  const confirmed = await askConfirm({
-    title: 'Teszt reset',
-    message:
-      'Visszaállítod Szervezésre, és törlöd a helyi sorsolást meg az eredményeket? Ez csak ezen a készüléken érvényes, az adatbázisba nem megy.',
-    okLabel: 'Reset',
-    danger: true,
-  });
-  if (!confirmed) return;
-  const result = eventStore.resetLocalPtaEvent(eventId.value);
-  if (!result.ok) {
-    $q.notify({
-      message: result.message,
-      color: 'dark',
-      textColor: 'orange-4',
-      position: 'top',
+async function onUndoClick() {
+  if (pendingApprovalId.value || transitioning.value) return;
+
+  if (currentIsDrawStatus.value) {
+    if (eventStore.hasPtaRecordedResults(eventId.value)) {
+      $q.notify({
+        message: 'Játék megkezdődött, a visszavonás nem lehetséges',
+        color: 'dark',
+        textColor: 'amber-4',
+        position: 'top',
+        timeout: 2800,
+        classes: 'border border-amber-500/30 rounded-xl q-px-lg q-py-md font-bold text-[13px] mt-4',
+        style: 'background: rgba(11, 15, 25, 0.85);',
+      });
+      return;
+    }
+    const toId = drawUndoTargetStatusId.value;
+    if (toId == null) {
+      $q.notify({
+        message: 'Nincs Bejelentkezés státusz a törzsben.',
+        color: 'dark',
+        textColor: 'red-4',
+        position: 'top',
+      });
+      return;
+    }
+    const toName = masterDataStore.getEventStatusNameById(toId, 'Bejelentkezés');
+    const confirmed = await askConfirm({
+      title: 'Visszavonás',
+      message: `Visszavonod erre: ${toName}? A sorsolás törlődik.`,
+      okLabel: 'Visszavonás',
+      undo: true,
     });
+    if (!confirmed) return;
+
+    workLabel.value = 'Visszavonás…';
+    transitioning.value = true;
+    await paintBusy();
+    try {
+      const id = nullableNumericId(eventId.value);
+      if (id == null) throw new Error('Hiányzó esemény.');
+      await resetPtaEvent({ eventId: id, toStatusId: toId });
+      await loadDataSheet();
+      if (eventStore.getPtaRoundsForEvent(id).length > 0) {
+        throw new Error('A szerver nem törölte a sorsolást (Pta.Reset).');
+      }
+      $q.notify({
+        message: `Visszavonva: ${toName}. Sorsolás törölve.`,
+        color: 'dark',
+        textColor: 'blue-4',
+        position: 'top',
+        timeout: 2200,
+        classes: 'border border-blue-500/30 rounded-xl q-px-lg q-py-md font-bold text-[13px] mt-4',
+        style: 'background: rgba(11, 15, 25, 0.85);',
+      });
+    } catch (error) {
+      $q.notify({
+        message: readAxiosErrorMessage(error, 'A visszavonás sikertelen.'),
+        color: 'dark',
+        textColor: 'red-4',
+        position: 'top',
+      });
+    } finally {
+      transitioning.value = false;
+    }
     return;
   }
-  $q.notify({
-    message: `Reset kész: ${result.statusName}. Sorsolás és eredmények törölve.`,
-    color: 'dark',
-    textColor: 'orange-4',
-    position: 'top',
-  });
-}
 
-async function onUndoClick() {
   const prevId = prevEventStatusId.value;
-  if (prevId == null || pendingApprovalId.value || transitioning.value) return;
+  if (prevId == null) return;
   const prevName = masterDataStore.getEventStatusNameById(prevId);
   const confirmed = await askConfirm({
     title: 'Visszavonás',
@@ -637,9 +728,13 @@ async function onUndoClick() {
   });
   if (!confirmed) return;
 
+  workLabel.value = 'Visszavonás…';
   transitioning.value = true;
+  await paintBusy();
   try {
-    eventStore.applyEventStatus(eventId.value, prevId, null);
+    const id = nullableNumericId(eventId.value);
+    if (id == null) throw new Error('Hiányzó esemény.');
+    await setEventStatus({ eventId: id, toStatusId: prevId, prevStatusId: null });
     $q.notify({
       message: `Visszavonva: ${prevName}`,
       color: 'dark',
@@ -649,6 +744,13 @@ async function onUndoClick() {
       classes: 'border border-blue-500/30 rounded-xl q-px-lg q-py-md font-bold text-[13px] mt-4',
       style: 'background: rgba(11, 15, 25, 0.85);',
     });
+  } catch (error) {
+    $q.notify({
+      message: readAxiosErrorMessage(error, 'A visszavonás sikertelen.'),
+      color: 'dark',
+      textColor: 'red-4',
+      position: 'top',
+    });
   } finally {
     transitioning.value = false;
   }
@@ -656,6 +758,12 @@ async function onUndoClick() {
 
 async function onSelectTransition(item: EventStatusTransition) {
   if (transitioning.value || pendingApprovalId.value) return;
+
+  if (item.canUndo && currentIsDrawStatus.value) {
+    isStatusSheetOpen.value = false;
+    await onUndoClick();
+    return;
+  }
 
   if (item.requiresApproval) {
     $q.notify({
@@ -682,26 +790,39 @@ async function onSelectTransition(item: EventStatusTransition) {
 
   if (!confirmed) return;
 
+  const toName = foldStatusName(item.toStatusName);
+  workLabel.value = toName.includes('sorsol') ? 'Sorsolás…' : 'Mentés…';
   transitioning.value = true;
+  await paintBusy();
   try {
-    const prevToStore = item.canRecordPrev ? nullableNumericId(eventStatusId.value) : null;
-    eventStore.applyEventStatus(eventId.value, item.toStatusId, prevToStore);
+    const id = nullableNumericId(eventId.value);
+    if (id == null) throw new Error('Hiányzó esemény.');
+    const prevToStore =
+      item.canRecordPrev || toName.includes('sorsol')
+        ? nullableNumericId(eventStatusId.value)
+        : null;
+    await setEventStatus({
+      eventId: id,
+      toStatusId: item.toStatusId,
+      prevStatusId: prevToStore,
+    });
     isStatusSheetOpen.value = false;
 
-    const toName = foldStatusName(item.toStatusName);
     if (toName.includes('sorsol')) {
       const draw = eventStore.runPtaDraw(eventId.value);
-      $q.notify({
-        message: draw.ok
-          ? `Sorsolás: ${draw.roundCount} forduló, ${draw.deskCount} asztal, ${draw.playerCount} játékos`
-          : draw.message,
-        color: 'dark',
-        textColor: draw.ok ? 'orange-4' : 'red-4',
-        position: 'top',
-        timeout: 2400,
-        classes: 'border border-orange-500/30 rounded-xl q-px-lg q-py-md font-bold text-[13px] mt-4',
-        style: 'background: rgba(11, 15, 25, 0.85);',
-      });
+      if (!draw.ok) {
+        $q.notify({
+          message: draw.message,
+          color: 'dark',
+          textColor: 'red-4',
+          position: 'top',
+          timeout: 2400,
+          classes: 'border border-red-500/30 rounded-xl q-px-lg q-py-md font-bold text-[13px] mt-4',
+          style: 'background: rgba(11, 15, 25, 0.85);',
+        });
+      } else {
+        openDrawSummary();
+      }
     } else {
       $q.notify({
         message: `Státusz: ${item.toStatusName}`,
@@ -713,13 +834,86 @@ async function onSelectTransition(item: EventStatusTransition) {
         style: 'background: rgba(11, 15, 25, 0.85);',
       });
     }
+  } catch (error) {
+    $q.notify({
+      message: readAxiosErrorMessage(error, 'A státuszváltás sikertelen.'),
+      color: 'dark',
+      textColor: 'red-4',
+      position: 'top',
+    });
   } finally {
     transitioning.value = false;
   }
 }
 
+function openDrawSummary() {
+  drawSummary.value = summarizePtaDraw(eventId.value);
+  isDrawSummaryOpen.value = true;
+}
+
+async function onRedrawDraw() {
+  if (drawSaving.value || transitioning.value) return;
+  workLabel.value = 'Újrasorsolás…';
+  transitioning.value = true;
+  await paintBusy();
+  try {
+    const draw = eventStore.runPtaDraw(eventId.value);
+    if (!draw.ok) {
+      $q.notify({
+        message: draw.message,
+        color: 'dark',
+        textColor: 'red-4',
+        position: 'top',
+      });
+      return;
+    }
+    openDrawSummary();
+  } finally {
+    transitioning.value = false;
+  }
+}
+
+async function onFinalizeDraw() {
+  if (drawSaving.value) return;
+  const id = nullableNumericId(eventId.value);
+  if (id == null) return;
+  workLabel.value = 'Mentés…';
+  drawSaving.value = true;
+  await paintBusy();
+  try {
+    await replacePtaDraw(id);
+    isDrawSummaryOpen.value = false;
+    await router.push({
+      path: `/profitability/event/${id}/game`,
+      query: route.query,
+    });
+    $q.notify({
+      message: 'Sorsolás mentve.',
+      color: 'dark',
+      textColor: 'orange-4',
+      position: 'top',
+      timeout: 1800,
+      classes: 'border border-orange-500/30 rounded-xl q-px-lg q-py-md font-bold text-[13px] mt-4',
+      style: 'background: rgba(11, 15, 25, 0.85);',
+    });
+  } catch (error) {
+    $q.notify({
+      message: readAxiosErrorMessage(error, 'A sorsolás mentése sikertelen.'),
+      color: 'dark',
+      textColor: 'red-4',
+      position: 'top',
+    });
+  } finally {
+    drawSaving.value = false;
+  }
+}
+
 function openWizard() {
   wizardVisible.value = true;
+}
+
+function openProgramEditor() {
+  isProgramEditorOpen.value = true;
 }
 
 function openGame() {
@@ -914,34 +1108,6 @@ function comingSoon(label: string, icon = 'sym_r_schedule') {
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: #64748b;
-}
-
-.manage-dummy-reset {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  width: 100%;
-  margin-bottom: 6px;
-  padding: 10px 14px;
-  border-radius: 14px;
-  border: 1px dashed rgba(148, 163, 184, 0.4);
-  background: rgba(16, 17, 18, 0.55);
-  color: #94a3b8;
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  cursor: pointer;
-}
-
-.manage-dummy-reset__hint {
-  margin: 0 4px 14px;
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1.4;
-  color: #64748b;
-  text-align: center;
 }
 
 .manage-grid {

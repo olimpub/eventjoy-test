@@ -1,8 +1,9 @@
 <template>
-  <q-page class="bg-brand-dark text-white relative overflow-hidden q-pa-md flex flex-col justify-start">
+  <q-page class="bg-brand-dark text-white relative q-pa-md">
+    <CatalogPullRefresh @refresh="onPullRefresh">
     <!-- Giant Background Watermark Logo (from Brand Kit) -->
     <div class="absolute -right-24 top-[15%] w-96 h-96 opacity-[0.03] pointer-events-none select-none z-0">
-      <img src="~assets/eventjoy_icon.svg" alt="Watermark" class="w-full h-full object-contain" />
+      <img src="~assets/eventjoy_icon.svg" alt="Watermark" draggable="false" class="w-full h-full object-contain" />
     </div>
 
     <!-- UPPER PANEL: Saját eseményeim (Horizontal Scroll Carousel) -->
@@ -12,9 +13,22 @@
           <q-icon name="bookmark" color="#38bdf8" size="16px" />
           Saját eseményeim
         </h2>
-        <span style="font-size: 12px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">
-          {{ myEventsSorted.length }} esemény
-        </span>
+        <div class="flex items-center gap-2">
+          <q-btn
+            flat
+            round
+            dense
+            icon="sym_r_refresh"
+            color="cyan-4"
+            size="sm"
+            :loading="catalogRefreshing"
+            aria-label="Események frissítése"
+            @click="reloadCatalog"
+          />
+          <span style="font-size: 12px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">
+            {{ myEventsSorted.length }} esemény
+          </span>
+        </div>
       </div>
 
       <!-- Horizontal Continuous Scroll List -->
@@ -107,7 +121,7 @@
               </div>
             </div>
             
-            <!-- Invite bang OR reg status -->
+            <!-- Meghívó `!` vagy saját EventUser-státusz (csak Közreműködő / Résztvevő) -->
             <button
               v-if="event.needUserApproval"
               type="button"
@@ -121,13 +135,22 @@
               </q-tooltip>
             </button>
             <div
-              v-else-if="event.regStatus"
-              class="flex items-center justify-center flex-shrink-0 relative cursor-pointer"
-              style="width: 36px; height: 36px; background-color: rgba(255,255,255,0.05); border-radius: 12px; border: 1px solid rgba(255,255,255,0.05); backdrop-filter: blur(8px);"
+              v-else-if="event.userStatusIcon"
+              class="user-status-icon"
+              :aria-label="event.statusName"
+              :style="{
+                borderColor: hexToRgba(event.statusColor || '#38bdf8', 0.45),
+                backgroundColor: hexToRgba(event.statusColor || '#38bdf8', 0.14),
+                boxShadow: '0 0 12px ' + hexToRgba(event.statusColor || '#38bdf8', 0.22),
+              }"
             >
-              <q-icon :name="getRegStatusIcon(event.regStatus)" :style="{ color: getRegStatusColor(event.regStatus) }" size="20px" />
+              <q-icon
+                :name="event.userStatusIcon"
+                :style="{ color: event.statusColor || '#38bdf8' }"
+                size="20px"
+              />
               <q-tooltip class="bg-[#0B0F19] border border-white/10 text-white text-[11px] font-bold px-3 py-1" anchor="top middle" self="bottom middle" :offset="[0, 8]">
-                {{ getRegStatusLabel(event.regStatus) }}
+                {{ event.statusName }}
               </q-tooltip>
             </div>
           </div>
@@ -252,7 +275,7 @@
       </q-slide-transition>
 
       <!-- Unified Scrollable Feed -->
-      <div class="flex-grow overflow-y-auto no-scrollbar q-pb-xl" style="max-height: calc(100vh - 350px);">
+      <div class="q-pb-xl">
         
         <!-- Empty State for Empty Search/Filter -->
         <div v-if="(activeTab === 'recommended' && recommendedEvents.length === 0) || (activeTab === 'upcoming' && upcomingEventsSorted.length === 0)" class="q-pa-xl text-center text-slate-500 font-bold uppercase tracking-wider text-xs border border-sky-500/15 border-dashed rounded-xl mt-4">
@@ -424,6 +447,8 @@
       </div>
     </div>
 
+    </CatalogPullRefresh>
+
     <!-- REGISTRATION SUCCESS POPUP DIALOG -->
     <q-dialog v-model="successDialogOpen" transition-show="scale" transition-hide="scale">
       <q-card class="bg-[#0B0F19] text-white border border-white/10 rounded-2xl q-pa-md max-w-sm text-center">
@@ -466,16 +491,32 @@ import { useAuthStore } from 'src/stores/auth';
 import { resolveIconName } from 'src/components/event-wizard/groupIcons';
 import { isProfitabilityEventType } from 'src/modules/profitability/constants';
 import InviteDecisionSheet from 'src/components/event/InviteDecisionSheet.vue';
+import CatalogPullRefresh from 'src/components/layout/CatalogPullRefresh.vue';
+import { refreshEventCatalog } from 'src/utils/eventCatalogRefresh';
+import { eventUserStatusIcon, findEventUserStatus } from 'src/utils/eventUserFlow';
 
 const router = useRouter();
 const eventStore = useEventStore();
 const masterDataStore = useMasterDataStore();
 const authStore = useAuthStore();
+const catalogRefreshing = ref(false);
 
 onMounted(() => {
-  // Régi TEMP Belépett localStorage patch ne ragadjon a meghívóra
-  void eventStore.refreshEventData().catch(() => undefined);
+  void refreshEventCatalog().catch(() => undefined);
 });
+
+async function reloadCatalog() {
+  catalogRefreshing.value = true;
+  try {
+    await refreshEventCatalog({ force: true });
+  } finally {
+    catalogRefreshing.value = false;
+  }
+}
+
+function onPullRefresh(done: () => void) {
+  void reloadCatalog().finally(() => done());
+}
 
 // Event interface structure based on UI needs
 interface EventItem {
@@ -492,7 +533,7 @@ interface EventItem {
   statusName?: string;
   statusColor?: string;
   needUserApproval?: boolean;
-  regStatus?: 'success' | 'payment_pending' | 'saved' | 'error' | 'needs_approval';
+  userStatusIcon?: string;
   logo: string;
   price: number | null;
   priceMax?: number | null;
@@ -519,7 +560,7 @@ const mapToUIEvent = (dbEvent: any, isMyEvent: boolean): EventItem => {
   const location = eventStore.locations?.find((l: any) => l.id === dbEvent.EventLocationID) || {};
   
   // Címkék (Tags) kinyerése
-  const eventLabelIds = eventStore.eventLabels?.filter((el: any) => el.EventID === dbEvent.id).map((el: any) => el.LabelID) || [];
+  const eventLabelIds = eventStore.eventLabels?.filter((el: any) => String(el.EventID ?? el.eventID) === String(dbEvent.id)).map((el: any) => el.LabelID) || [];
   const tags = masterDataStore.labels?.filter((l: any) => eventLabelIds.includes(l.id)).map((l: any) => l.LabelName || l.Name) || [];
   
   // Szerepkörök 2-lépcsős feloldással: EventUser.EventRoleID -> EventRoles.id -> EventRoles.RoleID -> MasterData.Roles.id
@@ -556,11 +597,11 @@ const mapToUIEvent = (dbEvent: any, isMyEvent: boolean): EventItem => {
   }
   const myRoles = rawRoles;
 
-  // Saját státusz: résztvevő > közreműködő; meghívó megerősítés mindig látszik
-  let regStatus: EventItem['regStatus'] = undefined;
+  // Saját státusz: résztvevő > közreműködő. `!` / ikon csak ezeknél — szervezőként nincs.
   let customStatusName: string | undefined = undefined;
   let customStatusColor: string | undefined = undefined;
   let needUserApproval = false;
+  let userStatusIcon: string | undefined = undefined;
 
   if (isMyEvent) {
     const mine = eventStore.getMyEventUserStatus(dbEvent.id);
@@ -568,13 +609,9 @@ const mapToUIEvent = (dbEvent: any, isMyEvent: boolean): EventItem => {
       customStatusName = mine.name;
       customStatusColor = mine.color;
       needUserApproval = mine.needUserApproval;
-      if (mine.needUserApproval) {
-        regStatus = 'needs_approval';
-      } else {
-        const sId = mine.statusId;
-        if (sId === 2) regStatus = 'payment_pending';
-        else if ([3, 4, 7, 10].includes(sId)) regStatus = 'success';
-        else regStatus = 'saved';
+      if (!mine.needUserApproval) {
+        const statusRow = findEventUserStatus(masterDataStore.eventUserStatuses, mine.statusId);
+        userStatusIcon = eventUserStatusIcon(mine.name, statusRow);
       }
     }
   }
@@ -606,12 +643,12 @@ const mapToUIEvent = (dbEvent: any, isMyEvent: boolean): EventItem => {
     status: isMyEvent ? 'applied' : 'active', // TODO: Map real status
     location: location.LocationName || location.Name || 'Online/Ismeretlen',
     city: location.City || 'Budapest',
-    tags: tags.length > 0 ? tags : ['rendezvény'],
+    tags,
     isMyEvent: isMyEvent,
     statusName: customStatusName,
     statusColor: customStatusColor,
     needUserApproval,
-    regStatus: regStatus,
+    userStatusIcon: userStatusIcon || undefined,
     logo: resolveIconName(eventType?.IconName || eventType?.iconName),
     price: dbEvent.Capacity > 0 ? 5000 : null, // TODO: Jegy árak számítása EventTicket táblából
     category: 'general',
@@ -759,40 +796,6 @@ function onCardClick(event: EventItem) {
   router.push(`/event/${event.id}`);
 }
 
-
-
-// RegStatus helpers
-function getRegStatusIcon(status: string) {
-  switch(status) {
-    case 'success': return 'check_circle';
-    case 'payment_pending': return 'attach_money';
-    case 'saved': return 'star';
-    case 'needs_approval': return 'schedule';
-    case 'error': return 'cancel';
-    default: return 'help';
-  }
-}
-function getRegStatusColor(status: string) {
-  switch(status) {
-    case 'success': return '#4ade80';
-    case 'payment_pending': return '#fbbf24';
-    case 'saved': return '#60a5fa';
-    case 'needs_approval': return '#fbbf24';
-    case 'error': return '#ef4444';
-    default: return '#94a3b8';
-  }
-}
-function getRegStatusLabel(status: string) {
-  switch(status) {
-    case 'success': return 'Sikeres regisztráció';
-    case 'payment_pending': return 'Fizetésre vár';
-    case 'saved': return 'Mentett esemény';
-    case 'needs_approval': return 'Megerősítésre vár';
-    case 'error': return 'Elutasítva';
-    default: return '';
-  }
-}
-
 function hexToRgba(hex: string, alpha: number) {
   if (!hex) return `rgba(255,255,255,${alpha})`;
   hex = hex.replace('#', '');
@@ -886,6 +889,18 @@ function getRoleStyle(hexColor: string) {
 
 .invite-bang:active {
   transform: scale(0.94);
+}
+
+.user-status-icon {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
 }
 
 /* Keresőmező formázása */

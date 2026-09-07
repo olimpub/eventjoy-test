@@ -48,13 +48,8 @@ BEGIN
             (8,  N'EventRoundDesks'),
             (9,  N'EventPlayers'),
             (10, N'GameSchedules'),
-            (11, N'EventPrizes');
-
-        IF (@DataSheetType = 1)
-        BEGIN
-            INSERT INTO @Results (ResultNo, ResultName)
-            VALUES (12, N'EventParticpants');
-        END
+            (11, N'EventPrizes'),
+            (12, N'EventParticpants');
 
         SELECT * FROM @Results ORDER BY ResultNo;
 
@@ -94,17 +89,45 @@ BEGIN
         WHERE er.EventID = @EventID
           AND erd.ActiveFlg = 1;
 
-        -- RS9: PTA.tblEventPlayer
-        SELECT *
-        FROM [PTA].[tblEventPlayer]
-        WHERE EventID = @EventID
-          AND ActiveFlg = 1;
+        -- RS9: PTA.tblEventPlayer + User név (GM/játékos GET-ben nincs EventParticpants JOIN nélkül)
+        SELECT
+            ep.*,
+            usr.FirstName AS UserFirstName,
+            usr.LastName AS UserLastName,
+            LTRIM(RTRIM(CONCAT(ISNULL(usr.LastName, N''), N' ', ISNULL(usr.FirstName, N'')))) AS PlayerDisplayName
+        FROM [PTA].[tblEventPlayer] ep
+        LEFT JOIN [EJ].[tblEventUser] eu ON eu.ID = ep.EventUserID
+        LEFT JOIN [EJ].[tblUser] usr ON usr.ID = COALESCE(eu.UserID, ep.UserID)
+        WHERE ep.EventID = @EventID
+          AND ep.ActiveFlg = 1;
 
-        -- RS10: PTA.tblGameSchedule
-        SELECT gs.*
+        -- RS10: PTA.tblGameSchedule + ugyanaz a User név (PlayerID = EventPlayerID vagy EventUserID)
+        SELECT
+            gs.*,
+            usr.FirstName AS UserFirstName,
+            usr.LastName AS UserLastName,
+            LTRIM(RTRIM(CONCAT(ISNULL(usr.LastName, N''), N' ', ISNULL(usr.FirstName, N'')))) AS PlayerDisplayName
         FROM [PTA].[tblGameSchedule] gs
         INNER JOIN [PTA].[tblEventRoundDesk] erd ON erd.EventRoundDeskID = gs.EventRoundDeskID
         INNER JOIN [PTA].[tblEventRound] er ON er.EventRoundID = erd.EventRoundID
+        OUTER APPLY (
+            SELECT TOP 1 ep2.EventUserID, ep2.UserID, ep2.EventPlayerID
+            FROM [PTA].[tblEventPlayer] ep2
+            WHERE ep2.EventID = @EventID
+              AND ep2.ActiveFlg = 1
+              AND (
+                    ep2.EventPlayerID = gs.PlayerID
+                    OR ep2.EventUserID = gs.PlayerID
+                  )
+            ORDER BY CASE WHEN ep2.EventPlayerID = gs.PlayerID THEN 0 ELSE 1 END
+        ) ep
+        LEFT JOIN [EJ].[tblEventUser] eu
+            ON eu.EventID = @EventID
+           AND (
+                 eu.ID = ep.EventUserID
+                 OR (ep.EventUserID IS NULL AND eu.ID = gs.PlayerID)
+               )
+        LEFT JOIN [EJ].[tblUser] usr ON usr.ID = COALESCE(eu.UserID, ep.UserID)
         WHERE er.EventID = @EventID
           AND gs.ActiveFlg = 1;
 
@@ -113,31 +136,28 @@ BEGIN
         FROM [PTA].[tblEventPrize]
         WHERE EventID = @EventID;
 
-        -- RS12: Organizer datasheet (EJ résztvevők)
-        IF (@DataSheetType = 1)
-        BEGIN
-            SELECT
-                eu.*,
-                usr.FirstName,
-                usr.LastName,
-                usr.EmailAddress,
-                usr.PhoneNumber,
-                org.Name AS OrganizationName,
-                org.ShortName AS OrganizationShortName
-            FROM [EJ].[tblEventUser] eu
-            INNER JOIN [EJ].[tblUser] usr ON usr.ID = eu.UserID
-            OUTER APPLY (
-                SELECT TOP 1 o.Name, o.ShortName
-                FROM [EJ].[tblUserOrganization] uo
-                INNER JOIN [EJ].[tblOrganization] o ON o.id = uo.OrganizationID
-                WHERE uo.UserID = eu.UserID
-                  AND uo.ActiveFlg = 1
-                ORDER BY CASE WHEN uo.IsPrimary = 1 THEN 0 ELSE 1 END, uo.id
-            ) org
-            WHERE eu.EventID = @EventID
-                AND eu.ID <> @EventUserID
-                AND eu.ActiveFlg = 1;
-        END
+        -- RS12: résztvevő nevek — szervező ÉS játékmester asztalokhoz kell (nem csak DataSheetType=1)
+        SELECT
+            eu.*,
+            usr.FirstName,
+            usr.LastName,
+            usr.EmailAddress,
+            usr.PhoneNumber,
+            org.Name AS OrganizationName,
+            org.ShortName AS OrganizationShortName
+        FROM [EJ].[tblEventUser] eu
+        INNER JOIN [EJ].[tblUser] usr ON usr.ID = eu.UserID
+        OUTER APPLY (
+            SELECT TOP 1 o.Name, o.ShortName
+            FROM [EJ].[tblUserOrganization] uo
+            INNER JOIN [EJ].[tblOrganization] o ON o.id = uo.OrganizationID
+            WHERE uo.UserID = eu.UserID
+              AND uo.ActiveFlg = 1
+            ORDER BY CASE WHEN uo.IsPrimary = 1 THEN 0 ELSE 1 END, uo.id
+        ) org
+        WHERE eu.EventID = @EventID
+            AND eu.ID <> @EventUserID
+            AND eu.ActiveFlg = 1;
     END TRY
     BEGIN CATCH
         SET @ReturnValue = -1;

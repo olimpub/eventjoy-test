@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { api } from 'src/boot/axios';
-import { isTruthyFlag, pickDataset, unwrapApiPayload, warnIfDatasetMissing } from 'src/utils/apiPayload';
+import { hasDatasetKey, isTruthyFlag, pickDataset, unwrapApiPayload, warnIfDatasetMissing } from 'src/utils/apiPayload';
 import { useMasterDataStore } from './masterData';
 import { useEventStore } from './event';
 import { useCommunicationStore } from './communication';
@@ -39,6 +39,35 @@ function organizationUserTypeId(row: Record<string, unknown>): number | null {
   return Number.isFinite(num) ? num : null;
 }
 
+export interface SocialLogin {
+  Provider: string;
+  ProviderId: string;
+  EmailAddress: string;
+  LinkedAt?: string;
+}
+
+function firstRecord(value: unknown): Record<string, unknown> | null {
+  if (Array.isArray(value)) {
+    const row = value[0];
+    return row && typeof row === 'object' ? (row as Record<string, unknown>) : null;
+  }
+  if (value && typeof value === 'object') return value as Record<string, unknown>;
+  return null;
+}
+
+function normalizeSocialLogins(rows: unknown): SocialLogin[] {
+  const list = Array.isArray(rows) ? rows : rows ? [rows] : [];
+  return list
+    .filter((row): row is Record<string, unknown> => !!row && typeof row === 'object')
+    .map((row) => ({
+      Provider: String(row.Provider ?? row.provider ?? '').trim(),
+      ProviderId: String(row.ProviderId ?? row.providerId ?? '').trim(),
+      EmailAddress: String(row.EmailAddress ?? row.emailAddress ?? row.Email ?? '').trim(),
+      LinkedAt: row.LinkedAt != null ? String(row.LinkedAt) : row.linkedAt != null ? String(row.linkedAt) : undefined,
+    }))
+    .filter((row) => row.Provider);
+}
+
 function normalizeUserOrganizations(rows: unknown): UserOrganization[] {
   const list = Array.isArray(rows) ? rows : rows ? [rows] : [];
   return list
@@ -61,6 +90,7 @@ export const useAuthStore = defineStore('auth', {
     eventTypePreferences: [] as any[],
     labelPreferences: [] as any[],
     loginIdentifiers: [] as any[],
+    socialLogins: [] as SocialLogin[],
     userOrganizations: [] as UserOrganization[],
     token: localStorage.getItem('token') || '',
     role: null as 'admin' | 'facilitator' | 'player' | null,
@@ -89,11 +119,17 @@ export const useAuthStore = defineStore('auth', {
       const masterDataStore = useMasterDataStore();
       return masterDataStore.getOrganizationUserTypeById(typeId) ?? null;
     },
+    linkedSocial(state) {
+      return (provider: string) =>
+        state.socialLogins.find(
+          (row) => row.Provider.toLowerCase() === provider.toLowerCase()
+        ) ?? null;
+    },
   },
   actions: {
     async checkIdentity(identityValue: string) {
       try {
-        const response = await api.post('/api/auth/check-identity', { IdentityValue: identityValue });
+        const response = await api.post('/auth/check-identity', { IdentityValue: identityValue });
         this.emailCheckResult = response.data.Result2;
         return this.emailCheckResult;
       } catch (error) {
@@ -104,7 +140,7 @@ export const useAuthStore = defineStore('auth', {
     
     async passwordLogin(payload: { IdentityValue: string; Password: string; DeviceId: string; DeviceName: string }) {
       try {
-        const response = await api.post('/api/auth/password-login', payload);
+        const response = await api.post('/auth/password-login', payload);
         this.setToken(response.data.Result2.Token);
         return response.data;
       } catch (error) {
@@ -115,7 +151,7 @@ export const useAuthStore = defineStore('auth', {
 
     async register(payload: { IdentityValue: string; Password: string; DeviceId: string; DeviceName: string }) {
       try {
-        const response = await api.post('/api/auth/register', payload);
+        const response = await api.post('/auth/register', payload);
         this.setToken(response.data.Result2.Token);
         return response.data;
       } catch (error) {
@@ -126,7 +162,7 @@ export const useAuthStore = defineStore('auth', {
 
     async verifyOtp(payload: { IdentityValue: string; ValidationCode: string; DeviceId: string; DeviceName: string }) {
       try {
-        const response = await api.post('/api/auth/verify-otp', payload);
+        const response = await api.post('/auth/verify-otp', payload);
         this.setToken(response.data.Result2.Token);
         return response.data;
       } catch (error) {
@@ -137,7 +173,7 @@ export const useAuthStore = defineStore('auth', {
 
     async socialLogin(payload: { Provider: string; ProviderId: string; EmailAddress?: string; FirstName?: string; LastName?: string; DeviceId: string; DeviceName?: string }) {
       try {
-        const response = await api.post('/api/auth/social-login', payload);
+        const response = await api.post('/auth/social-login', payload);
         this.setToken(response.data.Result2.Token);
         return response.data;
       } catch (error) {
@@ -146,13 +182,46 @@ export const useAuthStore = defineStore('auth', {
       }
     },
 
+    applyAccountDatasets(payload: Record<string, unknown>) {
+      const user = firstRecord(payload.User ?? payload.user);
+      if (user) this.user = user;
+
+      if (hasDatasetKey(payload, 'SocialLogins', 'socialLogins')) {
+        this.socialLogins = normalizeSocialLogins(
+          pickDataset(payload, 'SocialLogins', 'socialLogins')
+        );
+      }
+
+      if (hasDatasetKey(payload, 'LoginIdentifiers', 'loginIdentifiers')) {
+        this.loginIdentifiers = pickDataset(payload, 'LoginIdentifiers', 'loginIdentifiers');
+      }
+    },
+
+    async linkSocial(payload: {
+      Provider: string;
+      ProviderId: string;
+      EmailAddress: string;
+      FirstName?: string;
+      LastName?: string;
+    }) {
+      const response = await api.post('/auth/link-social', payload);
+      this.applyAccountDatasets(unwrapApiPayload(response.data));
+      return response.data;
+    },
+
+    async unlinkSocial(provider: string) {
+      const response = await api.post('/auth/unlink-social', { Provider: provider });
+      this.applyAccountDatasets(unwrapApiPayload(response.data));
+      return response.data;
+    },
+
     // -------------------------------------------------------------------------
     // HIDEGINDÍTÁS (BOOT DATA) - A Kétágú betöltés
     // -------------------------------------------------------------------------
     async fetchBootData() {
       try {
         // 1. Lépés: A felhasználó saját mikro-környezete
-        const userRes = await api.get('/api/user/data');
+        const userRes = await api.get('/user/data');
         const userData = unwrapApiPayload(userRes.data);
 
         // User Data lementése
@@ -160,12 +229,15 @@ export const useAuthStore = defineStore('auth', {
         // 1 User | 2 Notifications | 3 ChatThreads | 4 EventTypePreferences
         // 5 LabelPreferences | 6 Settings | 7 LoginIdentifiers | 8 BillingAddress
         // 9 MasterDataVersion | 10 UserOrganizations
-        this.user = userData.User ?? null;
+        this.user = firstRecord(userData.User);
         this.settings = userData.Settings ?? null;
         this.billingAddress = userData.BillingAddress ?? null;
         this.eventTypePreferences = userData.EventTypePreferences || [];
         this.labelPreferences = userData.LabelPreferences || [];
         this.loginIdentifiers = userData.LoginIdentifiers || [];
+        this.socialLogins = normalizeSocialLogins(
+          pickDataset(userData, 'SocialLogins', 'socialLogins')
+        );
         this.userOrganizations = normalizeUserOrganizations(
           pickDataset(
             userData,
@@ -192,13 +264,15 @@ export const useAuthStore = defineStore('auth', {
         const masterDataStore = useMasterDataStore();
         
         const parallelTasks = [
-          api.get('/api/event/data').then((res) => {
+          api.get('/event/data').then((res) => {
             eventStore.setEventData(unwrapApiPayload(res.data));
           }),
           masterDataStore.checkAndSync(Number(userData.MasterDataVersion) || 1),
         ];
 
         await Promise.all(parallelTasks);
+        const { markEventCatalogFresh } = await import('src/utils/eventCatalogRefresh');
+        markEventCatalogFresh();
 
         console.log(
           'Boot data betöltve | userOrganizations:',
@@ -206,9 +280,6 @@ export const useAuthStore = defineStore('auth', {
           '| organizations:',
           masterDataStore.organizations.length
         );
-
-        // 3. Lépés: Csatlakozás a valós idejű WebSocketre (vagy legalább a Service)
-        signalRService.startConnection();
 
         return true;
       } catch (error) {
@@ -228,6 +299,7 @@ export const useAuthStore = defineStore('auth', {
       this.eventTypePreferences = [];
       this.labelPreferences = [];
       this.loginIdentifiers = [];
+      this.socialLogins = [];
       this.userOrganizations = [];
       this.token = '';
       this.role = null;

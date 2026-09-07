@@ -139,6 +139,66 @@
           <div v-else class="text-slate-400 text-sm text-center py-4">Adatok betöltése...</div>
         </div>
 
+        <!-- Csatolt fiókok (Google / Facebook) -->
+        <div class="mb-6 flex flex-col relative overflow-hidden" style="background-color: rgba(15, 23, 42, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.08); box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2); border-radius: 24px; padding: 20px;">
+          <div class="absolute top-0 left-0 w-1 h-full bg-sky-400"></div>
+          <div class="flex justify-between items-center mb-4">
+            <div style="font-size: 14px; font-weight: 800; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.05em; display: flex; align-items: center; gap: 8px; margin: 0;">
+              <q-icon name="link" size="18px" /> Csatolt fiókok
+            </div>
+          </div>
+          <div class="flex flex-col gap-3 mt-2">
+            <div
+              v-for="row in socialProviderRows"
+              :key="row.id"
+              class="flex items-center gap-3 px-4 py-3"
+              style="background: rgba(11, 15, 25, 0.5); border-radius: 16px; border: 1px solid rgba(56, 189, 248, 0.12);"
+            >
+              <div
+                class="w-10 h-10 shrink-0 rounded-full flex items-center justify-center"
+                :style="row.iconStyle"
+              >
+                <q-icon :name="row.icon" size="20px" color="white" />
+              </div>
+              <div class="flex-grow min-w-0">
+                <div class="text-sky-50 font-bold text-sm tracking-wide">{{ row.label }}</div>
+                <div v-if="row.linked" class="text-[11px] text-sky-300/80 font-bold mt-0.5 truncate">
+                  {{ row.linked.EmailAddress || 'Csatolva' }}
+                </div>
+                <div v-else-if="row.soon" class="text-[11px] text-slate-500 font-bold mt-0.5">Hamarosan</div>
+                <div v-else class="text-[11px] text-slate-500 font-bold mt-0.5">Nincs csatolva</div>
+              </div>
+              <q-btn
+                v-if="row.soon"
+                unelevated
+                no-caps
+                disable
+                dense
+                label="Hamarosan"
+                class="social-link-btn social-link-btn--soon shrink-0"
+              />
+              <q-btn
+                v-else-if="row.linked"
+                unelevated
+                no-caps
+                dense
+                label="Leválasztás"
+                class="social-link-btn social-link-btn--unlink shrink-0"
+                @click="askUnlinkSocial(row.id)"
+              />
+              <q-btn
+                v-else
+                unelevated
+                no-caps
+                dense
+                label="Csatolás"
+                class="social-link-btn social-link-btn--link shrink-0"
+                @click="startLinkSocial(row.id)"
+              />
+            </div>
+          </div>
+        </div>
+
         <!-- Számlázási címek -->
         <div class="mb-6 flex flex-col relative" style="background-color: rgba(15, 23, 42, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.08); box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2); border-radius: 24px; padding: 20px;">
           <div class="absolute top-0 left-0 w-1 h-full bg-emerald-500 rounded-l-[24px]"></div>
@@ -677,6 +737,29 @@
         </q-card>
       </q-dialog>
 
+      <q-dialog v-model="isSocialConfirmOpen">
+        <q-card class="social-confirm" :class="{ 'social-confirm--danger': socialConfirmMode === 'unlink' }">
+          <div class="social-confirm__icon" :class="{ 'is-danger': socialConfirmMode === 'unlink' }">
+            <q-icon :name="socialConfirmMode === 'unlink' ? 'link_off' : 'link'" size="22px" />
+          </div>
+          <h2 class="social-confirm__title">{{ socialConfirmTitle }}</h2>
+          <p class="social-confirm__message">{{ socialConfirmMessage }}</p>
+          <div class="social-confirm__actions">
+            <button type="button" class="social-confirm__btn social-confirm__btn--ghost" @click="isSocialConfirmOpen = false">
+              Mégsem
+            </button>
+            <button
+              type="button"
+              class="social-confirm__btn"
+              :class="socialConfirmMode === 'unlink' ? 'social-confirm__btn--danger' : 'social-confirm__btn--primary'"
+              @click="confirmSocialAction"
+            >
+              {{ socialConfirmMode === 'unlink' ? 'Leválasztás' : 'Csatolás' }}
+            </button>
+          </div>
+        </q-card>
+      </q-dialog>
+
     </div>
 
     <!-- View: PREFERENCIÁK -->
@@ -958,6 +1041,7 @@
       </q-card>
     </q-dialog>
 
+    <PtaBusyOverlay :model-value="workBusy" :label="workLabel" />
   </q-page>
 </template>
 
@@ -969,6 +1053,13 @@ import { useMasterDataStore, type MasterOrganization } from 'src/stores/masterDa
 import { useEventStore } from 'src/stores/event';
 import { useRouter } from 'vue-router';
 import { useQuasar } from 'quasar';
+import PtaBusyOverlay from 'src/modules/profitability/components/PtaBusyOverlay.vue';
+import {
+  fetchSocialProfile,
+  socialApiErrorMessage,
+  type SocialProfilePayload,
+  type SocialProvider,
+} from 'src/utils/socialAuth';
 
 const authStore = useAuthStore();
 const masterDataStore = useMasterDataStore();
@@ -1364,6 +1455,139 @@ function savePersonalData() {
     position: 'top',
     icon: 'check_circle'
   });
+}
+
+const workBusy = ref(false);
+const workLabel = ref('Dolgozom…');
+const isSocialConfirmOpen = ref(false);
+const socialConfirmMode = ref<'link' | 'unlink'>('link');
+const pendingLinkPayload = ref<SocialProfilePayload | null>(null);
+const pendingUnlinkProvider = ref<SocialProvider | null>(null);
+
+const socialProviderRows = computed(() => {
+  const googleStyle = 'background: rgba(66, 133, 244, 0.18); border: 1.5px solid rgba(66, 133, 244, 0.55);';
+  const facebookStyle = 'background: rgba(24, 119, 242, 0.18); border: 1.5px solid rgba(24, 119, 242, 0.55);';
+  const appleStyle = 'background: rgba(255, 255, 255, 0.06); border: 1.5px solid rgba(255, 255, 255, 0.22);';
+  const linked = (provider: string) =>
+    (authStore.socialLogins || []).find(
+      (row) => row.Provider.toLowerCase() === provider.toLowerCase()
+    ) ?? null;
+  return [
+    {
+      id: 'Google' as const,
+      label: 'Google',
+      icon: 'mdi-google',
+      iconStyle: googleStyle,
+      soon: false,
+      linked: linked('Google'),
+    },
+    {
+      id: 'Facebook' as const,
+      label: 'Facebook',
+      icon: 'mdi-facebook',
+      iconStyle: facebookStyle,
+      soon: false,
+      linked: linked('Facebook'),
+    },
+    {
+      id: 'Apple' as const,
+      label: 'Apple',
+      icon: 'mdi-apple',
+      iconStyle: appleStyle,
+      soon: true,
+      linked: null as ReturnType<typeof linked>,
+    },
+  ];
+});
+
+const socialConfirmTitle = computed(() =>
+  socialConfirmMode.value === 'unlink' ? 'Fiók leválasztása' : 'Fiók csatolása'
+);
+
+const socialConfirmMessage = computed(() => {
+  if (socialConfirmMode.value === 'unlink') {
+    const label = pendingUnlinkProvider.value === 'Facebook' ? 'Facebook' : 'Google';
+    return `Leválasztod a ${label}-fiókot? A neved és az alap e-mailcímed nem változik.`;
+  }
+  const payload = pendingLinkPayload.value;
+  if (!payload) return '';
+  const label = payload.Provider === 'Facebook' ? 'Facebook' : 'Google';
+  const email = payload.EmailAddress || '';
+  return `Csatolod a ${label}-fiókot${email ? ` (${email})` : ''}? A neved és az alap e-mailcímed megmarad; ez a cím belépési módként kerül fel.`;
+});
+
+function showSocialToast(message: string, type: 'positive' | 'warning' | 'info') {
+  $q.notify({
+    message,
+    icon: type === 'warning' ? 'error_outline' : type === 'positive' ? 'check_circle' : 'info_outline',
+    color: 'dark',
+    textColor: type === 'warning' ? 'red-4' : type === 'positive' ? 'green-4' : 'blue-4',
+    position: 'top',
+  });
+}
+
+async function startLinkSocial(provider: 'Google' | 'Facebook' | 'Apple') {
+  if (provider === 'Apple') {
+    showSocialToast('Az Apple bejelentkezés hamarosan elérhető lesz az iOS verzióval!', 'info');
+    return;
+  }
+
+  workLabel.value = provider === 'Google' ? 'Google fiók…' : 'Facebook fiók…';
+  workBusy.value = true;
+  try {
+    const profile = await fetchSocialProfile(provider);
+    pendingLinkPayload.value = profile;
+    socialConfirmMode.value = 'link';
+    isSocialConfirmOpen.value = true;
+  } catch (error) {
+    showSocialToast(socialApiErrorMessage(error, 'Nem sikerült a fiók adatainak lekérése.'), 'warning');
+  } finally {
+    workBusy.value = false;
+  }
+}
+
+function askUnlinkSocial(provider: 'Google' | 'Facebook' | 'Apple') {
+  if (provider === 'Apple') return;
+  pendingUnlinkProvider.value = provider;
+  socialConfirmMode.value = 'unlink';
+  isSocialConfirmOpen.value = true;
+}
+
+async function confirmSocialAction() {
+  isSocialConfirmOpen.value = false;
+
+  if (socialConfirmMode.value === 'unlink') {
+    const provider = pendingUnlinkProvider.value;
+    if (!provider) return;
+    workLabel.value = 'Leválasztás…';
+    workBusy.value = true;
+    try {
+      const data = await authStore.unlinkSocial(provider);
+      const msg = data?.Result1?.ReturnDescription || 'Fiók leválasztva.';
+      showSocialToast(msg, 'positive');
+    } catch (error) {
+      showSocialToast(socialApiErrorMessage(error, 'Nem sikerült a fiók leválasztása.'), 'warning');
+    } finally {
+      workBusy.value = false;
+      pendingUnlinkProvider.value = null;
+    }
+    return;
+  }
+
+  const payload = pendingLinkPayload.value;
+  if (!payload) return;
+  workLabel.value = 'Fiók csatolása…';
+  workBusy.value = true;
+  try {
+    const data = await authStore.linkSocial(payload);
+    const msg = data?.Result1?.ReturnDescription || 'Fiók csatolva.';
+    showSocialToast(msg, 'positive');
+  } catch (error) {
+    showSocialToast(socialApiErrorMessage(error, 'Nem sikerült a fiók csatolása.'), 'warning');
+  } finally {
+    workBusy.value = false;
+    pendingLinkPayload.value = null;
+  }
 }
 
 function savePreferences() {
@@ -1953,4 +2177,122 @@ function removeLabel(id: number) {
     box-shadow: 0 0 12px rgba(56, 189, 248, 0.2) !important;
   }
 }
+
+.social-link-btn {
+  min-height: 36px;
+  padding: 6px 14px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+
+  &--link {
+    background: rgba(56, 189, 248, 0.16) !important;
+    color: #7dd3fc !important;
+  }
+
+  &--unlink {
+    background: rgba(255, 96, 96, 0.12) !important;
+    color: #fb7185 !important;
+  }
+
+  &--soon {
+    background: rgba(255, 255, 255, 0.04) !important;
+    color: #64748b !important;
+  }
+}
+
+.social-confirm {
+  width: min(100%, 360px);
+  margin: 16px;
+  padding: 22px 20px 18px;
+  border-radius: 24px;
+  background: rgba(12, 13, 14, 0.96);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(56, 189, 248, 0.22);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+  color: #fff;
+
+  &--danger {
+    border-color: rgba(246, 139, 41, 0.22);
+  }
+}
+
+.social-confirm__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin: 0 auto 14px;
+  border-radius: 16px;
+  background: rgba(56, 189, 248, 0.16);
+  color: #38bdf8;
+
+  &.is-danger {
+    background: rgba(255, 96, 96, 0.16);
+    color: #ff6060;
+  }
+}
+
+.social-confirm__title {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: center;
+  color: #38bdf8;
+}
+
+.social-confirm--danger .social-confirm__title {
+  color: #ff6060;
+}
+
+.social-confirm__message {
+  margin: 0 0 20px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.45;
+  text-align: center;
+  color: #cbd5e1;
+}
+
+.social-confirm__actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.social-confirm__btn {
+  min-height: 44px;
+  padding: 10px 14px;
+  border-radius: 9999px;
+  border: 1px solid transparent;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.social-confirm__btn--ghost {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: #94a3b8;
+}
+
+.social-confirm__btn--primary {
+  background: rgba(56, 189, 248, 0.18);
+  border-color: rgba(56, 189, 248, 0.4);
+  color: #7dd3fc;
+}
+
+.social-confirm__btn--danger {
+  background: rgba(255, 96, 96, 0.18);
+  border-color: rgba(255, 96, 96, 0.35);
+  color: #ff6060;
+}
+
 </style>

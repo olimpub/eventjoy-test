@@ -2,6 +2,7 @@
   <q-dialog
     :model-value="modelValue"
     maximized
+    :persistent="saving"
     transition-show="slide-up"
     transition-hide="slide-down"
     @update:model-value="onToggle"
@@ -24,13 +25,25 @@
           <h2 class="create-wizard__title">
             {{ mode === 'edit' ? 'Esemény szerkesztése' : 'Új esemény' }}
           </h2>
-          <p class="create-wizard__subtitle">{{ stepLabel }}</p>
+          <div class="create-wizard__subtitle-row">
+            <p class="create-wizard__subtitle">{{ stepLabel }}</p>
+            <button
+              v-if="mode === 'edit'"
+              type="button"
+              class="create-wizard__save-btn"
+              :disabled="saving"
+              @click="onFinish"
+            >
+              Mentés
+            </button>
+          </div>
         </div>
 
         <button
           type="button"
           class="create-wizard__icon-btn"
           aria-label="Bezárás"
+          :disabled="saving"
           @click="close"
         >
           <q-icon name="close" size="22px" />
@@ -78,7 +91,7 @@
           :mode="mode"
           @update:model-value="patchBasics"
           @back="goBack"
-          @next="step = 3"
+          @next="goNext"
         />
         <StepRestrictions
           v-else-if="step === WIZARD_STEP.restrictions"
@@ -118,8 +131,12 @@
           :selection-chip="selection.typeName"
           :type-icon="selection.typeIcon"
           @back="goBack"
-          @next="onFinishStub"
+          @next="onFinish"
         />
+      </div>
+      <div v-if="saving" class="create-wizard__saving">
+        <q-spinner color="brand-primary" size="28px" />
+        <span>Mentés…</span>
       </div>
     </div>
   </q-dialog>
@@ -127,6 +144,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
 import { useQuasar } from 'quasar';
 import { useEventStore } from 'src/stores/event';
 import { useMasterDataStore } from 'src/stores/masterData';
@@ -139,11 +157,13 @@ import StepPtaSettings from './steps/StepPtaSettings.vue';
 import StepPlaceholder from './steps/StepPlaceholder.vue';
 import { hydrateWizardFromEvent } from './hydrateFromEvent';
 import {
+  EVENT_STATUS_PLANNING,
   WIZARD_STEP,
   WIZARD_STEP_LABELS,
   canNavigateToWizardStep,
   createEmptyBasics,
-  isWizardStepComplete,
+  ensurePtaStarterRolesAndTickets,
+  fillEmptyTicketRegistrationWindows,
   visibleWizardSteps,
   wizardTypeHasExtraSheet,
   type WizardBasics,
@@ -152,6 +172,9 @@ import {
   type WizardStep,
 } from './types';
 import { isProfitabilityEventType } from 'src/modules/profitability/constants';
+import { buildEventSavePayload, saveEvent } from 'src/utils/eventSave';
+import { navigateToOrganizerDatasheet } from 'src/utils/eventRoleNav';
+import { nullableNumericId, readAxiosErrorMessage } from 'src/utils/apiPayload';
 
 const props = withDefaults(
   defineProps<{
@@ -167,9 +190,11 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   (e: 'update:modelValue', value: boolean): void;
+  (e: 'saved', payload: { eventId: number | null; mode: WizardMode }): void;
 }>();
 
 const $q = useQuasar();
+const router = useRouter();
 const eventStore = useEventStore();
 const masterDataStore = useMasterDataStore();
 const uiStore = useUiStore();
@@ -185,6 +210,7 @@ const selection = reactive<WizardSelection>({
 });
 
 const basics = reactive(createEmptyBasics()) as WizardBasics;
+const saving = ref(false);
 
 const stepLabel = computed(() => {
   const label = WIZARD_STEP_LABELS[step.value];
@@ -200,10 +226,6 @@ const hasExtraSheet = computed(() => {
 });
 
 const visibleSteps = computed(() => visibleWizardSteps(hasExtraSheet.value, isPta.value));
-
-const allStepsComplete = computed(() =>
-  visibleSteps.value.every((s) => isWizardStepComplete(s, selection, basics))
-);
 
 function canGoToStep(n: number): boolean {
   return canNavigateToWizardStep(
@@ -225,6 +247,8 @@ function goToStep(n: number) {
     });
     return;
   }
+  ensurePtaDefaults();
+  fillEmptyTicketRegistrationWindows(basics.tickets, basics);
   step.value = n as WizardStep;
 }
 
@@ -248,6 +272,13 @@ watch(
     if (!visibleSteps.value.includes(step.value)) {
       step.value = visibleSteps.value[visibleSteps.value.length - 1] || 1;
     }
+  }
+);
+
+watch(
+  () => masterDataStore.roles.length,
+  () => {
+    ensurePtaDefaults();
   }
 );
 
@@ -301,14 +332,17 @@ function reset() {
 
 function patchBasics(value: WizardBasics) {
   Object.assign(basics, value);
+  fillEmptyTicketRegistrationWindows(basics.tickets, basics);
 }
 
 function onToggle(val: boolean) {
+  if (saving.value && !val) return;
   emit('update:modelValue', val);
   uiStore.createWizardOpen = val;
 }
 
 function close() {
+  if (saving.value) return;
   emit('update:modelValue', false);
   uiStore.createWizardOpen = false;
 }
@@ -335,13 +369,15 @@ function goBack() {
 }
 
 function goNext() {
+  ensurePtaDefaults();
+  fillEmptyTicketRegistrationWindows(basics.tickets, basics);
   const steps = visibleSteps.value;
   const idx = steps.indexOf(step.value);
   if (idx >= 0 && idx < steps.length - 1) {
     step.value = steps[idx + 1];
     return;
   }
-  onFinishStub();
+  onFinish();
 }
 
 function ensurePtaDefaults() {
@@ -352,6 +388,12 @@ function ensurePtaDefaults() {
   if (basics.ptaPairModeId == null && masterDataStore.ptaPairModes[0]) {
     basics.ptaPairModeId = masterDataStore.ptaPairModes[0].id;
   }
+  if (props.mode !== 'create') return;
+  ensurePtaStarterRolesAndTickets(
+    basics,
+    masterDataStore.roles,
+    masterDataStore.getDefaultEventUserFlowTemplateId(!!basics.publicFlg, true)
+  );
 }
 
 function onCategorySelect(payload: { id: number; name: string }) {
@@ -380,50 +422,59 @@ function onTicketsNext() {
     step.value = WIZARD_STEP.extraSheet;
     return;
   }
-  onFinishStub();
+  onFinish();
 }
 
-function onFinishStub() {
-  console.log('Wizard draft', {
-    mode: props.mode,
-    selection: { ...selection },
-    basics: { ...basics },
-    roles: basics.roles,
-    tickets: basics.tickets,
-    ptaSettings: {
-      GameTypeID: basics.ptaGameTypeId,
-      PairModeID: basics.ptaPairModeId,
-      ChampinshipID: basics.ptaChampionshipFlg ? basics.ptaChampionshipId : null,
-      Category: basics.ptaCategory,
-      Point1: basics.ptaPoint1,
-      Point2: basics.ptaPoint2,
-      Point3: basics.ptaPoint3,
-      Point4: basics.ptaPoint4,
-      MaxParticipants: basics.ptaMaxParticipants,
-      OrganizationGrpFlg: basics.ptaOrganizationGrpFlg,
-      TeamGrpFlg: basics.ptaTeamGrpFlg,
-      RegionGrpFlg: basics.ptaRegionGrpFlg,
-      CompanyGrpFlg: basics.ptaCompanyGrpFlg,
-      PhotoUploadMadatoryFlg: basics.ptaPhotoUploadMandatoryFlg,
-      ExtraPrizeFlg: basics.ptaExtraPrizeFlg,
-      ShowUserPositionFlg: basics.ptaShowUserPositionFlg,
-    },
-    eventPrizes: basics.ptaExtraPrizeFlg
-      ? (basics.ptaExtraPrizeIds || []).map((prizeId) => ({ PrizeID: prizeId }))
-      : [],
-    allStepsComplete: allStepsComplete.value,
-  });
-  $q.notify({
-    message: 'A varázsló mentése hamarosan elérhető. Az adatok előkészítve.',
-    icon: 'check_circle',
-    color: 'dark',
-    textColor: 'green-4',
-    position: 'top',
-    timeout: 2800,
-    classes: 'border border-green-500/40 rounded-xl q-px-lg q-py-md font-bold text-[14px] mt-4',
-    style: 'background: rgba(11, 15, 25, 0.85);',
-  });
-  close();
+async function onFinish() {
+  if (saving.value) return;
+  saving.value = true;
+  try {
+    const existing =
+      props.mode === 'edit' && props.eventId != null
+        ? eventStore.events?.find((e: { id?: number | string }) => String(e.id) === String(props.eventId)) ||
+          eventStore.myEvents?.find((e: { id?: number | string }) => String(e.id) === String(props.eventId))
+        : null;
+    const payload = buildEventSavePayload({
+      mode: props.mode,
+      eventId: props.eventId,
+      selection,
+      basics,
+      includePta: isPta.value,
+      eventStatusId:
+        props.mode === 'edit'
+          ? nullableNumericId(existing?.EventStatusID) ?? EVENT_STATUS_PLANNING
+          : EVENT_STATUS_PLANNING,
+    });
+    const eventId = await saveEvent(payload);
+    await eventStore.refreshEventData().catch(() => undefined);
+    $q.notify({
+      message: props.mode === 'edit' ? 'Esemény mentve.' : 'Esemény létrehozva.',
+      icon: 'check_circle',
+      color: 'dark',
+      textColor: 'green-4',
+      position: 'top',
+      timeout: 2200,
+      classes: 'border border-green-500/40 rounded-xl q-px-lg q-py-md font-bold text-[14px] mt-4',
+      style: 'background: rgba(11, 15, 25, 0.85);',
+    });
+    emit('saved', { eventId, mode: props.mode });
+    close();
+    if (props.mode === 'create' && eventId) {
+      await navigateToOrganizerDatasheet(router, eventId, selection.typeId);
+    }
+  } catch (error) {
+    $q.notify({
+      message: readAxiosErrorMessage(error, 'Az esemény mentése sikertelen.'),
+      color: 'dark',
+      textColor: 'red-4',
+      position: 'top',
+      timeout: 3200,
+      classes: 'border border-red-500/30 rounded-xl q-px-lg q-py-md font-bold text-[13px] mt-4',
+      style: 'background: rgba(11, 15, 25, 0.85);',
+    });
+  } finally {
+    saving.value = false;
+  }
 }
 </script>
 
@@ -434,6 +485,7 @@ function onFinishStub() {
   height: 100%;
   background: #0f172a;
   color: #fff;
+  position: relative;
 }
 
 .create-wizard__header {
@@ -466,6 +518,48 @@ function onFinishStub() {
     visibility: hidden;
     pointer-events: none;
   }
+
+  &:disabled {
+    opacity: 0.4;
+    pointer-events: none;
+  }
+}
+
+.create-wizard__save-btn {
+  flex-shrink: 0;
+  border: none;
+  border-radius: 8px;
+  min-height: 24px;
+  padding: 0 10px;
+  background: var(--ej-gradient, linear-gradient(135deg, #0ea5e9, #14b8a6));
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  outline: none;
+  line-height: 1;
+
+  &:disabled {
+    opacity: 0.4;
+    pointer-events: none;
+  }
+}
+
+.create-wizard__saving {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: rgba(15, 23, 42, 0.72);
+  font-size: 14px;
+  font-weight: 700;
+  color: #e2e8f0;
 }
 
 .create-wizard__titles {
@@ -482,8 +576,17 @@ function onFinishStub() {
   text-transform: uppercase;
 }
 
+.create-wizard__subtitle-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 2px;
+  min-width: 0;
+}
+
 .create-wizard__subtitle {
-  margin: 2px 0 0;
+  margin: 0;
   font-size: 12px;
   font-weight: 600;
   color: #94a3b8;
@@ -925,6 +1028,19 @@ function onFinishStub() {
     background: var(--ej-gradient, linear-gradient(135deg, #0ea5e9, #14b8a6));
     color: #fff;
     box-shadow: 0 4px 14px rgba(14, 165, 233, 0.35);
+
+    &.is-img {
+      background: transparent;
+      box-shadow: none;
+      overflow: hidden;
+      padding: 0;
+    }
+  }
+
+  .wizard-card__img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
   }
 
   .wizard-card__body {
@@ -1001,11 +1117,17 @@ function onFinishStub() {
     flex-shrink: 0;
     background: rgba(14, 165, 233, 0.12);
     color: #7dd3fc;
+
+    &.is-img {
+      background: transparent;
+      overflow: hidden;
+      padding: 0;
+    }
   }
 
   .wizard-type-card__img {
-    width: 26px;
-    height: 26px;
+    width: 100%;
+    height: 100%;
     object-fit: contain;
   }
 

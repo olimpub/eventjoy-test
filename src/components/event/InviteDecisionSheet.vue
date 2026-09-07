@@ -26,7 +26,8 @@ import { useQuasar } from 'quasar';
 import { useEventStore } from 'src/stores/event';
 import { useMasterDataStore } from 'src/stores/masterData';
 import { findEventUserStatusByName } from 'src/utils/eventUserFlow';
-import { nullableNumericId } from 'src/utils/apiPayload';
+import { nullableNumericId, readAxiosErrorMessage } from 'src/utils/apiPayload';
+import { setEventUserStatus } from 'src/utils/eventChange';
 
 const props = defineProps<{
   modelValue: boolean;
@@ -64,7 +65,26 @@ function resolveEventUserId(): number | null {
   return eventStore.getMyEventUserStatus(props.eventId)?.eventUserId ?? null;
 }
 
-function onAccept() {
+async function persistStatus(eventUserId: number, toId: number, prevId: number | null): Promise<boolean> {
+  eventStore.applyEventUserStatus(eventUserId, toId, prevId);
+  const eventId = nullableNumericId(props.eventId);
+  if (eventId == null) return true;
+  try {
+    await setEventUserStatus({
+      eventId,
+      eventUserId,
+      toStatusId: toId,
+      prevStatusId: prevId,
+    });
+    await eventStore.refreshEventData().catch(() => undefined);
+    return true;
+  } catch (error) {
+    notify(readAxiosErrorMessage(error, 'A státusz a szerveren nem frissült.'), false);
+    return false;
+  }
+}
+
+async function onAccept() {
   if (busy.value) return;
   const eventUserId = resolveEventUserId();
   const current = props.eventId != null ? eventStore.getMyEventUserStatus(props.eventId) : null;
@@ -82,8 +102,8 @@ function onAccept() {
 
   busy.value = true;
   try {
-    eventStore.applyEventUserStatus(eventUserId, toId, current.statusId);
-    notify('Meghívó elfogadva');
+    const saved = await persistStatus(eventUserId, toId, current.statusId);
+    if (saved) notify('Meghívó elfogadva');
     emit('decided');
     close();
   } finally {
@@ -91,7 +111,7 @@ function onAccept() {
   }
 }
 
-function onReject() {
+async function onReject() {
   if (busy.value) return;
   const eventUserId = resolveEventUserId();
   const current = props.eventId != null ? eventStore.getMyEventUserStatus(props.eventId) : null;
@@ -108,13 +128,13 @@ function onReject() {
   busy.value = true;
   try {
     if (toId != null) {
-      eventStore.applyEventUserStatus(eventUserId, toId, current.statusId);
+      const saved = await persistStatus(eventUserId, toId, current.statusId);
+      if (saved) notify('Meghívó elutasítva');
     } else {
-      // Nincs elutasító státusz a masterben — helyi inaktiválás, amíg az API megvan
       const eu = eventStore.eventUsers.find((row) => Number(row.id) === eventUserId);
       if (eu) eu.ActiveFlg = 0;
+      notify('Meghívó elutasítva');
     }
-    notify('Meghívó elutasítva');
     emit('decided');
     close();
   } finally {

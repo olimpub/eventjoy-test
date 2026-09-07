@@ -7,7 +7,7 @@
       <!-- Layered Foreground Logo centered on solid background -->
       <div class="logo-wrapper animate-zoom-in">
         <img
-          src="~assets/eventjoy_splash_foreground_1024.png"
+          :src="EVENTJOY_BRAND.icon"
           alt="EventJoy Logo"
           class="logo-image"
         />
@@ -17,6 +17,8 @@
 </template>
 
 <script setup lang="ts">
+import { EVENTJOY_BRAND } from 'src/assets/brand/eventjoy'
+
 defineProps<{
   show: boolean
 }>()

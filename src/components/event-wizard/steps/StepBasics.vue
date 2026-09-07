@@ -232,6 +232,19 @@
             @update:model-value="(v) => updateNewLocationField('LocationName', v)"
           />
           <div class="wizard-field-row">
+            <div style="width: 110px;">
+              <label class="wizard-field-label">Irányítószám</label>
+              <q-input
+                :model-value="modelValue.newLocation.PostalCode"
+                dark outlined dense
+                placeholder="1052"
+                maxlength="16"
+                class="wizard-field"
+                color="brand-primary"
+                inputmode="numeric"
+                @update:model-value="(v) => updateNewLocationField('PostalCode', v)"
+              />
+            </div>
             <div class="wizard-field-grow">
               <label class="wizard-field-label">Város *</label>
               <q-input
@@ -453,7 +466,7 @@ const selectedLocationDetail = computed(() => {
   );
   if (!loc) return null;
   const name = loc.LocationName || loc.Name || '';
-  const parts = [loc.AddressLine1, loc.City, loc.CountryCode].filter(Boolean);
+  const parts = [loc.AddressLine1, [loc.PostalCode, loc.City].filter(Boolean).join(' '), loc.CountryCode].filter(Boolean);
   return { name, address: parts.join(', ') || '—' };
 });
 
@@ -475,6 +488,7 @@ function cancelNewLocation() {
   showNewLocationForm.value = false;
   props.modelValue.useNewLocation = false;
   props.modelValue.newLocation.LocationName = '';
+  props.modelValue.newLocation.PostalCode = '';
   props.modelValue.newLocation.City = '';
   props.modelValue.newLocation.AddressLine1 = '';
   props.modelValue.newLocation.CountryCode = 'HU';

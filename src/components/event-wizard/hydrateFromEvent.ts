@@ -1,5 +1,6 @@
 import { useEventStore } from 'src/stores/event';
 import { useMasterDataStore } from 'src/stores/masterData';
+import { typeIconToken } from './brandedTypeIcons';
 import {
   createEmptyBasics,
   entityId,
@@ -111,14 +112,25 @@ export function hydrateWizardFromEvent(
     : isActiveFlag(event.ActiveFlg ?? event.activeFlg);
   basics.eventUid = firstString(event, 'EventUID', 'EventUid', 'eventUid') || basics.eventUid;
 
-  const orgId = firstNumber(event, 'OrganizationID', 'organizationID', 'OrganizationId');
+  const imageUrl = firstString(event, 'EventImageUrl', 'eventImageUrl');
+  basics.eventImageUrl = imageUrl || null;
+
+  const orgId = firstNumber(
+    event,
+    'ContactOrganizerID',
+    'contactOrganizerID',
+    'ContactOrganizerId',
+    'OrganizationID',
+    'organizationID',
+    'OrganizationId'
+  );
   if (orgId != null) {
     basics.contactKind = 'organization';
     basics.organizationId = orgId;
   }
-  basics.contactName = firstString(event, 'ContactName', 'OrganizerName', 'contactName');
-  basics.contactEmail = firstString(event, 'ContactEmail', 'OrganizerEmail', 'contactEmail');
-  basics.contactPhone = firstString(event, 'ContactPhone', 'OrganizerPhone', 'contactPhone');
+  basics.contactName = firstString(event, 'ContactName', 'contactName');
+  basics.contactEmail = firstString(event, 'ContactEmail', 'contactEmail');
+  basics.contactPhone = firstString(event, 'ContactPhone', 'contactPhone');
 
   basics.labels = collectLabels(eventStore, masterData, eventId);
   const roles = collectRoles(eventStore, masterData, eventId);
@@ -155,7 +167,7 @@ export function hydrateWizardFromEvent(
     typeName: eventType
       ? String(eventType.TypeName || eventType.typeName || eventType.Name || '')
       : '',
-    typeIcon: eventType ? String(eventType.IconName || eventType.iconName || '') : '',
+    typeIcon: eventType ? typeIconToken(eventType) : '',
   };
 
   return { selection, basics };

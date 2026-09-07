@@ -5,6 +5,12 @@ export const AMOUNT_MAX = 99;
 export const TRUCK_MIN = 0;
 export const TRUCK_MAX = 12;
 
+export function scoreNumber(value: unknown): number | null {
+  if (value === undefined || value === null || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
 export interface ScoreSeat {
   playerId: number;
   amount: number | null;

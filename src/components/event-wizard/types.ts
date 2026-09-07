@@ -21,6 +21,7 @@ export interface WizardSelection {
 /** Új helyszín — API POST később; create flow-ban együtt mehet az eseménnyel */
 export interface WizardNewLocation {
   LocationName: string;
+  PostalCode: string;
   City: string;
   AddressLine1: string;
   CountryCode: string;
@@ -91,6 +92,8 @@ export interface WizardBasics {
   labels: WizardLabelItem[];
   roles: WizardEventRole[];
   tickets: WizardTicket[];
+  /** tblEvent.EventImageUrl — csak roundtrip, a varázsló nem tölti */
+  eventImageUrl: string | null;
   /** Kapcsolattartó — 3. lépés */
   contactKind: 'person' | 'organization';
   organizationId: number | null;
@@ -135,6 +138,7 @@ export function createEmptyBasics(): WizardBasics {
     useNewLocation: false,
     newLocation: {
       LocationName: '',
+      PostalCode: '',
       City: '',
       AddressLine1: '',
       CountryCode: 'HU',
@@ -146,6 +150,7 @@ export function createEmptyBasics(): WizardBasics {
     labels: [],
     roles: [],
     tickets: [],
+    eventImageUrl: null,
     contactKind: 'person',
     organizationId: null,
     contactName: '',
@@ -172,11 +177,55 @@ export function createEmptyBasics(): WizardBasics {
   };
 }
 
+export function eventEndDate(basics: Pick<WizardBasics, 'startDate' | 'endDate' | 'isMultiDay'>): string {
+  return basics.isMultiDay ? basics.endDate || basics.startDate : basics.startDate;
+}
+
+export function localDateTimeParts(date = new Date()): { date: string; time: string } {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return {
+    date: `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`,
+    time: `${pad(date.getHours())}:${pad(date.getMinutes())}`,
+  };
+}
+
+/** Új jegy: kezdet = most, vége = esemény záró időpontja. */
+export function ticketRegistrationWindow(
+  basics: Pick<WizardBasics, 'startDate' | 'endDate' | 'isMultiDay' | 'endTime'>
+): Pick<WizardTicket, 'RegistrationStartDate' | 'RegistrationEndDate' | 'RegistrationStartTime' | 'RegistrationEndTime'> {
+  const start = localDateTimeParts();
+  return {
+    RegistrationStartDate: start.date,
+    RegistrationStartTime: start.time,
+    RegistrationEndDate: eventEndDate(basics) || '',
+    RegistrationEndTime: basics.endTime || '18:00',
+  };
+}
+
+export function fillEmptyTicketRegistrationWindows(tickets: WizardTicket[], basics: WizardBasics): boolean {
+  const window = ticketRegistrationWindow(basics);
+  let changed = false;
+  for (const ticket of tickets || []) {
+    if (!ticket.RegistrationStartDate && window.RegistrationStartDate) {
+      ticket.RegistrationStartDate = window.RegistrationStartDate;
+      ticket.RegistrationStartTime = window.RegistrationStartTime;
+      changed = true;
+    }
+    if (!ticket.RegistrationEndDate && window.RegistrationEndDate) {
+      ticket.RegistrationEndDate = window.RegistrationEndDate;
+      ticket.RegistrationEndTime = window.RegistrationEndTime;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
 export function createEmptyTicket(
   eventUid: string,
   ticketIndex: number,
   defaults?: Partial<Pick<WizardTicket, 'RegistrationStartDate' | 'RegistrationEndDate' | 'RegistrationStartTime' | 'RegistrationEndTime'>>
 ): WizardTicket {
+  const now = localDateTimeParts();
   return {
     tempId: crypto.randomUUID(),
     Code: generateTicketCode(eventUid, ticketIndex),
@@ -186,14 +235,100 @@ export function createEmptyTicket(
     Price: null,
     CurrencyCode: 'HUF',
     Capacity: null,
-    RegistrationStartDate: defaults?.RegistrationStartDate || '',
-    RegistrationStartTime: defaults?.RegistrationStartTime || '00:00',
+    RegistrationStartDate: defaults?.RegistrationStartDate || now.date,
+    RegistrationStartTime: defaults?.RegistrationStartTime || now.time,
     RegistrationEndDate: defaults?.RegistrationEndDate || '',
-    RegistrationEndTime: defaults?.RegistrationEndTime || '23:59',
+    RegistrationEndTime: defaults?.RegistrationEndTime || '18:00',
     ActiveFlg: true,
     TemplateID: null,
     roleTempIds: [],
   };
+}
+
+export const PTA_STARTER_ROLE_NAMES = ['Játékos', 'Játékmester', 'Szervező'] as const;
+
+const PTA_ROLE_FALLBACK_IDS: Record<string, number> = {
+  Játékos: 3,
+  Játékmester: 7,
+  Szervező: 1,
+};
+
+export function resolveMasterRoleByName(
+  catalog: unknown[],
+  name: string
+): { RoleID: number; roleName: string } {
+  const folded = name.trim().toLowerCase();
+  const hit = ((catalog || []) as Record<string, unknown>[]).find(
+    (row) => roleDisplayName(row).toLowerCase() === folded
+  );
+  if (hit) {
+    const id = entityId(hit);
+    return { RoleID: id, roleName: roleDisplayName(hit) || name };
+  }
+  return { RoleID: PTA_ROLE_FALLBACK_IDS[name] || 0, roleName: name };
+}
+
+function findStarterRole(roles: WizardEventRole[], name: string): WizardEventRole | undefined {
+  const folded = name.toLowerCase();
+  const fallbackId = PTA_ROLE_FALLBACK_IDS[name];
+  return roles.find(
+    (role) =>
+      role.roleName.trim().toLowerCase() === folded ||
+      (fallbackId != null && role.RoleID === fallbackId)
+  );
+}
+
+/** PTA create: Játékos / Játékmester / Szervező + 2 díjmentes jegy. */
+export function ensurePtaStarterRolesAndTickets(
+  basics: WizardBasics,
+  catalogRoles: unknown[],
+  defaultTemplateId: number | null
+) {
+  for (const name of PTA_STARTER_ROLE_NAMES) {
+    const resolved = resolveMasterRoleByName(catalogRoles, name);
+    if (!resolved.RoleID) continue;
+    const existing = findStarterRole(basics.roles, name);
+    if (existing) {
+      existing.RoleID = resolved.RoleID;
+      existing.roleName = resolved.roleName;
+      continue;
+    }
+    basics.roles.push({
+      tempId: crypto.randomUUID(),
+      RoleID: resolved.RoleID,
+      ActiveFlg: true,
+      roleName: resolved.roleName,
+    });
+  }
+
+  const window = ticketRegistrationWindow(basics);
+  const specs = [
+    { ticketName: 'Játékos', roleName: 'Játékos' },
+    { ticketName: 'Játékmester', roleName: 'Játékmester' },
+  ];
+  specs.forEach((spec) => {
+    const role = findStarterRole(basics.roles, spec.roleName);
+    let ticket = (basics.tickets || []).find(
+      (row) => row.TicketName.trim().toLowerCase() === spec.ticketName.toLowerCase()
+    );
+    if (!ticket) {
+      ticket = createEmptyTicket(basics.eventUid, basics.tickets.length + 1, window);
+      ticket.TicketName = spec.ticketName;
+      ticket.isFree = true;
+      ticket.Price = 0;
+      ticket.TemplateID = defaultTemplateId;
+      basics.tickets.push(ticket);
+    }
+    if (role && !ticket.roleTempIds.includes(role.tempId)) {
+      ticket.roleTempIds = [
+        ...ticket.roleTempIds.filter((id) => basics.roles.some((row) => row.tempId === id)),
+        role.tempId,
+      ];
+    }
+    if (!ticket.TemplateID && defaultTemplateId) ticket.TemplateID = defaultTemplateId;
+  });
+
+  fillEmptyTicketRegistrationWindows(basics.tickets, basics);
 }
 
 /** EV-{UID8}-T{n}-{RAND4} */

@@ -1,4 +1,6 @@
 import type { EventGroupingKey } from './ptaData';
+import { ptaSchedulePlayerId, ptaScheduleRoundDeskId } from './ptaData';
+import { nullableNumericId } from 'src/utils/apiPayload';
 
 /** Asztalonként a négy szín — piros, zöld, kék, sárga */
 export const PTA_SEAT_COLORS = ['#FF6060', '#28C76F', '#2AA9FF', '#F2E74B'] as const;
@@ -261,4 +263,108 @@ export function seatPlayers(args: {
   }
 
   return best;
+}
+
+function asScheduleRow(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function normalizeHex(value: unknown): string {
+  const raw = String(value ?? '').trim();
+  if (!raw || raw === '0' || raw.toLowerCase() === 'null') return '';
+  const hex = raw.startsWith('#') ? raw : `#${raw}`;
+  if (!/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(hex)) return '';
+  return hex.length === 4
+    ? `#${hex[1]}${hex[1]}${hex[2]}${hex[2]}${hex[3]}${hex[3]}`.toUpperCase()
+    : hex.toUpperCase();
+}
+
+/** 0–3, ha a GET camelCase / SeatNo / 1-alapú indexet küld. */
+export function ptaSeatColorIndexFromRow(row: Record<string, unknown>): number {
+  const raw = nullableNumericId(
+    row.ColorIndex ?? row.colorIndex ?? row.ColourIndex ?? row.ColorID ?? row.colorID
+  );
+  if (raw != null && raw >= 0 && raw <= 3) return raw;
+  if (raw != null && raw >= 1 && raw <= 4) return raw - 1;
+  const seatNo = nullableNumericId(row.SeatNo ?? row.seatNo ?? row.SeatNumber);
+  if (seatNo != null && seatNo >= 1 && seatNo <= 4) return seatNo - 1;
+  if (seatNo != null && seatNo >= 0 && seatNo <= 3) return seatNo;
+  return 0;
+}
+
+export function ptaSeatColorFromRow(row: Record<string, unknown>): string {
+  const hex = normalizeHex(
+    row.ColorHex ?? row.colorHex ?? row.ColourHex ?? row.ColorCode ?? row.colorCode
+  );
+  if (hex) return hex;
+  return PTA_SEAT_COLORS[ptaSeatColorIndexFromRow(row)] || PTA_SEAT_COLORS[0];
+}
+
+function fillSameDeskColors(schedules: Record<string, unknown>[]): Record<string, unknown>[] {
+  const byDesk = new Map<number, Record<string, unknown>[]>();
+  for (const row of schedules) {
+    const deskId = ptaScheduleRoundDeskId(row);
+    if (deskId == null) continue;
+    const list = byDesk.get(deskId) || [];
+    list.push(row);
+    byDesk.set(deskId, list);
+  }
+  for (const list of byDesk.values()) {
+    if (list.length < 2) continue;
+    const hexes = new Set(list.map((row) => ptaSeatColorFromRow(row).toUpperCase()));
+    const indexes = new Set(list.map((row) => ptaSeatColorIndexFromRow(row)));
+    if (indexes.size > 1) {
+      for (const row of list) {
+        const colorIndex = ptaSeatColorIndexFromRow(row);
+        row.ColorIndex = colorIndex;
+        row.ColorHex = PTA_SEAT_COLORS[colorIndex];
+      }
+      continue;
+    }
+    if (hexes.size > 1) {
+      for (const row of list) {
+        const hex = ptaSeatColorFromRow(row).toUpperCase();
+        const colorIndex = PTA_SEAT_COLORS.findIndex((item) => item.toUpperCase() === hex);
+        row.ColorHex = colorIndex >= 0 ? PTA_SEAT_COLORS[colorIndex] : hex;
+        row.ColorIndex = colorIndex >= 0 ? colorIndex : 0;
+      }
+      continue;
+    }
+    list
+      .slice()
+      .sort((a, b) => {
+        const aId = nullableNumericId(a.GameScheduleID ?? a.id) ?? 0;
+        const bId = nullableNumericId(b.GameScheduleID ?? b.id) ?? 0;
+        return aId - bId;
+      })
+      .forEach((row, index) => {
+        const colorIndex = index % PLAYERS_PER_DESK;
+        row.ColorIndex = colorIndex;
+        row.ColorHex = PTA_SEAT_COLORS[colorIndex];
+        row.SeatNo = colorIndex + 1;
+      });
+  }
+  return schedules;
+}
+
+/** GET / SignalR GameSchedule sorok: ColorHex + ColorIndex kitöltése. */
+export function normalizePtaSchedules(rows: unknown[]): Record<string, unknown>[] {
+  const mapped = (rows || [])
+    .map((item) => asScheduleRow(item))
+    .filter((row): row is Record<string, unknown> => row != null)
+    .map((row) => {
+      const colorIndex = ptaSeatColorIndexFromRow(row);
+      const colorHex = ptaSeatColorFromRow(row);
+      return {
+        ...row,
+        GameScheduleID: nullableNumericId(row.GameScheduleID ?? row.gameScheduleID ?? row.id),
+        EventRoundDeskID: ptaScheduleRoundDeskId(row),
+        PlayerID: ptaSchedulePlayerId(row),
+        ColorIndex: colorIndex,
+        ColorHex: colorHex,
+        SeatNo: nullableNumericId(row.SeatNo ?? row.seatNo) ?? colorIndex + 1,
+      };
+    });
+  return fillSameDeskColors(mapped);
 }

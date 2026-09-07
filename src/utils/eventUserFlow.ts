@@ -165,6 +165,57 @@ function rowActive(row: Record<string, unknown>): boolean {
 export const PENDING_USER_APPROVAL_LABEL = 'Megerősítésre vár';
 export const PENDING_USER_APPROVAL_COLOR = '#fbbf24';
 
+function foldStatusName(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
+/** Meghívott — a ! és a megerősítő sheet ettől függ. */
+export function eventUserStatusNameLooksInvited(name: string | null | undefined): boolean {
+  return foldStatusName(String(name || '')).includes('meghivott');
+}
+
+/**
+ * Lista-ikon a saját EventUser-státuszhoz (Közreműködő / Résztvevő).
+ * Master IconName, ha van; különben a státusznév alapján.
+ */
+export function eventUserStatusIcon(name: string | null | undefined, row?: unknown): string {
+  if (row && typeof row === 'object') {
+    const rec = row as Record<string, unknown>;
+    const fromApi = String(rec.IconName ?? rec.iconName ?? rec.Icon ?? '').trim();
+    if (fromApi) return fromApi;
+  }
+  const folded = foldStatusName(String(name || ''));
+  if (folded.includes('elutasit')) return 'sym_r_cancel';
+  if (folded.includes('lemond')) return 'sym_r_event_busy';
+  if (folded.includes('reszt vett') || folded.includes('resztvett')) return 'sym_r_done_all';
+  if (folded.includes('belepett')) return 'sym_r_login';
+  if (folded.includes('megerosit')) return 'sym_r_check_circle';
+  if (folded.includes('meghivott')) return 'sym_r_mark_email_unread';
+  if (folded.includes('jegyvasarl') || folded.includes('fizet')) return 'sym_r_confirmation_number';
+  if (folded.includes('jovahagy')) return 'sym_r_verified';
+  if (folded.includes('jelentkez')) return 'sym_r_hourglass_top';
+  if (folded.includes('regisztral')) return 'sym_r_how_to_reg';
+  return 'sym_r_person';
+}
+
+/** Elfogadom / Elutasítom célstátusz — helyi patch maradhat, amíg az API utoléri. */
+export function isInviteDecisionStatusName(name: string | null | undefined): boolean {
+  const folded = foldStatusName(String(name || ''));
+  return (
+    folded.includes('megerositve') || folded.includes('elutasitva') || folded.includes('lemondva')
+  );
+}
+
+export function isInviteDecisionStatusId(
+  eventUserStatuses: unknown[],
+  statusId: number | null | undefined
+): boolean {
+  return isInviteDecisionStatusName(eventUserStatusName(findEventUserStatus(eventUserStatuses, statusId)));
+}
+
 export function eventUserStatusNeedsUserApproval(row: unknown): boolean {
   if (!row || typeof row !== 'object') return false;
   const rec = row as Record<string, unknown>;

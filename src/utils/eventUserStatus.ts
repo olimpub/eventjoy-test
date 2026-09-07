@@ -18,7 +18,13 @@ export function membershipRoleKind(role: {
   if (role.isOrganizer || hay.includes('szervez') || hay.includes('organizer')) {
     return 'organizer';
   }
-  if (hay.includes('reszvev') || hay.includes('jatekos') || hay.includes('participant')) {
+  if (
+    hay.includes('reszvev') ||
+    hay.includes('jatekos') ||
+    hay.includes('participant') ||
+    hay.includes('player') ||
+    hay.includes('versenyz')
+  ) {
     return 'participant';
   }
   return 'contributor';

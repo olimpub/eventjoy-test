@@ -314,7 +314,7 @@
                     <q-time
                       :model-value="editingTicket.RegistrationEndTime"
                       dark color="brand-primary" format24h mask="HH:mm"
-                      @update:model-value="(v) => updateTicket(editingTicket.tempId, 'RegistrationEndTime', v || '23:59')"
+                      @update:model-value="(v) => updateTicket(editingTicket.tempId, 'RegistrationEndTime', v || modelValue.endTime || '18:00')"
                     />
                   </q-popup-proxy>
                 </q-icon>
@@ -359,6 +359,8 @@ import { resolveTypeIcon } from '../groupIcons';
 import {
   combineDateTimeToUtcIso,
   createEmptyTicket,
+  fillEmptyTicketRegistrationWindows,
+  ticketRegistrationWindow,
   type WizardBasics,
   type WizardMode,
   type WizardTicket,
@@ -404,6 +406,9 @@ if (tickets.value.length !== (props.modelValue.tickets || []).length) {
 }
 
 onMounted(() => {
+  if (fillEmptyTicketRegistrationWindows(tickets.value, props.modelValue)) {
+    emitUpdate();
+  }
   syncPrivateTemplates();
   window.setTimeout(() => {
     interactReady.value = true;
@@ -636,12 +641,7 @@ function startNewTicket() {
     return;
   }
   const nextIndex = tickets.value.length + 1;
-  const t = createEmptyTicket(props.modelValue.eventUid, nextIndex, {
-    RegistrationStartDate: props.modelValue.startDate || '',
-    RegistrationEndDate: props.modelValue.endDate || props.modelValue.startDate || '',
-    RegistrationStartTime: '00:00',
-    RegistrationEndTime: props.modelValue.startTime || '23:59',
-  });
+  const t = createEmptyTicket(props.modelValue.eventUid, nextIndex, ticketRegistrationWindow(props.modelValue));
   const firstActive = (props.modelValue.roles || []).find(
     (r) => r.ActiveFlg && !masterDataStore.isOrganizerRole(r.RoleID)
   );

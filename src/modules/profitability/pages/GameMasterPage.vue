@@ -78,6 +78,13 @@
           <span class="manage-tile__label">{{ action.label }}</span>
         </button>
       </div>
+
+      <EventClosedFollowUp
+        :event-id="eventId"
+        :event-ended="playPhase === 'ended'"
+        :current-role="enteredRole"
+        :roles="enterableRoles"
+      />
     </div>
 
     <q-dialog v-model="isSoonOpen" transition-show="scale" transition-hide="scale">
@@ -91,13 +98,15 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useQuasar } from 'quasar';
 import ComingSoonCube from 'src/components/event/ComingSoonCube.vue';
+import EventClosedFollowUp from 'src/components/event/EventClosedFollowUp.vue';
 import RoleSwitchChip from 'src/components/event/RoleSwitchChip.vue';
 import { useCommunicationStore } from 'src/stores/communication';
 import { useEventStore } from 'src/stores/event';
 import { useMasterDataStore } from 'src/stores/masterData';
-import { findEventStatus } from 'src/utils/eventFlow';
+import { eventPlayPhase, findEventStatus } from 'src/utils/eventFlow';
 import { nullableNumericId } from 'src/utils/apiPayload';
 import { eventDatasheetKind, gameMasterEnterBlocked } from 'src/utils/eventRoleNav';
+import { ptaEventUserId } from 'src/modules/profitability/ptaData';
 import '../theme.css';
 
 const route = useRoute();
@@ -186,6 +195,8 @@ const statusLabel = computed(() => {
   );
 });
 
+const playPhase = computed(() => eventPlayPhase(statusLabel.value));
+
 const statusKey = computed(() => {
   const name = (statusLabel.value || '').toLowerCase();
   if (name.includes('folyamat') || name.includes('fut') || name.includes('élő') || name.includes('live')) return 'active';
@@ -236,7 +247,7 @@ const kpiRegistered = computed(() => {
 const kpiCheckedIn = computed(() => {
   if (!sheetLoaded.value) return '—';
   const playerIds = new Set(
-    eventStore.getPtaPlayersForEvent(eventId.value).map((row) => nullableNumericId(row.EventUserID ?? row.id))
+    eventStore.getPtaPlayersForEvent(eventId.value).map((row) => ptaEventUserId(row))
   );
   return String(
     sheetParticipants.value.filter((row) => {

@@ -517,7 +517,7 @@ export const useMasterDataStore = defineStore('masterData', {
   actions: {
     async checkAndSync(serverVersion: number) {
       try {
-        const response = await api.get('/api/master/data');
+        const response = await api.get('/master/data');
         const data = unwrapApiPayload(response.data);
         
         this.version = serverVersion;

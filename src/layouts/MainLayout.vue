@@ -6,106 +6,47 @@
         <!-- Left side: Brand Logo -->
         <div class="flex items-center gap-2">
           <img :src="headerLogo" alt="EventJoy" style="height: 26px; width: auto;" class="object-contain cursor-pointer" @click="router.push('/')" />
-
+          <EventLiveDot />
         </div>
 
 
-        <!-- Right side: PROFI-T-ABILITY + Newsfeed + Messages + Notifications -->
+        <!-- Right side: Newsfeed + Notifications + Messages -->
         <div class="flex items-center gap-2 sm:gap-4">
-          <!-- PROFI-T-ABILITY kis ikon a Headerben -->
-          <q-btn flat round dense icon="auto_graph" to="/profitability" class="text-[#f68b29] hover:bg-[#f68b29]/10 relative" size="18px">
-            <q-tooltip>PROFI-T-ABILITY Bajnokságok</q-tooltip>
+          <q-btn
+            flat
+            round
+            dense
+            icon="sym_r_newspaper"
+            class="text-slate-400 hover:text-white relative"
+            size="18px"
+            @click="comingSoon('Hírfolyam', 'sym_r_newspaper')"
+          >
+            <q-tooltip>Hírfolyam</q-tooltip>
           </q-btn>
 
-          <!-- Newsfeed (Új hír) -->
-          <q-btn flat round dense icon="sym_r_newspaper" to="/feed" class="text-slate-400 hover:text-white relative" size="18px">
-            <!-- Kis kék pötty jelzi, ha van új ajánló -->
-            <q-badge color="brand-primary" floating style="top: -2px; right: 0px; width: 10px; height: 10px; border-radius: 50%; padding: 0;"></q-badge>
+          <q-btn
+            flat
+            round
+            dense
+            icon="sym_r_notifications"
+            class="text-slate-400 hover:text-white relative"
+            size="18px"
+            @click="comingSoon('Értesítések', 'sym_r_notifications')"
+          >
+            <q-tooltip>Értesítések</q-tooltip>
           </q-btn>
 
-          <!-- Értesítések -->
-          <q-btn flat round dense icon="sym_r_notifications" class="text-slate-400 hover:text-white relative" size="18px">
-            <q-badge color="rose-500" floating style="top: -2px; right: -2px; padding: 3px 5px; font-size: 10px; font-weight: 900; border-radius: 9999px;">2</q-badge>
-            <q-menu anchor="bottom right" self="top right" transition-show="jump-down" transition-hide="jump-up" :offset="[0, 10]" style="background: rgba(15, 23, 42, 0.98); backdrop-filter: blur(24px); border-radius: 20px; width: 380px; box-shadow: 0 30px 60px -12px rgba(0,0,0,1); border: none; padding: 16px 24px 16px 16px;">
-              
-              <!-- HEADER -->
-              <div class="flex items-center justify-between pb-3 mb-2">
-                <div class="flex items-center gap-2">
-                  <q-icon name="sym_r_notifications_active" size="20px" color="rose-400" />
-                  <span class="text-transparent bg-clip-text bg-gradient-to-r from-rose-300 to-rose-100 font-black uppercase tracking-widest text-[16px] drop-shadow-md">Értesítések</span>
-                </div>
-                <q-btn flat dense no-caps icon-right="sym_r_done_all" label="Mind olvasva" class="bg-white/5 hover:bg-white/10 text-rose-200 rounded-full font-bold text-[10px] uppercase tracking-wider px-3 py-1 shadow-[0_2px_10px_rgba(0,0,0,0.2)]" />
-              </div>
-              
-              <!-- BODY (NOTIFICATIONS) -->
-              <div class="flex flex-col gap-3">
-                <!-- Unread Notification 1 -->
-                <div class="rounded-[16px] bg-[#1E293B] shadow-[0_8px_20px_rgba(0,0,0,0.4)] pl-3 py-3 pr-6 cursor-pointer hover:-translate-y-1 hover:bg-[#2A3B54] transition-all relative group overflow-hidden">
-                  <div class="absolute left-0 top-0 bottom-0 w-1 bg-sky-500 shadow-[0_0_12px_#0ea5e9]"></div>
-                  <div class="flex items-center gap-3 pl-3">
-                    <div class="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center shadow-md shrink-0">
-                      <q-icon name="sym_r_event" color="sky-400" size="20px" />
-                    </div>
-                    <div class="flex flex-col flex-1 min-w-0 w-full">
-                      <div class="flex justify-between items-center mb-0.5 w-full gap-2">
-                        <span class="font-black tracking-[1.5px] text-[13px] text-sky-400 truncate drop-shadow-md flex-1 min-w-0" style="-webkit-text-stroke: 0.5px currentColor; text-shadow: 0px 0px 2px currentColor;">Helyszín Változás</span>
-                        <span class="text-sky-300 text-[10px] font-black uppercase tracking-wider bg-sky-500/10 px-2 py-0.5 rounded-full shrink-0 shadow-inner whitespace-nowrap mr-6">10 P.&nbsp;&nbsp;&nbsp;</span>
-                      </div>
-                      <span class="text-slate-400 text-[12px] font-medium leading-tight line-clamp-1">A plenáris előadás a B terembe került át. Kérjük fáradj oda!</span>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Unread Notification 2 -->
-                <div class="rounded-[16px] bg-[#1E293B] shadow-[0_8px_20px_rgba(0,0,0,0.4)] pl-3 py-3 pr-6 cursor-pointer hover:-translate-y-1 hover:bg-[#2A3B54] transition-all relative group overflow-hidden">
-                  <div class="absolute left-0 top-0 bottom-0 w-1 bg-emerald-500 shadow-[0_0_12px_#10b981]"></div>
-                  <div class="flex items-center gap-3 pl-3">
-                    <div class="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center shadow-md shrink-0">
-                      <q-icon name="sym_r_local_activity" color="emerald-400" size="20px" />
-                    </div>
-                    <div class="flex flex-col flex-1 min-w-0 w-full">
-                      <div class="flex justify-between items-center mb-0.5 w-full gap-2">
-                        <span class="font-black tracking-[1.5px] text-[13px] text-emerald-400 truncate drop-shadow-md flex-1 min-w-0" style="-webkit-text-stroke: 0.5px currentColor; text-shadow: 0px 0px 2px currentColor;">Jegyvásárlás</span>
-                        <span class="text-emerald-300 text-[10px] font-black uppercase tracking-wider bg-emerald-500/10 px-2 py-0.5 rounded-full shrink-0 shadow-inner whitespace-nowrap mr-6">2 Ó.&nbsp;&nbsp;&nbsp;</span>
-                      </div>
-                      <span class="text-slate-400 text-[12px] font-medium leading-tight line-clamp-1">Sikeresen megvásároltad a VIP belépőjegyet.</span>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Read Notification 1 -->
-                <div class="rounded-[16px] bg-[#1E293B] shadow-[0_8px_20px_rgba(0,0,0,0.4)] pl-3 py-3 pr-6 cursor-pointer hover:-translate-y-1 hover:bg-[#2A3B54] transition-all relative group overflow-hidden">
-                  <div class="absolute left-0 top-0 bottom-0 w-1 bg-slate-700 opacity-50"></div>
-                  <div class="flex items-center gap-3 pl-3">
-                    <div class="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center opacity-70 shrink-0">
-                      <q-icon name="sym_r_campaign" color="slate-400" size="20px" />
-                    </div>
-                    <div class="flex flex-col flex-1 min-w-0 w-full">
-                      <div class="flex justify-between items-center mb-0.5 w-full gap-2">
-                        <span class="font-black tracking-[1.5px] text-[13px] text-slate-300 truncate drop-shadow-md flex-1 min-w-0" style="-webkit-text-stroke: 0.5px currentColor; text-shadow: 0px 0px 2px currentColor;">Új Előadó</span>
-                        <span class="text-slate-500 text-[10px] font-black uppercase tracking-wider bg-slate-800 px-2 py-0.5 rounded-full shrink-0 whitespace-nowrap mr-6">Tegnap&nbsp;&nbsp;&nbsp;</span>
-                      </div>
-                      <span class="text-slate-500 text-[12px] font-medium leading-tight line-clamp-1">Dr. Horváth Elemér is csatlakozott a csapathoz!</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div class="pt-4 mt-2 mb-1">
-                <q-btn to="/notifications" unelevated class="w-full rounded-[16px] py-3.5" style="background: linear-gradient(135deg, #f43f5e 0%, #e11d48 100%); color: white; box-shadow: 0 4px 15px rgba(225, 29, 72, 0.4);" no-caps>
-                  <div class="flex items-center justify-center gap-2 w-full">
-                    <span class="font-black text-[13px] tracking-wide uppercase">Összes értesítés megnyitása</span>
-                  </div>
-                </q-btn>
-              </div>
-            </q-menu>
+          <q-btn
+            flat
+            round
+            dense
+            icon="sym_r_chat_bubble"
+            class="text-slate-400 hover:text-white relative"
+            size="18px"
+            @click="comingSoon('Üzenetek', 'sym_r_chat_bubble')"
+          >
+            <q-tooltip>Üzenetek</q-tooltip>
           </q-btn>
-          <!-- Üzenetek -->
-          <q-btn flat round dense icon="sym_r_chat_bubble" class="text-slate-400 hover:text-white relative" size="18px">
-            <q-badge color="sky-500" floating style="top: -2px; right: -2px; padding: 3px 5px; font-size: 10px; font-weight: 900; border-radius: 9999px;">2</q-badge>
-            <MessagesMenu />
-          </q-btn>
-
         </div>
       </q-toolbar>
     </q-header>
@@ -222,20 +163,26 @@
         </div>
       </q-card>
     </q-dialog>
+
+    <q-dialog v-model="isSoonOpen" transition-show="scale" transition-hide="scale">
+      <ComingSoonCube :title="soonLabel" :icon="soonIcon" />
+    </q-dialog>
   </q-layout>
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue';
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useQuasar } from 'quasar';
 import { useRoute, useRouter } from 'vue-router';
-import headerDarkLogo from 'src/assets/eventjoy_header_dark_240.png';
-import headerLightLogo from 'src/assets/eventjoy_header_light_240.png';
-import { BRAND_MODULES } from 'src/assets/brand';
-import MessagesMenu from 'src/components/layout/MessagesMenu.vue';
+import { EVENTJOY_BRAND } from 'src/assets/brand/eventjoy';
+import { KLUBHUB_BRAND } from 'src/assets/brand/klubhub';
+import ComingSoonCube from 'src/components/event/ComingSoonCube.vue';
 import NowPlayingBar from 'src/components/layout/NowPlayingBar.vue';
+import EventLiveDot from 'src/components/layout/EventLiveDot.vue';
+import { installEventCatalogRefresh } from 'src/utils/eventCatalogRefresh';
 
-const klubhubIcon = BRAND_MODULES.klubhub.icon;
+const klubhubIcon = KLUBHUB_BRAND.icon;
+const headerLogo = EVENTJOY_BRAND.logoDark;
 
 const $q = useQuasar();
 const route = useRoute();
@@ -244,6 +191,15 @@ const router = useRouter();
 const tab = ref('home');
 
 const footerVisible = ref(true);
+const isSoonOpen = ref(false);
+const soonLabel = ref('Hamarosan elérhető');
+const soonIcon = ref('sym_r_schedule');
+
+function comingSoon(label: string, icon = 'sym_r_schedule') {
+  soonLabel.value = label;
+  soonIcon.value = icon;
+  isSoonOpen.value = true;
+}
 
 // QR Scanner state
 const qrScannerOpen = ref(false);
@@ -264,6 +220,14 @@ function handleSwipe(info: any) {
 // Alapértelmezetten bekapcsoljuk a sötét módot, hogy a sötét téma érvényesüljön
 $q.dark.set(true);
 
+let stopCatalogRefresh: (() => void) | undefined;
+onMounted(() => {
+  stopCatalogRefresh = installEventCatalogRefresh(() => route.name);
+});
+onBeforeUnmount(() => {
+  stopCatalogRefresh?.();
+});
+
 // Szinkronizáljuk az útvonalat az alsó menüpontok aktív állapotával
 watch(() => route.path, (path) => {
   if (path === '/') tab.value = 'home';
@@ -272,10 +236,6 @@ watch(() => route.path, (path) => {
       else if (path === '/klubhub' || path === '/communities') tab.value = 'klubhub';
   else tab.value = '';
 }, { immediate: true });
-
-const headerLogo = computed(() => {
-  return $q.dark.isActive ? headerDarkLogo : headerLightLogo;
-});
 
 // QR Code Scanner actions
 async function openQrScanner() {

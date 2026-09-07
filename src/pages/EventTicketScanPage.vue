@@ -60,12 +60,15 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { useQuasar } from 'quasar';
 import jsQR from 'jsqr';
 import { useEventStore, type EventUser } from 'src/stores/event';
 import { useMasterDataStore } from 'src/stores/masterData';
-import { nullableNumericId } from 'src/utils/apiPayload';
+import { nullableNumericId, readAxiosErrorMessage } from 'src/utils/apiPayload';
 import { normalizeEventUserUid } from 'src/utils/eventUserQr';
-import { eventOrganizerManagePath } from 'src/utils/eventRoleNav';
+import { eventOrganizerManagePath, isEventUserCheckedInName } from 'src/utils/eventRoleNav';
+import { findEventUserStatusByName } from 'src/utils/eventUserFlow';
+import { setEventUserStatus } from 'src/utils/eventChange';
 
 type ScanKind = 'ok' | 'unknown' | 'wrong_event' | 'invalid';
 
@@ -84,6 +87,7 @@ interface ScanResult {
 
 const route = useRoute();
 const router = useRouter();
+const $q = useQuasar();
 const eventStore = useEventStore();
 const masterDataStore = useMasterDataStore();
 
@@ -135,7 +139,7 @@ const resultTitle = computed(() => {
 const resultSubtitle = computed(() => {
   switch (scanResult.value?.kind) {
     case 'ok':
-      return 'A QR az EventUserUID-del egyezik ezen az eseményen.';
+      return 'Belépett — a jegy érvényes ezen az eseményen.';
     case 'wrong_event':
       return 'A kód létezik, de nem ehhez az eseményhez tartozik.';
     case 'unknown':
@@ -189,6 +193,45 @@ function validatePayload(raw: string): ScanResult {
   return { kind: 'ok', uid, row: mapRow(hit) };
 }
 
+async function checkInFromScan(uid: string) {
+  const hit = eventStore.findEventUserByUid(uid);
+  const numericEventId = nullableNumericId(eventId.value);
+  if (!hit || numericEventId == null) return;
+
+  const currentName =
+    hit.EventUserStatusID != null ? masterDataStore.getEventUserStatusName(hit.EventUserStatusID) : '';
+  if (isEventUserCheckedInName(currentName)) {
+    if (scanResult.value?.kind === 'ok') scanResult.value.row = mapRow(hit);
+    return;
+  }
+
+  const entered = findEventUserStatusByName(masterDataStore.eventUserStatuses, 'Belépett');
+  const toId = nullableNumericId(entered?.id ?? entered?.ID ?? entered?.Id);
+  if (toId == null) return;
+
+  const prevId = nullableNumericId(hit.EventUserStatusID);
+  try {
+    await setEventUserStatus({
+      eventId: numericEventId,
+      eventUserUid: uid,
+      eventUserId: nullableNumericId(hit.id),
+      toStatusId: toId,
+      prevStatusId: prevId,
+    });
+    eventStore.applyEventUserStatus(hit.id, toId, prevId);
+    const updated = eventStore.findEventUserByUid(uid) || hit;
+    if (scanResult.value?.kind === 'ok') scanResult.value.row = mapRow(updated);
+  } catch (error) {
+    $q.notify({
+      message: readAxiosErrorMessage(error, 'A beléptetés sikertelen.'),
+      color: 'dark',
+      textColor: 'orange-4',
+      position: 'top',
+      timeout: 2400,
+    });
+  }
+}
+
 function onDecoded(raw: string) {
   if (paused.value) return;
   if (raw === lastRaw.value) return;
@@ -196,6 +239,9 @@ function onDecoded(raw: string) {
   paused.value = true;
   scanResult.value = validatePayload(raw);
   isResultOpen.value = true;
+  if (scanResult.value.kind === 'ok' && scanResult.value.uid) {
+    void checkInFromScan(scanResult.value.uid);
+  }
 }
 
 function tick() {
