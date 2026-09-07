@@ -158,7 +158,7 @@
                 class="w-10 h-10 shrink-0 rounded-full flex items-center justify-center"
                 :style="row.iconStyle"
               >
-                <q-icon :name="row.icon" size="20px" color="white" />
+                <SocialProviderIcon :provider="row.id" :size="20" />
               </div>
               <div class="flex-grow min-w-0">
                 <div class="text-sky-50 font-bold text-sm tracking-wide">{{ row.label }}</div>
@@ -1054,6 +1054,7 @@ import { useEventStore } from 'src/stores/event';
 import { useRouter } from 'vue-router';
 import { useQuasar } from 'quasar';
 import PtaBusyOverlay from 'src/modules/profitability/components/PtaBusyOverlay.vue';
+import SocialProviderIcon from 'src/components/brand/SocialProviderIcon.vue';
 import {
   fetchSocialProfile,
   socialApiErrorMessage,
@@ -1476,7 +1477,6 @@ const socialProviderRows = computed(() => {
     {
       id: 'Google' as const,
       label: 'Google',
-      icon: 'mdi-google',
       iconStyle: googleStyle,
       soon: false,
       linked: linked('Google'),
@@ -1484,7 +1484,6 @@ const socialProviderRows = computed(() => {
     {
       id: 'Facebook' as const,
       label: 'Facebook',
-      icon: 'mdi-facebook',
       iconStyle: facebookStyle,
       soon: false,
       linked: linked('Facebook'),
@@ -1492,7 +1491,6 @@ const socialProviderRows = computed(() => {
     {
       id: 'Apple' as const,
       label: 'Apple',
-      icon: 'mdi-apple',
       iconStyle: appleStyle,
       soon: true,
       linked: null as ReturnType<typeof linked>,

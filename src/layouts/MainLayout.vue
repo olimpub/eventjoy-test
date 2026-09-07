@@ -52,17 +52,21 @@
     </q-header>
 
     <!-- Folyamatban lévő saját esemény (csak főoldalakon) -->
-    <NowPlayingBar :footer-visible="footerVisible" />
+    <NowPlayingBar :footer-visible="footerShown" />
 
     <!-- Alsó navigáció mobilon (Eseményeim + QR kód beolvasó, csúsztatható elrejtés) -->
     <q-footer
       bordered
+      class="app-bottom-nav"
       :class="$q.dark.isActive ? 'bg-[#0F172A]/95 border-t border-slate-800 shadow-[0_-4px_20px_rgba(0,0,0,0.5)] text-white' : 'bg-white/95 border-t border-slate-200 text-slate-800'"
-      :style="footerVisible ? 'transform: translateY(0); transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);' : 'transform: translateY(calc(100% - 16px)); transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);'"
+      :style="footerStyle"
       v-touch-swipe.vertical="handleSwipe"
     >
-      <!-- Footer Swipe Handle -->
-      <div class="w-full flex justify-center py-2 opacity-50 cursor-pointer hover:bg-white/5 active:bg-white/10 transition-colors" @click="footerVisible = !footerVisible">
+      <div
+        v-if="!footerPinned"
+        class="w-full flex justify-center py-2 opacity-50 cursor-pointer hover:bg-white/5 active:bg-white/10 transition-colors"
+        @click="footerVisible = !footerVisible"
+      >
         <div style="width: 50px; height: 5px; background-color: #cbd5e1; border-radius: 4px;"></div>
       </div>
 
@@ -171,7 +175,7 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useQuasar } from 'quasar';
 import { useRoute, useRouter } from 'vue-router';
 import { EVENTJOY_BRAND } from 'src/assets/brand/eventjoy';
@@ -191,6 +195,14 @@ const router = useRouter();
 const tab = ref('home');
 
 const footerVisible = ref(true);
+const footerPinned = computed(() => $q.screen.gt.xs);
+const footerShown = computed(() => footerPinned.value || footerVisible.value);
+const footerStyle = computed(() =>
+  footerShown.value
+    ? 'transform: translateY(0); transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);'
+    : 'transform: translateY(calc(100% - 16px)); transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);'
+);
+
 const isSoonOpen = ref(false);
 const soonLabel = ref('Hamarosan elérhető');
 const soonIcon = ref('sym_r_schedule');
@@ -209,7 +221,8 @@ const videoRef = ref<HTMLVideoElement | null>(null);
 const flashOn = ref(false);
 
 // Handle Swipe on the Now Playing Bar
-function handleSwipe(info: any) {
+function handleSwipe(info: { direction?: string }) {
+  if (footerPinned.value) return;
   if (info.direction === 'down') {
     footerVisible.value = false;
   } else if (info.direction === 'up') {
@@ -229,6 +242,9 @@ onBeforeUnmount(() => {
 });
 
 // Szinkronizáljuk az útvonalat az alsó menüpontok aktív állapotával
+watch(footerPinned, (pinned) => {
+  if (pinned) footerVisible.value = true;
+});
 watch(() => route.path, (path) => {
   footerVisible.value = true;
   if (path === '/') tab.value = 'home';
@@ -333,10 +349,22 @@ watch(qrScannerOpen, (val) => {
 </script>
 
 <style lang="scss">
-.q-footer {
-  z-index: 3000;
+.app-bottom-nav.q-footer {
+  position: fixed !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  z-index: 5000;
   padding-bottom: env(safe-area-inset-bottom, 0px);
+}
 
+@media (min-width: 600px) {
+  .app-bottom-nav.q-footer {
+    transform: none !important;
+  }
+}
+
+.q-footer {
   .q-tab__icon {
     font-size: 22px;
   }

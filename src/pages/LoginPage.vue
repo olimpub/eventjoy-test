@@ -259,29 +259,32 @@
           <!-- Social Login Form -->
           <div v-if="step === 'identity'" class="flex flex-col gap-4 transition-opacity duration-300">
             <div style="display: flex !important; flex-direction: row !important; justify-content: center !important; align-items: center !important; gap: 20px !important; width: 100% !important; max-width: 340px !important; margin: 0 auto !important; padding: 4px 0 !important;">
-              <!-- Google -->
-              <button 
+              <button
+                type="button"
+                aria-label="Google"
                 @click="socialLogin('Google')"
                 style="width: 64px; height: 64px; flex-shrink: 0; background: rgba(255, 255, 255, 0.03) !important; backdrop-filter: blur(12px) !important; border: 1.5px solid rgba(66, 133, 244, 0.4) !important; box-shadow: 0 0 15px rgba(66, 133, 244, 0.15) !important; border-radius: 50% !important;"
                 class="flex items-center justify-center cursor-pointer transition-all duration-300 hover:scale-115 active:scale-95 outline-none hover:border-[rgba(66,133,244,0.85)]! hover:shadow-[0_0_22px_rgba(66,133,244,0.4)]! opacity-90 hover:opacity-100"
               >
-                <q-icon name="mdi-google" size="28px" style="color: #FFFFFF;" />
+                <SocialProviderIcon provider="Google" :size="28" />
               </button>
-              <!-- Facebook -->
-              <button 
+              <button
+                type="button"
+                aria-label="Közösségi belépés"
                 @click="socialLogin('Facebook')"
                 style="width: 64px; height: 64px; flex-shrink: 0; background: rgba(255, 255, 255, 0.03) !important; backdrop-filter: blur(12px) !important; border: 1.5px solid rgba(24, 119, 242, 0.4) !important; box-shadow: 0 0 15px rgba(24, 119, 242, 0.15) !important; border-radius: 50% !important;"
                 class="flex items-center justify-center cursor-pointer transition-all duration-300 hover:scale-115 active:scale-95 outline-none hover:border-[rgba(24,119,242,0.85)]! hover:shadow-[0_0_22px_rgba(24,119,242,0.4)]! opacity-90 hover:opacity-100"
               >
-                <q-icon name="mdi-facebook" size="28px" style="color: #FFFFFF;" />
+                <SocialProviderIcon provider="Facebook" :size="28" />
               </button>
-              <!-- Apple -->
-              <button 
+              <button
+                type="button"
+                aria-label="Apple"
                 @click="socialLogin('Apple')"
                 style="width: 64px; height: 64px; flex-shrink: 0; background: rgba(255, 255, 255, 0.03) !important; backdrop-filter: blur(12px) !important; border: 1.5px solid rgba(255, 255, 255, 0.2) !important; box-shadow: 0 0 15px rgba(255, 255, 255, 0.08) !important; border-radius: 50% !important;"
                 class="flex items-center justify-center cursor-pointer transition-all duration-300 hover:scale-115 active:scale-95 outline-none hover:border-[rgba(255,255,255,0.7)]! hover:shadow-[0_0_22px_rgba(255,255,255,0.25)]! opacity-90 hover:opacity-100"
               >
-                <q-icon name="mdi-apple" size="28px" style="color: #FFFFFF;" />
+                <SocialProviderIcon provider="Apple" :size="28" />
               </button>
             </div>
           </div>
@@ -303,6 +306,7 @@ import { AsYouType, isValidPhoneNumber } from 'libphonenumber-js'
 import { fetchSocialProfile, socialApiErrorMessage, SocialAuthError } from 'src/utils/socialAuth'
 import { EVENTJOY_BRAND } from 'src/assets/brand/eventjoy'
 import PtaBusyOverlay from 'src/modules/profitability/components/PtaBusyOverlay.vue'
+import SocialProviderIcon from 'src/components/brand/SocialProviderIcon.vue'
 
 const router = useRouter()
 const $q = useQuasar()

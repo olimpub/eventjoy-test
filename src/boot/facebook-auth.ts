@@ -8,29 +8,30 @@ declare global {
 }
 
 export default boot(() => {
-  return new Promise<void>((resolve) => {
-    window.fbAsyncInit = function() {
-      window.FB.init({
-        appId      : '2944722095883838',
-        cookie     : true,
-        xfbml      : true,
-        version    : 'v18.0'
-      });
-      window.FB.AppEvents.logPageView();
-      resolve();
-    };
+  window.fbAsyncInit = function () {
+    if (!window.FB?.init) return;
+    window.FB.init({
+      appId: '2944722095883838',
+      cookie: true,
+      xfbml: true,
+      version: 'v18.0',
+    });
+    try {
+      window.FB.AppEvents?.logPageView?.();
+    } catch {
+      /* SDK optional */
+    }
+  };
 
-    (function(d, s, id) {
-      var js, fjs = d.getElementsByTagName(s)[0];
-      if (d.getElementById(id)) { return; }
-      js = d.createElement(s) as HTMLScriptElement; 
-      js.id = id;
-      js.src = "https://connect.facebook.net/hu_HU/sdk.js";
-      if (fjs && fjs.parentNode) {
-        fjs.parentNode.insertBefore(js, fjs);
-      } else {
-        d.head.appendChild(js);
-      }
-    }(document, 'script', 'facebook-jssdk'));
-  });
+  if (document.getElementById('facebook-jssdk')) return;
+
+  const js = document.createElement('script') as HTMLScriptElement;
+  js.id = 'facebook-jssdk';
+  js.async = true;
+  js.defer = true;
+  js.src = 'https://connect.facebook.net/hu_HU/sdk.js';
+  js.onerror = () => {
+    /* Tracking protection / adblock — az app ettől még elindul. */
+  };
+  document.head.appendChild(js);
 });
