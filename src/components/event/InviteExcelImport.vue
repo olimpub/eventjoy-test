@@ -18,7 +18,7 @@
         Töltsd le a sablont, a szerepkört és a jegyet név szerint írd be, majd töltsd fel. A meghívók e-mailben
         mennek ki.
         <template v-if="groupingAttrs.length">
-          A csoportosítás oszlopai kötelezőek.
+          A csoportosítás oszlopai a játékosoknál kötelezőek.
         </template>
       </p>
 
@@ -45,7 +45,7 @@
             {{ name }}
           </span>
           <span v-if="!(groupingValueNames[attr.key] || []).length" class="invite-import__chip invite-import__chip--hint">
-            kötelező
+            játékosoknál kötelező
           </span>
         </div>
       </div>
@@ -306,7 +306,7 @@ async function submitImport() {
   const groupingErrors = listInviteGroupingCellErrors(parsed.value, groupingAttrs.value);
   if (groupingErrors.length) {
     importDone.value = true;
-    errorMessage.value = 'A bekapcsolt csoportosítás minden sorban kötelező.';
+    errorMessage.value = 'A bekapcsolt csoportosítás a játékos sorokban kötelező.';
     errorRows.value = groupingErrors;
     busy.value = false;
     return;

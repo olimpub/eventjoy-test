@@ -364,6 +364,27 @@ export function missingInviteGroupingHeaders(
   return missing;
 }
 
+/** Csapat / Szervezet / Régió / Cég csak játékosnál kötelező — játékmesternek és szervezőnek nincs. */
+export function inviteRoleNeedsGrouping(roleName: string): boolean {
+  const hay = foldHu(roleName);
+  if (!hay) return false;
+  if (
+    hay.includes('jatekmester') ||
+    hay.includes('gamemaster') ||
+    hay.includes('game master')
+  ) {
+    return false;
+  }
+  if (hay.includes('szervez') || hay.includes('organizer')) return false;
+  return (
+    hay.includes('jatekos') ||
+    hay.includes('reszvev') ||
+    hay.includes('participant') ||
+    hay.includes('player') ||
+    hay.includes('versenyz')
+  );
+}
+
 export function listInviteGroupingCellErrors(
   rows: InviteImportRow[],
   grouping: EventGroupingAttr[] = []
@@ -372,6 +393,7 @@ export function listInviteGroupingCellErrors(
   const errors: InviteImportErrorRow[] = [];
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
+    if (!inviteRoleNeedsGrouping(row.Szerepkör)) continue;
     const missing = grouping
       .filter((attr) => {
         const col = INVITE_GROUPING_COLUMNS.find((item) => item.key === attr.key);
@@ -617,9 +639,11 @@ export function toInviteImportPayload(
         Szerepkör: row.Szerepkör,
         Jegy: row.Jegy,
       };
-      for (const col of INVITE_GROUPING_COLUMNS) {
-        if (!enabled.has(col.key)) continue;
-        invitation[col.jsonField] = String(row[col.jsonField] || '').trim();
+      if (inviteRoleNeedsGrouping(row.Szerepkör)) {
+        for (const col of INVITE_GROUPING_COLUMNS) {
+          if (!enabled.has(col.key)) continue;
+          invitation[col.jsonField] = String(row[col.jsonField] || '').trim();
+        }
       }
       return invitation;
     }),
