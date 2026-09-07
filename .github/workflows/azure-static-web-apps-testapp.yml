@@ -17,11 +17,11 @@ jobs:
     env:
       VITE_API_URL: "https://testapi.eventjoy.hu/api"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: true
           lfs: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: "22"
           cache: npm
@@ -37,9 +37,7 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           action: "upload"
           skip_app_build: true
-          skip_api_build: true
           app_location: "dist/spa"
-          api_location: ""
           output_location: ""
 
   close_pull_request_job:
