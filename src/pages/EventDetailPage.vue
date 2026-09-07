@@ -1,5 +1,5 @@
 <template>
-  <q-page class="bg-[#0F172A] text-white relative min-h-screen pb-20 overflow-x-hidden">
+  <q-page class="bg-[#0F172A] text-white relative min-h-full pb-20 overflow-x-hidden">
     <!-- Giant Background Watermark Logo -->
     <div class="absolute -right-24 top-[15%] w-96 h-96 opacity-[0.03] pointer-events-none select-none z-0">
       <img src="~assets/eventjoy_icon.svg" alt="Watermark" class="w-full h-full object-contain" />

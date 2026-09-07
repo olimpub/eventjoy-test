@@ -55,11 +55,11 @@
     <NowPlayingBar :footer-visible="footerVisible" />
 
     <!-- Alsó navigáció mobilon (Eseményeim + QR kód beolvasó, csúsztatható elrejtés) -->
-    <q-footer 
-      bordered 
-      :class="$q.dark.isActive ? 'bg-[#0F172A]/95 border-t border-slate-800 shadow-[0_-4px_20px_rgba(0,0,0,0.5)] text-white' : 'bg-white/95 border-t border-slate-200 text-slate-800 lt-sm'"
+    <q-footer
+      bordered
+      :class="$q.dark.isActive ? 'bg-[#0F172A]/95 border-t border-slate-800 shadow-[0_-4px_20px_rgba(0,0,0,0.5)] text-white' : 'bg-white/95 border-t border-slate-200 text-slate-800'"
       :style="footerVisible ? 'transform: translateY(0); transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);' : 'transform: translateY(calc(100% - 16px)); transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);'"
-      v-touch-swipe.mouse.vertical="handleSwipe"
+      v-touch-swipe.vertical="handleSwipe"
     >
       <!-- Footer Swipe Handle -->
       <div class="w-full flex justify-center py-2 opacity-50 cursor-pointer hover:bg-white/5 active:bg-white/10 transition-colors" @click="footerVisible = !footerVisible">
@@ -230,10 +230,11 @@ onBeforeUnmount(() => {
 
 // Szinkronizáljuk az útvonalat az alsó menüpontok aktív állapotával
 watch(() => route.path, (path) => {
+  footerVisible.value = true;
   if (path === '/') tab.value = 'home';
   else if (path === '/my-events') tab.value = 'my_events';
   else if (path === '/profile') tab.value = 'profile';
-      else if (path === '/klubhub' || path === '/communities') tab.value = 'klubhub';
+  else if (path === '/klubhub' || path === '/communities') tab.value = 'klubhub';
   else tab.value = '';
 }, { immediate: true });
 
@@ -333,6 +334,9 @@ watch(qrScannerOpen, (val) => {
 
 <style lang="scss">
 .q-footer {
+  z-index: 3000;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+
   .q-tab__icon {
     font-size: 22px;
   }

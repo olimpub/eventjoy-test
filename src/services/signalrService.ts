@@ -271,6 +271,10 @@ class EventLiveService {
       this.connection = new signalR.HubConnectionBuilder()
         .withUrl(apiRootUrl(), {
           accessTokenFactory: () => accessToken(),
+          // Azure Functions CORS does not send Allow-Credentials; the JS client
+          // defaults to withCredentials: true and the browser then fails negotiate
+          // with TypeError: Failed to fetch. Token goes in Authorization instead.
+          withCredentials: false,
         })
         .withHubProtocol(
           createDebugHubProtocol((target, args) => {

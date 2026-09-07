@@ -216,6 +216,7 @@ https://<swa-default>.azurestaticapps.net/login
 | `/profile` 404 refreshre | nincs `staticwebapp.config.json` a `dist/spa`-ban (`public/`-ból kell másolódnia) |
 | API hívás localhost-ra | a CI-ben bekerült a `.env.development.local`, vagy nincs `VITE_API_URL` és a fallback sem buildelődött |
 | CORS piros a Networkön | hiányzik a pontos `https://` origin a Function CORS-ból (trailing slash nélkül) |
+| SignalR `Failed to complete negotiation: Failed to fetch` | a JS kliens `withCredentials: true` (alap), a Function CORS **nem** küld `Access-Control-Allow-Credentials`. A FE `withCredentials: false` (token az `Authorization` headerben). Azure SignalR CORS-ba vedd fel a SWA origint is (`nice-mud-…` + `testapp.eventjoy.hu`) |
 | Google origin_mismatch | a JS origin listából hiányzik a **pontos** host |
 | Workflow `api_location: api` | SWA Functions conflict — töröld |
 
