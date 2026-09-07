@@ -2,33 +2,75 @@
 @tailwind components;
 @tailwind utilities;
 
+html,
+body,
+#q-app {
+  height: 100%;
+  max-height: 100%;
+  overflow: hidden;
+}
+
 body {
   background-color: #0F172A !important;
   font-family: var(--font-sans);
 }
 
-/* Viewport-fixed bottom nav — not QFooter (Quasar layout clips/hides it on desktop). */
+/* Column shell: the nav is in normal flow at the bottom of the viewport.
+   position:fixed was clipped by Quasar html/body overflow on desktop Chrome. */
+.ej-app {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #0f172a;
+}
+
+.ej-app__main {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+
 .ej-bottom-nav {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 3000;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: stretch;
+  justify-content: space-around;
   box-sizing: border-box;
   min-height: 64px;
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding: 6px 8px calc(8px + env(safe-area-inset-bottom, 0px));
   background: #1e293b;
-  border-top: 1px solid rgba(51, 65, 85, 0.95);
-  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.45);
-  color: #fff;
+  border-top: 2px solid #38bdf8;
+  color: #cbd5e1;
 }
 
-.ej-bottom-nav__tabs {
-  width: 100%;
+.ej-bottom-nav__item {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+  text-decoration: none;
+  color: #94a3b8;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
 }
 
-.ej-shell__page {
-  padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px)) !important;
+.ej-bottom-nav__item.router-link-exact-active,
+.ej-bottom-nav__item--on {
+  color: #38bdf8;
+}
+
+.ej-bottom-nav__klub {
+  width: 30px;
+  height: 30px;
+  object-fit: contain;
+  border-radius: 7px;
 }
 
 /* ---------- 1. Quasar SCSS Variables override ---------- */

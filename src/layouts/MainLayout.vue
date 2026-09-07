@@ -1,5 +1,5 @@
 <template>
-  <q-layout view="lHh Lpr lff" class="ej-shell" :class="$q.dark.isActive ? 'bg-[#0F172A] text-white' : 'bg-[#F8FAFC] text-slate-900'">
+  <q-layout view="lHh Lpr lff" container class="ej-shell" :class="$q.dark.isActive ? 'bg-[#0F172A] text-white' : 'bg-[#F8FAFC] text-slate-900'">
     <!-- Header: Left side logo, right side Event name + Messages + Notifications -->
     <q-header elevated :class="$q.dark.isActive ? 'bg-[#0F172A]/95 shadow-[0_4px_20px_rgba(0,0,0,0.5)] border-b border-slate-800 text-white' : 'bg-white/95 border-b border-slate-200 text-slate-800'">
       <q-toolbar class="justify-between q-px-md" style="height: 64px;">
@@ -53,30 +53,9 @@
 
     <NowPlayingBar :footer-visible="true" />
 
-    <q-page-container class="ej-shell__page" :class="$q.dark.isActive ? 'bg-[#0F172A]' : 'bg-[#F8FAFC]'">
+    <q-page-container :class="$q.dark.isActive ? 'bg-[#0F172A]' : 'bg-[#F8FAFC]'">
       <router-view />
     </q-page-container>
-
-    <Teleport to="body">
-      <nav class="ej-bottom-nav" aria-label="Fő navigáció">
-        <q-tabs
-          v-model="tab"
-          no-caps
-          dense
-          :active-color="$q.dark.isActive ? 'brand-primary' : 'primary'"
-          indicator-color="transparent"
-          class="ej-bottom-nav__tabs text-slate-400"
-        >
-          <q-route-tab name="home" icon="dashboard" label="Főoldal" to="/" exact />
-          <q-route-tab name="my_events" icon="emoji_events" label="Eseményeim" to="/my-events" exact />
-          <q-route-tab name="klubhub" to="/klubhub" exact class="tab-klubhub">
-            <img :src="klubhubIcon" alt="" class="tab-klubhub__icon" />
-            <div class="q-tab__label">KlubHub</div>
-          </q-route-tab>
-          <q-route-tab name="profile" icon="person" label="Profil" to="/profile" />
-        </q-tabs>
-      </nav>
-    </Teleport>
 
     <!-- QR Kód Olvasó Modális ablak (Futurisztikus kamera szimuláció / Valós kamera feed) -->
     <q-dialog v-model="qrScannerOpen" persistent maximized transition-show="slide-up" transition-hide="slide-down">
@@ -164,20 +143,16 @@ import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useQuasar } from 'quasar';
 import { useRoute, useRouter } from 'vue-router';
 import { EVENTJOY_BRAND } from 'src/assets/brand/eventjoy';
-import { KLUBHUB_BRAND } from 'src/assets/brand/klubhub';
 import ComingSoonCube from 'src/components/event/ComingSoonCube.vue';
 import NowPlayingBar from 'src/components/layout/NowPlayingBar.vue';
 import EventLiveDot from 'src/components/layout/EventLiveDot.vue';
 import { installEventCatalogRefresh } from 'src/utils/eventCatalogRefresh';
 
-const klubhubIcon = KLUBHUB_BRAND.icon;
 const headerLogo = EVENTJOY_BRAND.logoDark;
 
 const $q = useQuasar();
 const route = useRoute();
 const router = useRouter();
-
-const tab = ref('home');
 
 const isSoonOpen = ref(false);
 const soonLabel = ref('Hamarosan elérhető');
@@ -206,15 +181,6 @@ onMounted(() => {
 onBeforeUnmount(() => {
   stopCatalogRefresh?.();
 });
-
-// Szinkronizáljuk az útvonalat az alsó menüpontok aktív állapotával
-watch(() => route.path, (path) => {
-  if (path === '/') tab.value = 'home';
-  else if (path === '/my-events') tab.value = 'my_events';
-  else if (path === '/profile') tab.value = 'profile';
-  else if (path === '/klubhub' || path === '/communities') tab.value = 'klubhub';
-  else tab.value = '';
-}, { immediate: true });
 
 // QR Code Scanner actions
 async function openQrScanner() {
@@ -311,38 +277,6 @@ watch(qrScannerOpen, (val) => {
 </script>
 
 <style lang="scss">
-.ej-bottom-nav {
-  .q-tab__icon {
-    font-size: 22px;
-  }
-  .q-tab__label {
-    font-size: 10px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
-
-  .tab-klubhub {
-    .q-tab__content {
-      padding-top: 2px;
-    }
-
-    .tab-klubhub__icon {
-      width: 30px;
-      height: 30px;
-      object-fit: contain;
-      display: block;
-      margin: 0 auto 1px;
-      border-radius: 7px;
-      flex-shrink: 0;
-    }
-  }
-
-  .q-tab--active.tab-klubhub .tab-klubhub__icon {
-    filter: drop-shadow(0 0 8px rgba(249, 115, 22, 0.65));
-  }
-}
-
 /* QR Lézerszkennelő animáció */
 @keyframes scan-laser {
   0% { top: 0%; }
