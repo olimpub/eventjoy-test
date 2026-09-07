@@ -18,8 +18,8 @@ const route = useRoute()
 const isSplashVisible = ref(true)
 
 const showBottomNav = computed(() => {
-  const name = String(route.name || '')
-  return name !== 'login' && name !== 'invite'
+  const path = route.path || ''
+  return path !== '/login' && !path.startsWith('/invite')
 })
 
 onMounted(() => {

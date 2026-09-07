@@ -1,5 +1,5 @@
 <template>
-  <q-layout view="lHh Lpr lff" container class="ej-shell" :class="$q.dark.isActive ? 'bg-[#0F172A] text-white' : 'bg-[#F8FAFC] text-slate-900'">
+  <q-layout view="lHh Lpr lff" class="ej-shell" :class="$q.dark.isActive ? 'bg-[#0F172A] text-white' : 'bg-[#F8FAFC] text-slate-900'">
     <!-- Header: Left side logo, right side Event name + Messages + Notifications -->
     <q-header elevated :class="$q.dark.isActive ? 'bg-[#0F172A]/95 shadow-[0_4px_20px_rgba(0,0,0,0.5)] border-b border-slate-800 text-white' : 'bg-white/95 border-b border-slate-200 text-slate-800'">
       <q-toolbar class="justify-between q-px-md" style="height: 64px;">

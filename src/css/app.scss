@@ -15,25 +15,28 @@ body {
   font-family: var(--font-sans);
 }
 
-/* Column shell: the nav is in normal flow at the bottom of the viewport.
-   position:fixed was clipped by Quasar html/body overflow on desktop Chrome. */
+/* Production build minifies flex:1 1 auto → content-sized row that can
+   push the nav below 100vh; overflow:hidden then clips it. Grid 1fr does not. */
 .ej-app {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
   height: 100%;
-  display: flex;
-  flex-direction: column;
+  height: 100dvh;
+  max-height: 100%;
+  max-height: 100dvh;
   overflow: hidden;
   background: #0f172a;
 }
 
 .ej-app__main {
-  flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
   position: relative;
 }
 
 .ej-bottom-nav {
-  flex: 0 0 auto;
+  position: relative;
+  z-index: 40;
   display: flex;
   align-items: stretch;
   justify-content: space-around;
