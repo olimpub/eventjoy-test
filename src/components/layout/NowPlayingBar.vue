@@ -143,9 +143,9 @@ function dismiss() {
 <style scoped>
 .now-playing {
   position: fixed;
-  z-index: 2500;
+  z-index: 3500;
   left: 16px;
-  bottom: 24px;
+  bottom: 88px;
   width: min(320px, calc(100vw - 32px));
   border-radius: 16px;
   background: linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 41, 59, 0.95) 100%);

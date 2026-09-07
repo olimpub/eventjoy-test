@@ -1,5 +1,5 @@
 <template>
-  <q-layout view="lHh Lpr lFf" :class="$q.dark.isActive ? 'bg-[#0F172A] text-white' : 'bg-[#F8FAFC] text-slate-900'">
+  <q-layout view="lHh Lpr lff" class="ej-shell" :class="$q.dark.isActive ? 'bg-[#0F172A] text-white' : 'bg-[#F8FAFC] text-slate-900'">
     <!-- Header: Left side logo, right side Event name + Messages + Notifications -->
     <q-header elevated :class="$q.dark.isActive ? 'bg-[#0F172A]/95 shadow-[0_4px_20px_rgba(0,0,0,0.5)] border-b border-slate-800 text-white' : 'bg-white/95 border-b border-slate-200 text-slate-800'">
       <q-toolbar class="justify-between q-px-md" style="height: 64px;">
@@ -51,47 +51,32 @@
       </q-toolbar>
     </q-header>
 
-    <!-- Folyamatban lévő saját esemény (csak főoldalakon) -->
-    <NowPlayingBar :footer-visible="footerShown" />
+    <NowPlayingBar :footer-visible="true" />
 
-    <!-- Alsó navigáció mobilon (Eseményeim + QR kód beolvasó, csúsztatható elrejtés) -->
-    <q-footer
-      bordered
-      class="app-bottom-nav"
-      :class="$q.dark.isActive ? 'bg-[#0F172A]/95 border-t border-slate-800 shadow-[0_-4px_20px_rgba(0,0,0,0.5)] text-white' : 'bg-white/95 border-t border-slate-200 text-slate-800'"
-      :style="footerStyle"
-      v-touch-swipe.vertical="handleSwipe"
-    >
-      <div
-        v-if="!footerPinned"
-        class="w-full flex justify-center py-2 opacity-50 cursor-pointer hover:bg-white/5 active:bg-white/10 transition-colors"
-        @click="footerVisible = !footerVisible"
-      >
-        <div style="width: 50px; height: 5px; background-color: #cbd5e1; border-radius: 4px;"></div>
-      </div>
-
-      <q-tabs
-        v-model="tab"
-        no-caps
-        :active-color="$q.dark.isActive ? 'brand-primary' : 'primary'"
-        indicator-color="transparent"
-        class="text-slate-400"
-      >
-        <q-route-tab name="home" icon="dashboard" label="Főoldal" to="/" exact />
-        <q-route-tab name="my_events" icon="emoji_events" label="Eseményeim" to="/my-events" exact />
-        <q-route-tab name="klubhub" to="/klubhub" exact class="tab-klubhub">
-          <img :src="klubhubIcon" alt="" class="tab-klubhub__icon" />
-          <div class="q-tab__label">KlubHub</div>
-        </q-route-tab>
-        <q-route-tab name="profile" icon="person" label="Profil" to="/profile" />
-      </q-tabs>
-    </q-footer>
-
-    <!-- Fő oldaltartalom -->
-
-    <q-page-container :class="$q.dark.isActive ? 'bg-[#0F172A]' : 'bg-[#F8FAFC]'">
+    <q-page-container class="ej-shell__page" :class="$q.dark.isActive ? 'bg-[#0F172A]' : 'bg-[#F8FAFC]'">
       <router-view />
     </q-page-container>
+
+    <Teleport to="body">
+      <nav class="ej-bottom-nav" aria-label="Fő navigáció">
+        <q-tabs
+          v-model="tab"
+          no-caps
+          dense
+          :active-color="$q.dark.isActive ? 'brand-primary' : 'primary'"
+          indicator-color="transparent"
+          class="ej-bottom-nav__tabs text-slate-400"
+        >
+          <q-route-tab name="home" icon="dashboard" label="Főoldal" to="/" exact />
+          <q-route-tab name="my_events" icon="emoji_events" label="Eseményeim" to="/my-events" exact />
+          <q-route-tab name="klubhub" to="/klubhub" exact class="tab-klubhub">
+            <img :src="klubhubIcon" alt="" class="tab-klubhub__icon" />
+            <div class="q-tab__label">KlubHub</div>
+          </q-route-tab>
+          <q-route-tab name="profile" icon="person" label="Profil" to="/profile" />
+        </q-tabs>
+      </nav>
+    </Teleport>
 
     <!-- QR Kód Olvasó Modális ablak (Futurisztikus kamera szimuláció / Valós kamera feed) -->
     <q-dialog v-model="qrScannerOpen" persistent maximized transition-show="slide-up" transition-hide="slide-down">
@@ -175,7 +160,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useQuasar } from 'quasar';
 import { useRoute, useRouter } from 'vue-router';
 import { EVENTJOY_BRAND } from 'src/assets/brand/eventjoy';
@@ -194,15 +179,6 @@ const router = useRouter();
 
 const tab = ref('home');
 
-const footerVisible = ref(true);
-const footerPinned = computed(() => $q.screen.gt.xs);
-const footerShown = computed(() => footerPinned.value || footerVisible.value);
-const footerStyle = computed(() =>
-  footerShown.value
-    ? 'transform: translateY(0); transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);'
-    : 'transform: translateY(calc(100% - 16px)); transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);'
-);
-
 const isSoonOpen = ref(false);
 const soonLabel = ref('Hamarosan elérhető');
 const soonIcon = ref('sym_r_schedule');
@@ -220,16 +196,6 @@ const videoStream = ref<MediaStream | null>(null);
 const videoRef = ref<HTMLVideoElement | null>(null);
 const flashOn = ref(false);
 
-// Handle Swipe on the Now Playing Bar
-function handleSwipe(info: { direction?: string }) {
-  if (footerPinned.value) return;
-  if (info.direction === 'down') {
-    footerVisible.value = false;
-  } else if (info.direction === 'up') {
-    footerVisible.value = true;
-  }
-}
-
 // Alapértelmezetten bekapcsoljuk a sötét módot, hogy a sötét téma érvényesüljön
 $q.dark.set(true);
 
@@ -242,11 +208,7 @@ onBeforeUnmount(() => {
 });
 
 // Szinkronizáljuk az útvonalat az alsó menüpontok aktív állapotával
-watch(footerPinned, (pinned) => {
-  if (pinned) footerVisible.value = true;
-});
 watch(() => route.path, (path) => {
-  footerVisible.value = true;
   if (path === '/') tab.value = 'home';
   else if (path === '/my-events') tab.value = 'my_events';
   else if (path === '/profile') tab.value = 'profile';
@@ -349,22 +311,7 @@ watch(qrScannerOpen, (val) => {
 </script>
 
 <style lang="scss">
-.app-bottom-nav.q-footer {
-  position: fixed !important;
-  left: 0 !important;
-  right: 0 !important;
-  bottom: 0 !important;
-  z-index: 5000;
-  padding-bottom: env(safe-area-inset-bottom, 0px);
-}
-
-@media (min-width: 600px) {
-  .app-bottom-nav.q-footer {
-    transform: none !important;
-  }
-}
-
-.q-footer {
+.ej-bottom-nav {
   .q-tab__icon {
     font-size: 22px;
   }

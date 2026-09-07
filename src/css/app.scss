@@ -7,6 +7,30 @@ body {
   font-family: var(--font-sans);
 }
 
+/* Viewport-fixed bottom nav — not QFooter (Quasar layout clips/hides it on desktop). */
+.ej-bottom-nav {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3000;
+  box-sizing: border-box;
+  min-height: 64px;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  background: #1e293b;
+  border-top: 1px solid rgba(51, 65, 85, 0.95);
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.45);
+  color: #fff;
+}
+
+.ej-bottom-nav__tabs {
+  width: 100%;
+}
+
+.ej-shell__page {
+  padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px)) !important;
+}
+
 /* ---------- 1. Quasar SCSS Variables override ---------- */
 $primary   : #0EA5E9; /* Electric Blue */
 $secondary : #06B6D4; /* Cyan */
