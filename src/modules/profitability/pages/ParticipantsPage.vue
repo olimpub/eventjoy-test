@@ -421,7 +421,7 @@ import {
   pickGroupingText,
   type EventGroupingAttr,
 } from 'src/modules/profitability/ptaData';
-import { eventDatasheetKind, eventRolePath, eventRoleQuery } from 'src/utils/eventRoleNav';
+import { eventDatasheetKind, eventRolePath, eventRoleQuery, isEventUserCheckedInName } from 'src/utils/eventRoleNav';
 import '../theme.css';
 
 interface ParticipantRow {
@@ -630,13 +630,12 @@ function mapParticipant(eu: EventUser): ParticipantRow {
       ? masterDataStore.getEventUserStatusName(statusId)
       : '';
   const statusColor = String(statusObj?.ColorCode || statusObj?.ColorHex || '');
-  const statusLower = statusName.toLowerCase();
   const inDraw = eventStore.getPtaPlayersForEvent(eventId.value).some((player) => {
     const eventUserId = nullableNumericId(player.EventUserID ?? player.eventUserID);
     const playerId = nullableNumericId(player.EventPlayerID ?? player.id);
     return eventUserId === eu.id || playerId === eu.id;
   });
-  const checkedIn = statusLower.includes('belép') || inDraw;
+  const checkedIn = isEventUserCheckedInName(statusName);
   const ticket = (eventStore.tickets || []).find(
     (t: any) => Number(t.id) === Number(eu.EventTicketID) || Number(t.ID) === Number(eu.EventTicketID)
   ) as Record<string, unknown> | undefined;
@@ -658,7 +657,7 @@ function mapParticipant(eu: EventUser): ParticipantRow {
     roleColor: masterRoleId != null ? masterDataStore.getRoleColorById(masterRoleId) : '#f68b29',
     masterRoleId,
     statusId,
-    statusName: statusName || (inDraw ? 'Belépett' : ''),
+    statusName,
     statusColor,
     prevStatusId: eu.PrevEventUserStatusID ?? null,
     checkedIn,

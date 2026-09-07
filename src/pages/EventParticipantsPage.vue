@@ -395,6 +395,7 @@ import { EVENT_USER_FLOW_TEMPLATE_CODE, type EventUserStatusTransition } from 's
 import { membershipRoleKind } from 'src/utils/eventUserStatus';
 import { setEventUserStatus } from 'src/utils/eventChange';
 import InviteExcelImport from 'src/components/event/InviteExcelImport.vue';
+import { isEventUserCheckedInName } from 'src/utils/eventRoleNav';
 
 interface ParticipantRow {
   id: number;
@@ -546,8 +547,7 @@ function mapParticipant(eu: EventUser): ParticipantRow {
       ? masterDataStore.getEventUserStatusName(statusId)
       : '';
   const statusColor = String(statusObj?.ColorCode || statusObj?.ColorHex || '');
-  const statusLower = statusName.toLowerCase();
-  const checkedIn = statusLower.includes('belép');
+  const checkedIn = isEventUserCheckedInName(statusName);
   const ticket = (eventStore.tickets || []).find(
     (t: any) => Number(t.id) === Number(eu.EventTicketID) || Number(t.ID) === Number(eu.EventTicketID)
   ) as Record<string, unknown> | undefined;

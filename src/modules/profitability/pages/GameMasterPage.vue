@@ -105,8 +105,7 @@ import { useEventStore } from 'src/stores/event';
 import { useMasterDataStore } from 'src/stores/masterData';
 import { eventPlayPhase, findEventStatus } from 'src/utils/eventFlow';
 import { nullableNumericId } from 'src/utils/apiPayload';
-import { eventDatasheetKind, gameMasterEnterBlocked } from 'src/utils/eventRoleNav';
-import { ptaEventUserId } from 'src/modules/profitability/ptaData';
+import { eventDatasheetKind, gameMasterEnterBlocked, isEventUserCheckedInName } from 'src/utils/eventRoleNav';
 import '../theme.css';
 
 const route = useRoute();
@@ -246,15 +245,10 @@ const kpiRegistered = computed(() => {
 
 const kpiCheckedIn = computed(() => {
   if (!sheetLoaded.value) return '—';
-  const playerIds = new Set(
-    eventStore.getPtaPlayersForEvent(eventId.value).map((row) => ptaEventUserId(row))
-  );
   return String(
     sheetParticipants.value.filter((row) => {
       const sid = Number(row.EventUserStatusID);
-      const name = masterDataStore.getEventUserStatusName(sid).toLowerCase();
-      if (name.includes('belép')) return true;
-      return playerIds.has(row.id);
+      return isEventUserCheckedInName(masterDataStore.getEventUserStatusName(sid));
     }).length
   );
 });
