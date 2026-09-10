@@ -486,6 +486,7 @@ import { useQuasar } from 'quasar';
 import { eventDatasheetKind, eventRolePath, eventRoleQuery } from 'src/utils/eventRoleNav';
 import { nullableNumericId, readAxiosErrorMessage } from 'src/utils/apiPayload';
 import { claimPtaDesk, closePtaRound, patchPtaDesk, publishPtaRound, replacePtaDraw, setPtaDeskResults, setPtaRoundStatus } from 'src/utils/eventChange';
+import { pingPtaLiveRoundDisplay } from 'src/modules/profitability/ptaDisplayApi';
 import { eventPlayPhase } from 'src/utils/eventFlow';
 import { summarizePtaDraw, type PtaDrawQuality } from 'src/modules/profitability/drawQuality';
 import DrawSummarySheet from 'src/modules/profitability/components/DrawSummarySheet.vue';
@@ -586,7 +587,6 @@ const claimingDeskId = ref<number | null>(null);
 let claimPointerAt = 0;
 const deskSaving = ref(false);
 const roundSaving = ref(false);
-let resultsSyncTimer: ReturnType<typeof setTimeout> | null = null;
 let promotingRound = false;
 let pendingRoundPromote = false;
 
@@ -1175,23 +1175,11 @@ function persistDeskRanking(seats: GameSeatRow[], manualOrder: boolean) {
   if (manualOrder) {
     eventStore.applyEventRoundDeskPatch(eventId.value, table.id, { ManualOrderFlg: true });
   }
-  queueDeskResultsSync(table.id, ranked.seats);
+  if (ranked.seats.some((seat) => seat.amount != null)) {
+    if (scoreInputFocused()) pendingRoundPromote = true;
+    else void ensureRoundInProgress();
+  }
   return ranked.seats;
-}
-
-function queueDeskResultsSync(tableId: number, seats: GameSeatRow[]) {
-  if (resultsSyncTimer) clearTimeout(resultsSyncTimer);
-  resultsSyncTimer = setTimeout(() => {
-    resultsSyncTimer = null;
-    void pushDeskResults(tableId, seats).catch((error) => {
-      $q.notify({
-        message: readAxiosErrorMessage(error, 'Az eredmény mentése nem sikerült.'),
-        color: 'dark',
-        textColor: 'red-4',
-        position: 'top',
-      });
-    });
-  }, 600);
 }
 
 function scoreInputFocused() {
@@ -1207,16 +1195,12 @@ function flushPendingRoundPromote() {
 async function pushDeskResults(tableId: number, seats: GameSeatRow[]) {
   const id = nullableNumericId(eventId.value);
   if (id == null) return;
+  await ensureRoundInProgress();
   await setPtaDeskResults({
     eventId: id,
     eventRoundDeskId: tableId,
     seats: deskResultPayload(seats),
   });
-  if (scoreInputFocused()) {
-    pendingRoundPromote = true;
-    return;
-  }
-  void ensureRoundInProgress();
 }
 
 function parseAmount(raw: string): number | null {
@@ -1436,10 +1420,24 @@ function compressPhoto(file: File): Promise<string> {
   });
 }
 
+function seatsWithDrafts(seats: GameSeatRow[]): GameSeatRow[] {
+  return seats.map((seat) => {
+    const amountRaw = amountDrafts.value[seat.playerId];
+    const truckRaw = truckDrafts.value[seat.playerId];
+    return {
+      ...seat,
+      amount: amountRaw !== undefined ? parseAmount(amountRaw) : seat.amount,
+      onTrack: truckRaw !== undefined ? parseTruck(truckRaw) : seat.onTrack,
+    };
+  });
+}
+
 async function closeDesk() {
   const table = selectedTable.value;
   if (!table || !canEnterResults.value || deskSaving.value) return;
-  const source = sheetSeats.value.length ? sheetSeats.value : table.seats;
+  focusedScore.value = null;
+  pendingRoundPromote = false;
+  const source = seatsWithDrafts(sheetSeats.value.length ? sheetSeats.value : table.seats);
   const ranked = rankDeskSeats(source, ptaSettings.value, sheetManualOrder.value || table.manualOrder);
   if (!ranked.allFilled) {
     $q.notify({ message: 'Mind a négy összeg kell a lezáráshoz.', color: 'dark', textColor: 'red-4', position: 'top' });
@@ -1473,10 +1471,6 @@ async function closeDesk() {
     return;
   }
   persistDeskRanking(ranked.seats, sheetManualOrder.value || table.manualOrder || ranked.hasTie);
-  if (resultsSyncTimer) {
-    clearTimeout(resultsSyncTimer);
-    resultsSyncTimer = null;
-  }
   const prevStatus = table.deskStatus;
   eventStore.applyEventRoundDeskPatch(eventId.value, table.id, { SName: 'Lezárt' });
   const id = nullableNumericId(eventId.value);
@@ -1499,6 +1493,7 @@ async function closeDesk() {
     });
     isTableSheetOpen.value = false;
     selectedTableId.value = null;
+    void pingPtaLiveRoundDisplay(id, currentRound.value?.id ?? null);
   } catch (error) {
     eventStore.applyEventRoundDeskPatch(eventId.value, table.id, { SName: prevStatus });
     $q.notify({

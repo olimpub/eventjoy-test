@@ -2,6 +2,11 @@ import { RouteRecordRaw } from 'vue-router';
 
 const routes: RouteRecordRaw[] = [
   {
+    path: '/profitability/event/:id/display',
+    name: 'profitability-display',
+    component: () => import('src/modules/profitability/pages/DisplayPage.vue'),
+  },
+  {
     path: '/profitability',
     component: () => import('layouts/MainLayout.vue'),
     children: [
@@ -29,6 +34,11 @@ const routes: RouteRecordRaw[] = [
         path: 'event/:id/results',
         name: 'profitability-results',
         component: () => import('src/modules/profitability/pages/ResultsPage.vue'),
+      },
+      {
+        path: 'event/:id/vetites',
+        name: 'profitability-vetites',
+        component: () => import('src/modules/profitability/pages/DisplayControlPage.vue'),
       },
       {
         path: 'event/:id',

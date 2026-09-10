@@ -1,7 +1,7 @@
 <template>
   <SplashScreen :show="isSplashVisible" />
   <div v-if="!isSplashVisible" class="ej-app">
-    <div class="ej-app__main">
+    <div class="ej-app__main" :class="{ 'ej-app__main--flush': !showBottomNav && route.path.includes('/display') }">
       <router-view />
     </div>
     <AppBottomNav v-if="showBottomNav" />
@@ -19,7 +19,12 @@ const isSplashVisible = ref(true)
 
 const showBottomNav = computed(() => {
   const path = route.path || ''
-  return path !== '/login' && !path.startsWith('/invite')
+  return (
+    path !== '/login' &&
+    !path.startsWith('/invite') &&
+    !path.startsWith('/join') &&
+    !path.includes('/display')
+  )
 })
 
 onMounted(() => {

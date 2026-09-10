@@ -18,7 +18,7 @@
         Töltsd le a sablont, a szerepkört és a jegyet név szerint írd be, majd töltsd fel. A meghívók e-mailben
         mennek ki.
         <template v-if="groupingAttrs.length">
-          A csoportosítás oszlopai a játékosoknál kötelezőek.
+          A csoportosítás oszlopai csak a Játékos sorokban kötelezőek — szervezőnél és játékmesternél nem.
         </template>
       </p>
 
@@ -122,14 +122,16 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useQuasar } from 'quasar';
-import { useEventStore } from 'src/stores/event';
+import { isGameMasterRole, useEventStore } from 'src/stores/event';
 import { useMasterDataStore } from 'src/stores/masterData';
 import { nullableNumericId, readAxiosErrorMessage } from 'src/utils/apiPayload';
 import { listEnabledGroupingAttrs } from 'src/modules/profitability/ptaData';
 import {
+  buildInviteImportRoleCatalog,
   buildInviteTemplateXlsx,
   downloadBinaryFile,
   importEventInvites,
+  inviteRoleKindFromName,
   listInviteGroupingNames,
   listInviteGroupingCellErrors,
   listInviteRoleNames,
@@ -138,6 +140,7 @@ import {
   readInviteImportHttpError,
   toInviteImportPayload,
   type InviteImportErrorRow,
+  type InviteImportRoleKind,
   type InviteImportRow,
 } from 'src/utils/inviteImport';
 
@@ -206,6 +209,27 @@ const groupingValueNames = computed(() => {
     ...eventStore.getPtaPlayersForEvent(props.eventId),
     ...(eventStore.eventParticipants || []),
   ]);
+});
+
+function kindFromRoleId(roleId: number | null, name: string): InviteImportRoleKind {
+  if (roleId != null && masterDataStore.isOrganizerRole(roleId)) return 'staff';
+  const typeName = roleId != null ? masterDataStore.getRoleTypeNameByRoleId(roleId) : '';
+  if (isGameMasterRole(roleId, name, typeName)) return 'staff';
+  const typeId = roleId != null ? masterDataStore.getRoleTypeIdByRoleId(roleId) : null;
+  if (typeId === 3) return 'player';
+  return inviteRoleKindFromName(name);
+}
+
+const roleCatalog = computed(() => {
+  if (props.eventId == null || props.eventId === '') return { roles: [], tickets: [] };
+  return buildInviteImportRoleCatalog({
+    eventId: props.eventId,
+    eventRoles: eventStore.roles || [],
+    tickets: eventStore.tickets || [],
+    roleTickets: eventStore.roleTickets || [],
+    getRoleName: (roleId) => masterDataStore.getRoleNameById(roleId),
+    kindFromRoleId,
+  });
 });
 
 const hints = computed(() => ({
@@ -303,17 +327,21 @@ async function submitImport() {
   pulseImport.value = false;
   busy.value = true;
   resetImportResult();
-  const groupingErrors = listInviteGroupingCellErrors(parsed.value, groupingAttrs.value);
+  const groupingErrors = listInviteGroupingCellErrors(
+    parsed.value,
+    groupingAttrs.value,
+    roleCatalog.value
+  );
   if (groupingErrors.length) {
     importDone.value = true;
-    errorMessage.value = 'A bekapcsolt csoportosítás a játékos sorokban kötelező.';
+    errorMessage.value = 'A csoportosítás csak a Játékos sorokban kötelező.';
     errorRows.value = groupingErrors;
     busy.value = false;
     return;
   }
   try {
     const message = await importEventInvites(
-      toInviteImportPayload(eventId, parsed.value, groupingAttrs.value)
+      toInviteImportPayload(eventId, parsed.value, groupingAttrs.value, roleCatalog.value)
     );
     importDone.value = true;
     successMessage.value = message;

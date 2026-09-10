@@ -121,6 +121,20 @@ export function pickOpenRoundId(
   return (open ?? sorted[0])?.id ?? null;
 }
 
+/** Legmagasabb sorszámú publikált forduló — Display / fal alapértelmezett RoundId. */
+export function pickLatestReleasedRoundId(
+  rounds: Array<{ id: number; status: string; order?: number }>
+): number | null {
+  const released = rounds.filter((round) => roundResultsReleased(round.status));
+  if (!released.length) return null;
+  released.sort((a, b) => {
+    const byOrder = Number(b.order ?? 0) - Number(a.order ?? 0);
+    if (byOrder !== 0) return byOrder;
+    return b.id - a.id;
+  });
+  return released[0]?.id ?? null;
+}
+
 export function catalogHasPublishedStatus(
   statuses: Array<{ SName?: string | null } | null | undefined> | null | undefined
 ): boolean {

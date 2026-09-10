@@ -74,23 +74,12 @@
       </section>
 
       <div class="manage-grid">
-        <button type="button" class="manage-tile pta-play-tile" @click="openGame">
-          <span class="manage-tile__icon">
-            <q-icon name="sym_r_sports_esports" size="26px" />
-          </span>
-          <span class="manage-tile__label">Játék</span>
-        </button>
-        <button type="button" class="manage-tile" @click="openResults">
-          <span class="manage-tile__icon">
-            <q-icon name="sym_r_emoji_events" size="26px" />
-          </span>
-          <span class="manage-tile__label">Eredmények</span>
-        </button>
         <button
           v-for="action in manageActions"
           :key="action.id"
           type="button"
           class="manage-tile"
+          :class="{ 'pta-play-tile': action.highlight }"
           @click="action.onClick"
         >
           <span class="manage-tile__icon">
@@ -529,13 +518,16 @@ const manageActions = computed(() => {
     label: string;
     icon: string;
     badge?: number;
+    highlight?: boolean;
     onClick: () => void;
   }> = [
+    { id: 'game', label: 'Játék', icon: 'sym_r_sports_esports', highlight: true, onClick: openGame },
     { id: 'participants', label: 'Résztvevők', icon: 'sym_r_group', onClick: openParticipants },
     { id: 'edit', label: 'Szerkesztés', icon: 'sym_r_edit_square', onClick: openWizard },
-    { id: 'cover', label: 'Borítókép', icon: 'sym_r_add_a_photo', onClick: () => comingSoon('Borítókép', 'sym_r_add_a_photo') },
-    { id: 'program', label: 'Programok', icon: 'sym_r_view_timeline', onClick: openProgramEditor },
     { id: 'tickets', label: 'Jegykezelés', icon: 'sym_r_qr_code_scanner', onClick: openScan },
+    { id: 'vetites', label: 'Vetítés', icon: 'sym_r_present_to_all', onClick: openVetites },
+    { id: 'results', label: 'Eredmények', icon: 'sym_r_emoji_events', onClick: openResults },
+    { id: 'program', label: 'Programok', icon: 'sym_r_view_timeline', onClick: openProgramEditor },
     { id: 'files', label: 'Anyagok', icon: 'sym_r_folder', onClick: () => comingSoon('Anyagok', 'sym_r_folder') },
     {
       id: 'messages',
@@ -926,6 +918,13 @@ function openGame() {
 function openResults() {
   router.push({
     path: `/profitability/event/${eventId.value}/results`,
+    query: route.query,
+  });
+}
+
+function openVetites() {
+  router.push({
+    path: `/profitability/event/${eventId.value}/vetites`,
     query: route.query,
   });
 }

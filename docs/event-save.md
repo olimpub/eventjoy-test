@@ -87,6 +87,7 @@ Ha a SQL oszlop a elírt név, a proc fordítsa. A FE a save-ben **nem** küld `
 
 - `PtaSettings: null` ha az `EventType.PTAFlg` hamis
 - `PtaPrizes`: `[{ "PrizeID": 2 }]` — az esemény extra díjai, **replace**
+- `OpSettings: null` ha az `EventType.OPFlg` hamis (típus 43). Objektum és Team-szinkron: [`olimpub-backend.md`](./olimpub-backend.md) §0.3
 
 ---
 
@@ -170,10 +171,10 @@ Ezt küldi a varázsló `mode: "create"` + `isPta: true` esetén:
     "ChampionshipID": null,
     "ChampionshipFlg": false,
     "Category": 1,
-    "Point1": 10,
-    "Point2": 7,
-    "Point3": 5,
-    "Point4": 3,
+    "Point1": 8,
+    "Point2": 4,
+    "Point3": 2,
+    "Point4": 0,
     "MaxParticipants": 32,
     "OrganizationGrpFlg": false,
     "TeamGrpFlg": true,

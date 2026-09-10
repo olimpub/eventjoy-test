@@ -44,6 +44,29 @@ export function pickDataset(source: unknown, ...keys: string[]): unknown[] {
   return [];
 }
 
+/** Első nem üres tömb — ne maradj üres `EventRoundDesks: []` mellett, ha Result6 tele van. */
+export function pickFilledDataset(source: unknown, ...keys: string[]): unknown[] {
+  if (!source || typeof source !== 'object') return [];
+  const bag = source as Record<string, unknown>;
+  const wanted = new Set(keys.map((k) => k.toLowerCase()));
+  let empty: unknown[] = [];
+  for (const key of keys) {
+    const val = bag[key];
+    if (Array.isArray(val)) {
+      if (val.length) return val;
+      empty = val;
+      continue;
+    }
+    if (val && typeof val === 'object') return [val];
+  }
+  for (const [key, val] of Object.entries(bag)) {
+    if (!wanted.has(key.toLowerCase())) continue;
+    if (Array.isArray(val) && val.length) return val;
+    if (val && typeof val === 'object' && !Array.isArray(val)) return [val];
+  }
+  return empty;
+}
+
 export function hasDatasetKey(source: unknown, ...keys: string[]): boolean {
   if (!source || typeof source !== 'object') return false;
   const wanted = new Set(keys.map((k) => k.toLowerCase()));
@@ -141,6 +164,30 @@ export function readCreatedEntityId(raw: unknown, ...keys: string[]): number | n
   return rv > 1 ? rv : null;
 }
 
+export function readAxiosHttpStatus(error: unknown): number | null {
+  const status = (error as { response?: { status?: number } } | null)?.response?.status;
+  return typeof status === 'number' ? status : null;
+}
+
+function readAspNetProblemMessage(data: unknown): string {
+  if (!data || typeof data !== 'object') return '';
+  const rec = data as Record<string, unknown>;
+  const errors = rec.errors ?? rec.Errors;
+  if (errors && typeof errors === 'object') {
+    const parts: string[] = [];
+    for (const val of Object.values(errors as Record<string, unknown>)) {
+      if (Array.isArray(val)) parts.push(...val.map((item) => String(item)));
+      else if (val) parts.push(String(val));
+    }
+    if (parts.length) return parts.join(' ');
+  }
+  const detail = String(rec.detail ?? rec.Detail ?? rec.message ?? rec.Message ?? '').trim();
+  if (detail) return detail;
+  const title = String(rec.title ?? rec.Title ?? '').trim();
+  if (title && title !== 'One or more validation errors occurred.') return title;
+  return '';
+}
+
 export function readAxiosErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message && !('response' in error)) {
     return error.message;
@@ -149,7 +196,11 @@ export function readAxiosErrorMessage(error: unknown, fallback: string): string 
   if (response?.data) {
     const desc = readApiReturnDescription(response.data);
     if (desc) return desc;
+    const problem = readAspNetProblemMessage(response.data);
+    if (problem) return problem;
   }
-  if (error instanceof Error && error.message) return error.message;
+  if (error instanceof Error && error.message && !/^Request failed with status code \d+$/.test(error.message)) {
+    return error.message;
+  }
   return fallback;
 }

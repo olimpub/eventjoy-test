@@ -295,10 +295,20 @@ export function ptaSeatColorIndexFromRow(row: Record<string, unknown>): number {
 
 export function ptaSeatColorFromRow(row: Record<string, unknown>): string {
   const hex = normalizeHex(
-    row.ColorHex ?? row.colorHex ?? row.ColourHex ?? row.ColorCode ?? row.colorCode
+    row.PlayColorHex ??
+      row.playColorHex ??
+      row.ColorHex ??
+      row.colorHex ??
+      row.ColourHex ??
+      row.ColorCode ??
+      row.colorCode
   );
   if (hex) return hex;
   return PTA_SEAT_COLORS[ptaSeatColorIndexFromRow(row)] || PTA_SEAT_COLORS[0];
+}
+
+function hasPlayColorHex(row: Record<string, unknown>): boolean {
+  return !!normalizeHex(row.PlayColorHex ?? row.playColorHex);
 }
 
 function fillSameDeskColors(schedules: Record<string, unknown>[]): Record<string, unknown>[] {
@@ -312,6 +322,15 @@ function fillSameDeskColors(schedules: Record<string, unknown>[]): Record<string
   }
   for (const list of byDesk.values()) {
     if (list.length < 2) continue;
+    if (list.some(hasPlayColorHex)) {
+      for (const row of list) {
+        const hex = ptaSeatColorFromRow(row);
+        row.ColorHex = hex;
+        const colorIndex = PTA_SEAT_COLORS.findIndex((item) => item.toUpperCase() === hex.toUpperCase());
+        if (colorIndex >= 0) row.ColorIndex = colorIndex;
+      }
+      continue;
+    }
     const hexes = new Set(list.map((row) => ptaSeatColorFromRow(row).toUpperCase()));
     const indexes = new Set(list.map((row) => ptaSeatColorIndexFromRow(row)));
     if (indexes.size > 1) {
@@ -356,11 +375,13 @@ export function normalizePtaSchedules(rows: unknown[]): Record<string, unknown>[
     .map((row) => {
       const colorIndex = ptaSeatColorIndexFromRow(row);
       const colorHex = ptaSeatColorFromRow(row);
+      const playColor = row.PlayColorHex ?? row.playColorHex;
       return {
         ...row,
         GameScheduleID: nullableNumericId(row.GameScheduleID ?? row.gameScheduleID ?? row.id),
         EventRoundDeskID: ptaScheduleRoundDeskId(row),
         PlayerID: ptaSchedulePlayerId(row),
+        PlayColorHex: playColor ?? colorHex,
         ColorIndex: colorIndex,
         ColorHex: colorHex,
         SeatNo: nullableNumericId(row.SeatNo ?? row.seatNo) ?? colorIndex + 1,

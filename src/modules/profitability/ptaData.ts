@@ -253,6 +253,39 @@ export function ptaSchedulePlayerId(row: Record<string, unknown> | null | undefi
   return nullableNumericId(row.PlayerID ?? row.playerID ?? row.EventPlayerID ?? row.eventPlayerID);
 }
 
+/** EventRoundDesk / GameSchedule sorok a kiválasztott EventRound.id-re. */
+export function ptaRoundDesksForEventRound(
+  roundId: number | null,
+  roundDesks: Record<string, unknown>[],
+  schedules: Record<string, unknown>[]
+): Record<string, unknown>[] {
+  if (roundId == null || !roundDesks.length) return [];
+  const direct = roundDesks.filter((row) => {
+    const id =
+      ptaEventRoundId(row) ?? nullableNumericId(row.RoundId ?? row.roundId);
+    return id === roundId;
+  });
+  if (direct.length) return direct;
+
+  const deskIds = new Set<number>();
+  for (const row of schedules) {
+    if (ptaEventRoundId(row) !== roundId) continue;
+    const id = ptaScheduleRoundDeskId(row) ?? ptaEventDeskId(row);
+    if (id != null) deskIds.add(id);
+  }
+  if (deskIds.size) {
+    const joined = roundDesks.filter((row) => {
+      const rd = ptaRoundDeskId(row);
+      const desk = ptaEventDeskId(row);
+      return (rd != null && deskIds.has(rd)) || (desk != null && deskIds.has(desk));
+    });
+    if (joined.length) return joined;
+  }
+
+  if (roundDesks.every((row) => ptaEventRoundId(row) == null)) return roundDesks;
+  return [];
+}
+
 export function bindSchedulesToRoundDesk(
   rd: Record<string, unknown>,
   schedules: Record<string, unknown>[],
@@ -655,10 +688,10 @@ export function normalizePtaEventSettings(rows: unknown[]): PtaEventSettings[] {
         GameTypeID: gameTypeId,
         PairModeID: pairModeId,
         Category: Number(row.Category ?? 0),
-        Point1: Number(row.Point1 ?? 10),
-        Point2: Number(row.Point2 ?? 7),
-        Point3: Number(row.Point3 ?? 5),
-        Point4: Number(row.Point4 ?? 3),
+        Point1: Number(row.Point1 ?? 8),
+        Point2: Number(row.Point2 ?? 4),
+        Point3: Number(row.Point3 ?? 2),
+        Point4: Number(row.Point4 ?? 0),
         MaxParticipants: nullableNumericId(row.MaxParticipants ?? row.maxParticipants),
         OrganizationGrpFlg: isTruthyFlag(row.OrganizationGrpFlg ?? row.organizationGrpFlg),
         TeamGrpFlg: isTruthyFlag(row.TeamGrpFlg ?? row.teamGrpFlg),
@@ -792,10 +825,12 @@ export function normalizePtaRoundDesks(rows: unknown[]): Record<string, unknown>
 export function normalizePtaEventRounds(rows: unknown[]): Record<string, unknown>[] {
   return normalizePtaRows(rows).map((row) => {
     const eventRoundId = nullableNumericId(row.EventRoundID ?? row.eventRoundID ?? row.id);
+    const order = nullableNumericId(row.OrderIndex ?? row.Order ?? row.RoundID ?? row.roundID);
     return {
       ...row,
       EventRoundID: eventRoundId,
       id: eventRoundId ?? row.id,
+      OrderIndex: order ?? row.OrderIndex,
     };
   });
 }

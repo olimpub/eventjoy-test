@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { api } from 'src/boot/axios';
-import { hasDatasetKey, nullableNumericId, pickDataset, unwrapApiPayload, warnIfDatasetMissing } from 'src/utils/apiPayload';
+import { hasDatasetKey, nullableNumericId, pickDataset, pickFilledDataset, unwrapApiPayload, warnIfDatasetMissing } from 'src/utils/apiPayload';
 import { eventUserUidsMatch, normalizeEventUserUid } from 'src/utils/eventUserQr';
 import { membershipRoleKind, pickDisplayEventUser, type MembershipRoleKind } from 'src/utils/eventUserStatus';
 import {
@@ -128,6 +128,7 @@ function normalizeEvents(rows: unknown[]): any[] {
           row.PendingApprovalID ?? row.pendingApprovalID ?? row.PendingApprovalId
         ),
         EventImageUrl: rowNullableString(row, 'EventImageUrl', 'eventImageUrl'),
+        EventUID: rowNullableString(row, 'EventUID', 'EventUid', 'eventUid'),
         ContactOrganizerID: nullableNumericId(
           row.ContactOrganizerID ?? row.contactOrganizerID ?? row.ContactOrganizerId
         ),
@@ -511,6 +512,17 @@ export const useEventStore = defineStore('event', {
     ptaEventPrizes: [] as Record<string, unknown>[],
     /** Játékmester pajzsos foglalás — a GET automatikus kiosztását nem írjuk rá. */
     ptaDeskClaims: {} as Record<number, number | null>,
+    /** GET /pta/display — ne keverjük a staff userdata sorsolással. */
+    ptaDisplayFeed: null as null | {
+      eventId: string;
+      eventName: string;
+      settings: PtaEventSettings[];
+      desks: Record<string, unknown>[];
+      rounds: Record<string, unknown>[];
+      roundDesks: Record<string, unknown>[];
+      players: PtaEventPlayer[];
+      schedules: Record<string, unknown>[];
+    },
   }),
   getters: {
     // A felhasználóhoz kapcsolódó események (amiben EventUser-ként benne van)
@@ -1273,6 +1285,80 @@ export const useEventStore = defineStore('event', {
       forgetPtaDraw(key);
     },
 
+    applyPtaDisplayFeed(eventId: number | string, raw: Record<string, unknown>) {
+      const key = String(eventId);
+      const data = unwrapApiPayload(raw);
+      const settings = normalizePtaEventSettings(
+        pickDataset(data, 'EventSettings', 'eventSettings', 'PtaEventSettings')
+      );
+      const desks = normalizePtaRows(pickDataset(data, 'EventDesks', 'eventDesks', 'PtaEventDesks'));
+      const rounds = normalizePtaEventRounds(
+        pickDataset(data, 'EventRounds', 'eventRounds', 'PtaEventRounds')
+      );
+      const roundDesks = normalizePtaRoundDesks(
+        pickFilledDataset(
+          data,
+          'EventRoundDesks',
+          'eventRoundDesks',
+          'PtaEventRoundDesks',
+          'RoundDesks',
+          'roundDesks',
+          'Result6',
+          'result6',
+          'ResultSet6',
+          'RS6'
+        )
+      );
+      const players = normalizePtaEventPlayers(
+        pickFilledDataset(data, 'EventPlayers', 'eventPlayers', 'PtaEventPlayers')
+      );
+      const schedules = normalizePtaSchedules(
+        pickFilledDataset(
+          data,
+          'GameSchedules',
+          'gameSchedules',
+          'PtaGameSchedules',
+          'GameSchedule',
+          'Schedules',
+          'Result7',
+          'result7',
+          'ResultSet7',
+          'RS7'
+        )
+      );
+      attachPtaDeskNumbers(roundDesks, desks);
+      const hydrated = hydratePtaPlayerGraph({
+        eventId: key,
+        desks,
+        rounds,
+        roundDesks,
+        players,
+        schedules,
+        prizes: [],
+        previousPlayers: [],
+        previousSchedules: [],
+      });
+      const events = pickDataset(data, 'Events', 'events', 'Event');
+      const first = (events[0] || {}) as Record<string, unknown>;
+      const eventName = String(
+        first.Title || first.EventName || first.Name || first.title || ''
+      ).trim();
+      this.ptaDisplayFeed = {
+        eventId: key,
+        eventName: eventName || 'Esemény',
+        settings,
+        desks,
+        rounds,
+        roundDesks,
+        players: hydrated.players,
+        schedules: hydrated.schedules,
+      };
+    },
+
+    clearPtaDisplayFeed() {
+      this.ptaDisplayFeed = null;
+    },
+
     reapplyLocalEventUserStatuses() {
       const patches = readLocalJson<Record<string, LocalStatusPatch>>(LS_EVENT_USER_STATUS, {});
       for (const [id, patch] of Object.entries(patches)) {
@@ -1579,9 +1665,14 @@ export const useEventStore = defineStore('event', {
       const row = this.ptaEventRoundDesks.find(
         (item) => ptaRoundDeskId(item) === Number(roundDeskId)
       );
-      if (!row) return;
-      Object.assign(row, patch);
-      this.persistCurrentPtaDraw(eventId);
+      if (row) {
+        Object.assign(row, patch);
+        this.persistCurrentPtaDraw(eventId);
+      }
+      const feedRow = this.ptaDisplayFeed?.roundDesks.find(
+        (item) => ptaRoundDeskId(item) === Number(roundDeskId)
+      );
+      if (feedRow) Object.assign(feedRow, patch);
     },
 
     /** Játékmester egy EventRoundDesk-re írja magát (Pta.ClaimDesk). */
@@ -1728,6 +1819,47 @@ export const useEventStore = defineStore('event', {
       if (!changed) return;
       this.ptaEventPlayers = next;
       this.persistCurrentPtaDraw(eventId);
+    },
+
+    applyEventUserContact(
+      eventUserId: number | string,
+      contact: {
+        LastName: string;
+        FirstName: string;
+        EmailAddress: string;
+        PhoneNumber: string | null;
+      }
+    ) {
+      const target = Number(eventUserId);
+      if (!Number.isFinite(target)) return;
+      const display = [contact.LastName, contact.FirstName].filter(Boolean).join(' ');
+      const patchEu = (row: EventUser) => {
+        if (Number(row.id) !== target) return;
+        row.LastName = contact.LastName;
+        row.FirstName = contact.FirstName;
+        row.EmailAddress = contact.EmailAddress;
+        row.PhoneNumber = contact.PhoneNumber;
+        (row as EventParticipant).LastName = contact.LastName;
+        (row as EventParticipant).FirstName = contact.FirstName;
+        (row as EventParticipant).EmailAddress = contact.EmailAddress;
+        (row as EventParticipant).PhoneNumber = contact.PhoneNumber;
+        if ('DisplayName' in row) row.DisplayName = display;
+      };
+      this.eventParticipants.forEach(patchEu);
+      this.eventUsers.forEach(patchEu);
+      this.ptaEventPlayers = this.ptaEventPlayers.map((player) => {
+        const playerEventUserId = nullableNumericId(
+          player.EventUserID ?? player.eventUserID ?? player.EventUserId
+        );
+        if (playerEventUserId !== target) return player;
+        return {
+          ...player,
+          LastName: contact.LastName,
+          FirstName: contact.FirstName,
+          Name: display,
+          DisplayName: display,
+        };
+      });
     },
 
     applyEventUserRating(

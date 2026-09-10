@@ -16,6 +16,8 @@ const LIVE_EVENT_ROUTE_NAMES = new Set([
   'profitability-participants',
   'profitability-game',
   'profitability-results',
+  'profitability-vetites',
+  'profitability-display',
   'profitability-event-detail',
 ]);
 
@@ -23,22 +25,44 @@ export function isEventLiveRoute(name: unknown): boolean {
   return LIVE_EVENT_ROUTE_NAMES.has(String(name || ''));
 }
 
+/** Esemény kártya / adatlap — jegyolvasásra vár, még nincs a játékos adatlapon. */
+export function isEventLobbyRoute(name: unknown): boolean {
+  return String(name || '') === 'event_details';
+}
+
+export function isEventLiveJoinRoute(name: unknown): boolean {
+  return isEventLiveRoute(name) || isEventLobbyRoute(name);
+}
+
 export interface EventLiveJoin {
   eventId: number;
   eventUserId: number | null;
   roleName: SignalRLiveRole;
+  /** TV: csak event_{id}_display */
+  displayOnly?: boolean;
+  /** Laptop /display: a szerep csoportok mellé */
+  includeDisplayGroup?: boolean;
+  displayToken?: string | null;
 }
 
 export function eventLiveGroupNames(join: EventLiveJoin): string[] {
+  if (join.displayOnly) {
+    return [`event_${join.eventId}_display`];
+  }
   const names = [`event_${join.eventId}_${join.roleName}`, `event_${join.eventId}_gamer`];
   if (join.eventUserId != null) {
     names.push(`event_${join.eventId}_user_${join.eventUserId}`);
+  }
+  if (join.includeDisplayGroup) {
+    names.push(`event_${join.eventId}_display`);
   }
   return names;
 }
 
 function joinKey(join: EventLiveJoin): string {
-  return `${join.eventId}:${join.roleName}:${join.eventUserId ?? ''}`;
+  return `${join.eventId}:${join.roleName}:${join.eventUserId ?? ''}:${join.displayOnly ? 'tv' : ''}:${
+    join.includeDisplayGroup ? 'wall' : ''
+  }`;
 }
 
 function isJoinRejected(data: unknown): boolean {
@@ -58,8 +82,14 @@ function apiRootUrl(): string {
   return String(api.defaults.baseURL || '').replace(/\/+$/, '');
 }
 
+let displayAccessToken = '';
+
+export function setSignalRDisplayToken(token: string | null) {
+  displayAccessToken = token || '';
+}
+
 function accessToken(): string {
-  return localStorage.getItem('token') || '';
+  return localStorage.getItem('token') || displayAccessToken;
 }
 
 const joinedEventIdRef = ref<number | null>(null);
@@ -127,6 +157,29 @@ const infiniteReconnect: signalR.IRetryPolicy = {
   nextRetryDelayInMilliseconds(retryContext) {
     const steps = [0, 2000, 5000, 10000, 15000, 30000];
     return steps[Math.min(retryContext.previousRetryCount, steps.length - 1)];
+  },
+};
+
+function isLifecycleDisconnect(message: string): boolean {
+  return (
+    /being frozen/i.test(message) ||
+    /WebSocket closed with status code:\s*1006/i.test(message) ||
+    /Failed to start the connection.+1006/i.test(message)
+  );
+}
+
+/** Chrome tab-freeze / 1006 ne legyen piros Error — a kliens reconnectel. */
+const hubLogger: signalR.ILogger = {
+  log(level, message) {
+    const text = String(message);
+    if (isLifecycleDisconnect(text)) {
+      if (isSignalRDebug()) console.info('[EJ SignalR] lifecycle', text);
+      return;
+    }
+    if (isSignalRDebug() || level >= signalR.LogLevel.Error) {
+      if (level >= signalR.LogLevel.Error) console.error(text);
+      else console.log(text);
+    }
   },
 };
 
@@ -298,7 +351,7 @@ class EventLiveService {
         .withKeepAliveInterval(KEEP_ALIVE_MS)
         .withServerTimeout(SERVER_TIMEOUT_MS)
         .withAutomaticReconnect(infiniteReconnect)
-        .configureLogging(isSignalRDebug() ? signalR.LogLevel.Trace : signalR.LogLevel.Warning)
+        .configureLogging(isSignalRDebug() ? signalR.LogLevel.Trace : hubLogger)
         .build();
       this.bindListeners(this.connection);
     }
@@ -377,14 +430,19 @@ class EventLiveService {
     const connectionId = this.connection?.connectionId;
     if (!connectionId) throw new Error('Nincs SignalR connectionId.');
     const groupNames = eventLiveGroupNames(join);
-    if (join.eventUserId == null || groupNames.length < 3) {
+    if (!join.displayOnly && (join.eventUserId == null || groupNames.length < 3)) {
       throw new Error('SignalR join: hiányzik a szerepkör, a gamer vagy a privát csoport (eventUserId).');
     }
+    if (join.displayOnly && groupNames.length !== 1) {
+      throw new Error('SignalR join: a TV csak a display csoportot kérheti.');
+    }
     const body = { connectionId, groupNames };
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (join.displayToken) {
+      headers['X-Pta-Display-Token'] = join.displayToken;
+    }
     logSignalR('join POST', body);
-    const response = await api.post('/signalr/join', body, {
-      headers: { 'Content-Type': 'application/json' },
-    });
+    const response = await api.post('/signalr/join', body, { headers });
     logSignalR('join response', {
       status: response.status,
       data: response.data ?? null,

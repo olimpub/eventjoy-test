@@ -167,6 +167,9 @@
             <span class="res-board__name">
               <span class="res-board__label">{{ row.name }}</span>
               <span v-if="row.memberCount" class="res-board__count">{{ row.memberCount }} fő</span>
+              <span v-else-if="playerGroupLine(row.playerId)" class="res-board__count">{{
+                playerGroupLine(row.playerId)
+              }}</span>
             </span>
             <span class="res-board__score">{{ row.amount }}</span>
             <span class="res-board__truck">{{ row.onTrack }}</span>
@@ -293,6 +296,14 @@ function playerName(playerId: number | null): string {
     ],
     eventId: eventId.value,
   });
+}
+
+function playerGroupLine(playerId: number | null | undefined): string {
+  if (playerId == null || playerId <= 0) return '';
+  return groupingAttrs.value
+    .map((attr) => groupingValueForPlayer(playerId, attr.key))
+    .filter((value) => value && value !== 'Nincs megadva')
+    .join(' · ');
 }
 
 function groupingValueForPlayer(playerId: number, key: EventGroupingKey): string {
@@ -423,6 +434,7 @@ function goBack() {
     query: Object.keys(query).length ? query : eventRoleQuery(enteredRole.value),
   });
 }
+
 </script>
 
 <style scoped>

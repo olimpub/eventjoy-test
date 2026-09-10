@@ -488,7 +488,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue';
+import { computed, onUnmounted, ref, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useQuasar } from 'quasar';
 import QRCode from 'qrcode';
@@ -497,8 +497,16 @@ import { useMasterDataStore } from 'src/stores/masterData';
 import { isProfitabilityEventType } from 'src/modules/profitability/constants';
 import defaultCover from 'src/assets/eventjoy_icon_gradient.svg';
 import ptaCover from 'src/assets/PTA2_back.png';
-import { eventDatasheetKind, eventRoleEnterBlocked, eventRolePath, eventRoleQuery } from 'src/utils/eventRoleNav';
+import {
+  eventDatasheetKind,
+  eventRoleEnterBlocked,
+  eventRolePath,
+  eventRoleQuery,
+  isPlayerWaitingForTicketScan,
+} from 'src/utils/eventRoleNav';
 import { enterEventSession } from 'src/utils/eventEnter';
+import { notifyTicketScanSuccess } from 'src/utils/eventChange';
+import { refreshEventCatalog } from 'src/utils/eventCatalogRefresh';
 import { nullableNumericId, readAxiosErrorMessage } from 'src/utils/apiPayload';
 import { normalizeEventUserUid } from 'src/utils/eventUserQr';
 import InviteDecisionSheet from 'src/components/event/InviteDecisionSheet.vue';
@@ -825,6 +833,10 @@ const enterableRoles = computed(() => {
   return eventStore.getEnterableRolesForEvent(db.id, db.EventTypeID ?? db.eventTypeId);
 });
 
+const waitingForTicketScan = computed(() =>
+  isPlayerWaitingForTicketScan(event.value.id, enterableRoles.value)
+);
+
 const readyEnterRoles = computed(() => {
   const db = currentDbEvent.value;
   if (!db) return [];
@@ -917,6 +929,46 @@ async function enterAsRole(role: EnterableEventRole | null) {
     enterBusy.value = false;
   }
 }
+
+async function enterAfterTicketScan() {
+  const player =
+    enterableRoles.value.find((role) => eventDatasheetKind(role, event.value.id) === 'player') ||
+    enterableRoles.value[0] ||
+    null;
+  if (!player || eventRoleEnterBlocked(event.value.id, player)) return;
+  notifyTicketScanSuccess();
+  await enterAsRole(player);
+}
+
+watch(waitingForTicketScan, (waiting, wasWaiting) => {
+  if (wasWaiting && !waiting) {
+    void enterAfterTicketScan();
+  }
+});
+
+let ticketScanPoll: ReturnType<typeof setInterval> | null = null;
+
+watch(
+  waitingForTicketScan,
+  (waiting) => {
+    if (ticketScanPoll) {
+      clearInterval(ticketScanPoll);
+      ticketScanPoll = null;
+    }
+    if (!waiting) return;
+    ticketScanPoll = setInterval(() => {
+      void refreshEventCatalog({ force: true });
+    }, 5000);
+  },
+  { immediate: true }
+);
+
+onUnmounted(() => {
+  if (ticketScanPoll) {
+    clearInterval(ticketScanPoll);
+    ticketScanPoll = null;
+  }
+});
 
 </script>
 

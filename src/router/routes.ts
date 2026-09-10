@@ -14,6 +14,12 @@ const routes: RouteRecordRaw[] = [
     meta: { public: true },
   },
   {
+    path: '/join/:eventUid',
+    name: 'join',
+    component: () => import('pages/JoinPage.vue'),
+    meta: { public: true },
+  },
+  {
     path: '/',
     component: () => import('layouts/MainLayout.vue'),
     children: [

@@ -19,16 +19,34 @@
           <h1 class="part-header__title">Résztvevők</h1>
           <p class="part-header__event">{{ eventName }}</p>
         </div>
-        <button
-          v-if="!isReadOnly"
-          type="button"
-          class="part-excel-btn"
-          aria-label="Excel feltöltés"
-          @click="isImportOpen = true"
-        >
-          <q-icon name="sym_r_upload_file" size="26px" />
-        </button>
-        <span v-else class="part-excel-btn" aria-hidden="true" style="visibility: hidden" />
+        <div v-if="!isReadOnly" class="part-header__actions">
+          <button
+            type="button"
+            class="part-add-btn"
+            aria-label="Helyszíni regisztráció"
+            @click="isWalkInOpen = true"
+          >
+            <q-icon name="sym_r_add" size="28px" />
+          </button>
+          <button
+            v-if="showJoinQr"
+            type="button"
+            class="part-qr-btn"
+            aria-label="Helyszíni belépés QR-kód"
+            @click="isJoinQrOpen = true"
+          >
+            <q-icon name="sym_r_qr_code_2" size="26px" />
+          </button>
+          <button
+            type="button"
+            class="part-excel-btn"
+            aria-label="Excel feltöltés"
+            @click="isImportOpen = true"
+          >
+            <q-icon name="sym_r_upload_file" size="26px" />
+          </button>
+        </div>
+        <span v-else class="part-header__actions" aria-hidden="true" />
       </header>
 
       <div class="part-kpis">
@@ -165,6 +183,7 @@
             <div>
               <div class="part-card__name">{{ selected.name }}</div>
               <div v-if="selected.email" class="part-sheet__email">{{ selected.email }}</div>
+              <div v-if="selected.phone" class="part-sheet__email">{{ selected.phone }}</div>
             </div>
           </div>
           <div class="part-sheet__meta">
@@ -215,6 +234,11 @@
             >
               <q-icon name="sym_r_receipt_long" size="20px" />
               <span>Számla</span>
+              <q-icon name="chevron_right" size="18px" class="ml-auto text-slate-500" />
+            </button>
+            <button v-if="!isReadOnly" type="button" class="part-sheet__row is-btn" @click="openContactEdit">
+              <q-icon name="sym_r_edit" size="20px" />
+              <span>Adatok szerkesztése</span>
               <q-icon name="chevron_right" size="18px" class="ml-auto text-slate-500" />
             </button>
             <button v-if="!isReadOnly" type="button" class="part-sheet__row is-btn" @click="comingSoon('Üzenet')">
@@ -384,6 +408,33 @@
       </q-card>
     </q-dialog>
 
+    <WalkInRegisterSheet
+      v-model="isWalkInOpen"
+      :event-id="eventId"
+      :event-name="eventName"
+      variant="pta"
+      @registered="onInvitesImported"
+    />
+
+    <ParticipantContactSheet
+      v-model="isContactEditOpen"
+      :event-id="eventId"
+      :event-user-id="selected?.id ?? null"
+      :last-name="selected?.lastName"
+      :first-name="selected?.firstName"
+      :email="selected?.email"
+      :phone="selected?.phone"
+      variant="pta"
+      @saved="onContactSaved"
+    />
+
+    <JoinQrSheet
+      v-model="isJoinQrOpen"
+      :event="dbEvent"
+      :event-name="eventName"
+      variant="pta"
+    />
+
     <InviteExcelImport
       v-model="isImportOpen"
       :event-id="eventId"
@@ -408,6 +459,9 @@ import { useRoute, useRouter } from 'vue-router';
 import { useQuasar } from 'quasar';
 import ComingSoonCube from 'src/components/event/ComingSoonCube.vue';
 import InviteExcelImport from 'src/components/event/InviteExcelImport.vue';
+import WalkInRegisterSheet from 'src/components/event/WalkInRegisterSheet.vue';
+import JoinQrSheet from 'src/components/event/JoinQrSheet.vue';
+import ParticipantContactSheet from 'src/components/event/ParticipantContactSheet.vue';
 import { useAuthStore } from 'src/stores/auth';
 import { useEventStore, type EventUser } from 'src/stores/event';
 import { useMasterDataStore, ORGANIZER_ROLE_TYPE_ID } from 'src/stores/masterData';
@@ -421,7 +475,13 @@ import {
   pickGroupingText,
   type EventGroupingAttr,
 } from 'src/modules/profitability/ptaData';
-import { eventDatasheetKind, eventRolePath, eventRoleQuery, isEventUserCheckedInName } from 'src/utils/eventRoleNav';
+import {
+  eventDatasheetKind,
+  eventReachedCheckIn,
+  eventRolePath,
+  eventRoleQuery,
+  isEventUserCheckedInName,
+} from 'src/utils/eventRoleNav';
 import '../theme.css';
 
 interface ParticipantRow {
@@ -441,6 +501,9 @@ interface ParticipantRow {
   ticketId: number | null;
   templateId: number | null;
   invoiceId: number | null;
+  lastName: string;
+  firstName: string;
+  phone: string;
   groupAttrs: Array<EventGroupingAttr & { value: string }>;
 }
 
@@ -452,6 +515,9 @@ const eventStore = useEventStore();
 const masterDataStore = useMasterDataStore();
 
 const isImportOpen = ref(false);
+const isWalkInOpen = ref(false);
+const isJoinQrOpen = ref(false);
+const isContactEditOpen = ref(false);
 const searchQuery = ref('');
 const roleFilterIds = ref<number[]>([]);
 const statusFilterIds = ref<number[]>([]);
@@ -513,6 +579,8 @@ const isReadOnly = computed(() => {
   if (String(route.query.readonly || '') === '1') return true;
   return eventDatasheetKind(enteredRole.value) === 'gamemaster';
 });
+
+const showJoinQr = computed(() => !isReadOnly.value && eventReachedCheckIn(eventId.value));
 
 const eventIsPublic = computed(() => {
   const e = dbEvent.value as Record<string, unknown> | null;
@@ -665,6 +733,9 @@ function mapParticipant(eu: EventUser): ParticipantRow {
     ticketId: nullableNumericId(eu.EventTicketID),
     templateId,
     invoiceId: eu.InvoiceID ?? null,
+    lastName: String(eu.LastName ?? eu.lastName ?? '').trim(),
+    firstName: String(eu.FirstName ?? eu.firstName ?? '').trim(),
+    phone: String(eu.PhoneNumber ?? eu.phoneNumber ?? eu.Phone ?? '').trim(),
     groupAttrs: groupingAttrsFor(eu),
   };
 }
@@ -963,6 +1034,16 @@ function onInvitesImported() {
   void loadDataSheet();
 }
 
+function openContactEdit() {
+  if (isReadOnly.value || !selected.value) return;
+  isContactEditOpen.value = true;
+}
+
+function onContactSaved() {
+  refreshSelected();
+  void loadDataSheet();
+}
+
 function comingSoon(label: string, icon = 'sym_r_schedule') {
   soonLabel.value = label;
   soonIcon.value = icon;
@@ -1006,6 +1087,18 @@ function comingSoon(label: string, icon = 'sym_r_schedule') {
   text-overflow: ellipsis;
 }
 
+.part-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-right: 10px;
+  min-width: 104px;
+  min-height: 48px;
+}
+
+.part-add-btn,
+.part-qr-btn,
 .part-excel-btn {
   display: flex;
   align-items: center;
@@ -1013,14 +1106,25 @@ function comingSoon(label: string, icon = 'sym_r_schedule') {
   width: 48px;
   height: 48px;
   flex-shrink: 0;
-  margin-right: 10px;
-  border: 1px solid rgba(246, 139, 41, 0.32);
   border-radius: 16px;
-  background: rgba(246, 139, 41, 0.14);
-  color: #f68b29;
   cursor: pointer;
 }
 
+.part-add-btn {
+  border: none;
+  background: #f68b29;
+  color: #121416;
+}
+
+.part-excel-btn,
+.part-qr-btn {
+  border: 1px solid rgba(246, 139, 41, 0.32);
+  background: rgba(246, 139, 41, 0.14);
+  color: #f68b29;
+}
+
+.part-add-btn:active,
+.part-qr-btn:active,
 .part-excel-btn:active {
   transform: scale(0.96);
 }

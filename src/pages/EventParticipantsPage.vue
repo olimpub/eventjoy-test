@@ -19,14 +19,33 @@
           <h1 class="part-header__title">Résztvevők</h1>
           <p class="part-header__event">{{ eventName }}</p>
         </div>
-        <button
-          type="button"
-          class="part-excel-btn"
-          aria-label="Excel feltöltés"
-          @click="isImportOpen = true"
-        >
-          <q-icon name="sym_r_upload_file" size="26px" />
-        </button>
+        <div class="part-header__actions">
+          <button
+            type="button"
+            class="part-add-btn"
+            aria-label="Helyszíni regisztráció"
+            @click="isWalkInOpen = true"
+          >
+            <q-icon name="sym_r_add" size="28px" />
+          </button>
+          <button
+            v-if="showJoinQr"
+            type="button"
+            class="part-qr-btn"
+            aria-label="Helyszíni belépés QR-kód"
+            @click="isJoinQrOpen = true"
+          >
+            <q-icon name="sym_r_qr_code_2" size="26px" />
+          </button>
+          <button
+            type="button"
+            class="part-excel-btn"
+            aria-label="Excel feltöltés"
+            @click="isImportOpen = true"
+          >
+            <q-icon name="sym_r_upload_file" size="26px" />
+          </button>
+        </div>
       </header>
 
       <div class="part-kpis">
@@ -163,6 +182,7 @@
             <div>
               <div class="part-card__name">{{ selected.name }}</div>
               <div v-if="selected.email" class="part-sheet__email">{{ selected.email }}</div>
+              <div v-if="selected.phone" class="part-sheet__email">{{ selected.phone }}</div>
             </div>
           </div>
           <div class="part-card__meta q-mb-md">
@@ -206,6 +226,11 @@
             >
               <q-icon name="sym_r_receipt_long" size="20px" />
               <span>Számla</span>
+              <q-icon name="chevron_right" size="18px" class="ml-auto text-slate-500" />
+            </button>
+            <button type="button" class="part-sheet__row is-btn" @click="openContactEdit">
+              <q-icon name="sym_r_edit" size="20px" />
+              <span>Adatok szerkesztése</span>
               <q-icon name="chevron_right" size="18px" class="ml-auto text-slate-500" />
             </button>
             <button type="button" class="part-sheet__row is-btn" @click="comingSoon('Üzenet')">
@@ -374,6 +399,27 @@
         </div>
       </q-card>
     </q-dialog>
+    <WalkInRegisterSheet
+      v-model="isWalkInOpen"
+      :event-id="eventId"
+      :event-name="eventName"
+      @registered="onInvitesImported"
+    />
+    <ParticipantContactSheet
+      v-model="isContactEditOpen"
+      :event-id="eventId"
+      :event-user-id="selected?.id ?? null"
+      :last-name="selected?.lastName"
+      :first-name="selected?.firstName"
+      :email="selected?.email"
+      :phone="selected?.phone"
+      @saved="onContactSaved"
+    />
+    <JoinQrSheet
+      v-model="isJoinQrOpen"
+      :event="dbEvent"
+      :event-name="eventName"
+    />
     <InviteExcelImport
       v-model="isImportOpen"
       :event-id="eventId"
@@ -395,7 +441,10 @@ import { EVENT_USER_FLOW_TEMPLATE_CODE, type EventUserStatusTransition } from 's
 import { membershipRoleKind } from 'src/utils/eventUserStatus';
 import { setEventUserStatus } from 'src/utils/eventChange';
 import InviteExcelImport from 'src/components/event/InviteExcelImport.vue';
-import { isEventUserCheckedInName } from 'src/utils/eventRoleNav';
+import WalkInRegisterSheet from 'src/components/event/WalkInRegisterSheet.vue';
+import JoinQrSheet from 'src/components/event/JoinQrSheet.vue';
+import ParticipantContactSheet from 'src/components/event/ParticipantContactSheet.vue';
+import { eventReachedCheckIn, isEventUserCheckedInName } from 'src/utils/eventRoleNav';
 
 interface ParticipantRow {
   id: number;
@@ -414,6 +463,9 @@ interface ParticipantRow {
   ticketId: number | null;
   templateId: number | null;
   invoiceId: number | null;
+  lastName: string;
+  firstName: string;
+  phone: string;
 }
 
 const route = useRoute();
@@ -424,6 +476,9 @@ const eventStore = useEventStore();
 const masterDataStore = useMasterDataStore();
 
 const isImportOpen = ref(false);
+const isWalkInOpen = ref(false);
+const isJoinQrOpen = ref(false);
+const isContactEditOpen = ref(false);
 const searchQuery = ref('');
 const roleFilterIds = ref<number[]>([]);
 const statusFilterIds = ref<number[]>([]);
@@ -456,6 +511,8 @@ const eventName = computed(() => {
   if (!e) return 'Esemény';
   return e.Title || e.EventName || e.Name || 'Esemény';
 });
+
+const showJoinQr = computed(() => eventReachedCheckIn(eventId.value));
 
 const eventIsPublic = computed(() => {
   const e = dbEvent.value as Record<string, unknown> | null;
@@ -572,6 +629,9 @@ function mapParticipant(eu: EventUser): ParticipantRow {
     ticketId: nullableNumericId(eu.EventTicketID),
     templateId,
     invoiceId: eu.InvoiceID ?? null,
+    lastName: String(eu.LastName ?? eu.lastName ?? '').trim(),
+    firstName: String(eu.FirstName ?? eu.firstName ?? '').trim(),
+    phone: String(eu.PhoneNumber ?? eu.phoneNumber ?? eu.Phone ?? '').trim(),
   };
 }
 
@@ -864,6 +924,16 @@ function onInvitesImported() {
   void loadDataSheet();
 }
 
+function openContactEdit() {
+  if (!selected.value) return;
+  isContactEditOpen.value = true;
+}
+
+function onContactSaved() {
+  refreshSelected();
+  void loadDataSheet();
+}
+
 function comingSoon(label: string) {
   $q.notify({
     message: `${label} — hamarosan`,
@@ -908,6 +978,16 @@ function comingSoon(label: string) {
   text-overflow: ellipsis;
 }
 
+.part-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-right: 10px;
+}
+
+.part-add-btn,
+.part-qr-btn,
 .part-excel-btn {
   display: flex;
   align-items: center;
@@ -915,14 +995,25 @@ function comingSoon(label: string) {
   width: 48px;
   height: 48px;
   flex-shrink: 0;
-  margin-right: 10px;
-  border: 1px solid rgba(56, 189, 248, 0.32);
   border-radius: 16px;
-  background: rgba(56, 189, 248, 0.14);
-  color: #38bdf8;
   cursor: pointer;
 }
 
+.part-add-btn {
+  border: none;
+  background: #38bdf8;
+  color: #0f172a;
+}
+
+.part-excel-btn,
+.part-qr-btn {
+  border: 1px solid rgba(56, 189, 248, 0.32);
+  background: rgba(56, 189, 248, 0.14);
+  color: #38bdf8;
+}
+
+.part-add-btn:active,
+.part-qr-btn:active,
 .part-excel-btn:active {
   transform: scale(0.96);
 }

@@ -37,9 +37,9 @@ Két réteg: `tblEventActionRule` fallback + a proc egyedi blokkjai. **Ha az egy
 | `Pta.PublishRound` | `gamer` | mini (chip). Nincs Seat |
 | `Pta.PublishRound` | minden érintett `user_{EventUserID}` | **saját** `Seat` + `Player` |
 | `Pta.ClaimDesk` | organizer, contributor | **nincs** `group_{ID}` |
-| `Pta.PatchDesk` | organizer, contributor | változatlan |
+| `Pta.PatchDesk` | organizer, contributor; **plusz** mini `Pta.ShowDisplay` a `display` csoportra, ha a Display `roundstand`/`seating` és a desk a `RoundId` köre |
 | `Pta.SetDeskResults` | organizer, contributor, `user_{GameMasterID}` | `Seats[]`. **Nincs** `group_{ID}`, **nincs** játékos `user_*` |
-| `EventUser.SetStatus` / `Apply` / `Remove` | organizer + célpont `user_{UserID}` | változatlan |
+| `EventUser.SetStatus` / `Apply` / `Remove` | organizer + **`event_{id}_user_{EventUserID}`** (a célpont sora) | státusz; jegy-QR: Belépett |
 
 `SetRoundStatus` / `CloseRound` / `PublishRound`: vedd ki a RoleType fallbacket (különben újra kimegy a nagy `@Json`). A staff hallja a `gamer`-t, ne kapjon külön mini-t organizer/contributorra.
 
@@ -84,6 +84,7 @@ Ismeretlen `Action` → `ReturnValue < 0`, `ReturnDescription` pl. `Ismeretlen A
 | `Event.SetStatus` | `ToStatusID`, `PrevStatusID` | szervező adatlap státusz + undo |
 | `EventUser.SetStatus` | `EventUserID` **vagy** `EventUserUID`, opcionális `EventUserIDs`, `ToStatusID`, `PrevStatusID` | meghívó Elfogadom/Elutasítom, résztvevő státusz, undo, QR scan |
 | `EventUser.SetRating` | `EventUserID`, `Rating` (1–5 **vagy `null` = törlés**), `RatingComment?` | lezárt esemény értékelés — [`event-rating.md`](./event-rating.md) |
+| `EventUser.PatchContact` | `EventUserID`, `LastName`, `FirstName`, `Email`, `Phone?` | résztvevő név/email/telefon — import javítás |
 
 ### P1 — ugyanaz a proc, később a FE
 
@@ -97,8 +98,9 @@ Ismeretlen `Action` → `ReturnValue < 0`, `ReturnDescription` pl. `Ismeretlen A
 | `Pta.PublishRound` | `EventRoundID`, `ToStatusID` | forduló **Publikált** — státusz a gamer csoportban; Seat/Player **csak** user-csatornán |
 | `Pta.SetDeskResults` | `EventRoundDeskID`, `Seats[]` | GM pontozás: esemény **Játék** + forduló Megnyitva/Kisorsolva/Folyamatban |
 | `Pta.ClaimDesk` | `EventRoundDeskID`, `GameMasterUserID` (`null` = leadás) | asztalfoglalás |
-| `Pta.PatchDesk` | `EventRoundDeskID`, `PhotoUrl?`, `SName?` | fotó (`PhotoUrl` → `AzurePhotoUrl`) |
+| `Pta.PatchDesk` | `EventRoundDeskID`, `PhotoUrl?`, `SName?` | fotó (`PhotoUrl` → `AzurePhotoUrl`). Ha Display `roundstand`/`seating` és a desk a `RoundId` köre: mini `Pta.ShowDisplay` a `display` csoportra — [`pta-display.md`](./pta-display.md) §4.6.2 |
 | `Pta.Reset` | `ToStatusID` | helyi `resetLocalPtaEvent` — draw törlés + EventStatus |
+| `Pta.ShowDisplay` | `State`, `View`, `Scope`, `RoundId`, `GroupKey`, `Place?`, `Paused?` | PTA kivetítő. `State`: idle \| leaderboard \| seating \| ceremony \| **roundstand** |
 
 **Nem ide tartozik**
 
@@ -106,6 +108,10 @@ Ismeretlen `Action` → `ReturnValue < 0`, `ReturnDescription` pl. `Ismeretlen A
 |---|---|
 | `POST /event/save` | varázsló create/update snapshot |
 | `POST /event/invite/import` | Excel meghívó + Outbox/MailerSend — PTA grouping: [`event-invite-import.md`](./event-invite-import.md) |
+| `POST /event/invite/walkin` | kézi felvétel + meghívó mail; státusz az esemény fázisától: [`event-walkin-register.md`](./event-walkin-register.md) |
+| `GET /event/join/:eventUid` + `POST /event/join` | kivetített EventUID QR, vendég self-check-in: [`event-join-checkin.md`](./event-join-checkin.md) |
+| `POST /pta/display-token` + `GET /pta/display/:id` | PTA TV/PIN kivetítő: [`pta-display.md`](./pta-display.md) |
+| Olimpub (`EventType` 43, `OP` séma) | [`olimpub-backend.md`](./olimpub-backend.md) — `POST /op/change`, nem `Pta.*`. Termék: [`olimpub.md`](./olimpub.md) |
 | `POST /user/save` | profil |
 
 QR scan **nem** külön API: `EventUser.SetStatus` + `EventUserUID` + `ToStatusID` = Belépett.
@@ -277,9 +283,57 @@ Batch-nél `PrevStatusID` lehet `null` (a FE nem rekordol undo-t tömegesen), va
 }
 ```
 
-A QR tartalma az EventUserUID (GUID). A scan UI ma még csak validál, P0-ban ez a POST teszi Belépettre.
+A QR tartalma az EventUserUID (GUID). A scan oldal ezt a POST-ot küldi, cél státusz **Belépett**.
+
+**SignalR (jegyolvasás):** a DB-írás után Outbox a **szervező** csoportra **és** a beléptetett sor `event_{EventID}_user_{EventUserID}` csoportjára. Payload: `Action`, `EventID`, `EventUserID`, `EventUserUID`, `ToStatusID`, `PrevStatusID`. A vendég az esemény adatlapján (`/event/:id`) már joinol erre a privát csoportra, toast + automatikus Belépés. Ha csak az organizer csoport megy ki, a vendég kártyája nem frissül, amíg GET `/event/data` le nem fut.
+
+Ne `user_{UserID}`-re címezz (az nem a join név). A join: `event_{id}_user_{EventUserID}`.
 
 ---
+
+## 4b. `EventUser.PatchContact`
+
+Szervező javítja a résztvevő név / e-mail / telefon mezőit (Excel import elírás). **Nem** `POST /user/save`. A teszt API a globális `tblUser` fiókot és a login e-mailt is átírja; foglalt e-mail → **409**.
+
+```json
+{
+  "EventID": 40,
+  "Action": "EventUser.PatchContact",
+  "Payload": {
+    "EventUserID": 321,
+    "LastName": "Kovács",
+    "FirstName": "Anna",
+    "Email": "anna@example.com",
+    "Phone": "+36301234567"
+  }
+}
+```
+
+HU alias oké: `Családnév` → `LastName`, `Keresztnév` → `FirstName`, `Email-cím` → `Email`, `Telefonszám` → `Phone`. Üres `Phone` / `null` = törlés.
+
+Auth: Bearer, **szervező** az EventID-n. Játékmester **403**.
+
+### Validáció
+
+1. `EventUserID` az EventID-hez tartozik, ActiveFlg = 1. Különben 404/400.
+2. `LastName`, `FirstName` nem üres.
+3. `Email` kötelező, érvényes e-mail. 400 `Add meg az e-mail címet.` / `Érvénytelen e-mail cím.`
+4. `Phone` opcionális. Ha ki van töltve: HU szám. 400 `Érvénytelen telefonszám.`
+5. Duplikátum ugyanazon az eseményen, **más** aktív EventUser, normalizált e-mail **vagy** kitöltött telefon egyezik → 409 `Ez a résztvevő már szerepel a listán.`
+
+### Mentés
+
+1. UPDATE EventUser / EventParticpants: `LastName`, `FirstName`, `EmailAddress`, `PhoneNumber`.
+2. PTA: ha van `EventPlayer` erre az EventUserID-re, `Name` = `LastName + ' ' + FirstName` (és First/Last ha vannak oszlopok).
+3. Invitation / Outbox: **ne** küldj új meghívót. A már kiment mailt nem kell visszavonni.
+4. `tblUser` / login identifier: a **teszt API jelenleg felülírja** a globális fiókot és a login e-mailt. Foglalt e-mail → **409**. A FE lista újratölt + 409 üzenet. (Korábbi szerződés: ne nyúlj a `tblUser`-hez — a live BE ettől eltér.)
+
+200: `{ "ReturnValue": 1, "ReturnDescription": "OK", "EventID": 40, "Action": "EventUser.PatchContact" }`
+
+SignalR: opcionális `event_{id}_organizer`. A hívó FE GET userdata-t hív.
+
+---
+
 
 ## 4a. `EventUser.SetRating`
 
@@ -525,7 +579,7 @@ A játékos kliens innentől mutatja: összeg, kamion, pont. `Final*` csak esem�
 
 **Első eredmény:** ha a forduló még nem Folyamatban, állítsd Folyamatban-ra (ugyanabban a tranban), és küldj `Pta.SetRoundStatus` **minit** a gamer csoportba. A FE is meghívja `Pta.SetRoundStatus`-t — idempotens legyen.
 
-**SignalR:** organizer + contributor + az asztal GM `user_{GameMasterID}`. **Ne** `group_{ID}`, **ne** játékos `user_{PlayerID}` — a játékos a pontot `Pta.PublishRound` személyes JSON-ból kapja.
+**SignalR:** organizer + contributor + az asztal GM `user_{GameMasterID}`. **Ne** `group_{ID}`, **ne** játékos `user_{PlayerID}` — a játékos a pontot `Pta.PublishRound` személyes JSON-ból kapja. Ha Display `roundstand`/`seating` és a desk a `RoundId` köre: plusz mini `Pta.ShowDisplay` a `display` csoportra (mint `PatchDesk`).
 
 **Nem írja** a `tblEventRoundDesk` asztalmezőit. A FE küldhet `ManualOrderFlg` / `SName` mezőt, a backend **eldobja**. Asztal „Lezárva” / fotó: `Pta.PatchDesk`. Ranglista: nem itt frissül, hanem **`Pta.PublishRound` után**.
 
@@ -546,6 +600,8 @@ Csak `EventRoundDeskID` — a fizikai `EventDesk` GM mezőjét a proc nem tölti
 ```
 
 `PhotoUrl` a payloadban marad; a SQL `tblEventRoundDesk.AzurePhotoUrl`-be menti. GET-ben a FE `AzurePhotoUrl` (fallback: `PhotoUrl`) mezőt olvassa. `SName` opcionális asztalstátusz (pl. Lezárt), ha a proc támogatja.
+
+**SignalR:** organizer + contributor. **Ha** `PtaDisplayState.State` = `roundstand` vagy `seating` **és** a desk `EventRoundID` = `PtaDisplayState.RoundId`: küldj **plusz** mini `Pta.ShowDisplay`-t (aktuális State, View, RoundId) **csak** `event_{EventID}_display`-re. Nincs Rows. Részlet: [`pta-display.md`](./pta-display.md) §4.6.2.
 
 ### `Pta.Reset`
 
@@ -610,6 +666,12 @@ BEGIN
       -- saját sor, esemény lezárt, nem szervező
       -- null → Rating és RatingComment NULL; 1..5 → upsert
     END
+    ELSE IF @Action = N'EventUser.PatchContact'
+    BEGIN
+      -- Payload.EventUserID + LastName + FirstName + Email + Phone
+      -- szervező; EventUser/EventParticpants + opcionális EventPlayer.Name
+      -- ne nyúlj tblUser-hez; ne küldj meghívót
+    END
     ELSE IF @Action = N'EventUser.Apply'
     BEGIN
       -- INSERT EventUser
@@ -619,7 +681,8 @@ BEGIN
       -- ActiveFlg = 0
     END
     ELSE IF @Action IN (N'Pta.ReplaceDraw', N'Pta.SetRoundStatus', N'Pta.CloseRound', N'Pta.PublishRound',
-                        N'Pta.SetDeskResults', N'Pta.ClaimDesk', N'Pta.PatchDesk', N'Pta.Reset')
+                        N'Pta.SetDeskResults', N'Pta.ClaimDesk', N'Pta.PatchDesk', N'Pta.Reset',
+                        N'Pta.ShowDisplay')
     BEGIN
       -- P1
     END
@@ -728,6 +791,7 @@ A FE utána GET-el. A proc **ne** adja vissza a teljes userdata snapshotot.
 | Undo event | ugyanott, `PrevEventStatusID` → `ToStatusID`, `PrevStatusID: null` |
 | `EventUser.SetStatus` | `EventParticipantsPage.vue`, `ParticipantsPage.vue` (PTA), `InviteDecisionSheet.vue` → `applyEventUserStatus` |
 | `EventUser.SetRating` | `EventClosedFollowUp.vue` — játékos / JM / közreműködő, lezárt esemény |
+| `EventUser.PatchContact` | `ParticipantsPage.vue` (PTA), `EventParticipantsPage.vue` |
 | QR UID | `EventTicketScanPage.vue` + `src/utils/eventUserQr.ts` — ma csak validál |
 | PTA draw | `eventStore.runPtaDraw` / `OrganizerPage` sorsolás státusznál |
 | PTA round / desk | `GamePage.vue` → eredmény csak Játék + nyitott/folyamatban forduló; első pontozás `Pta.SetRoundStatus` Folyamatban; `CloseRound` / `PublishRound` gamer csoport |

@@ -18,6 +18,8 @@ function routeNameToKind(name: unknown): EventDatasheetKind | null {
     case 'profitability-participants':
     case 'profitability-game':
     case 'profitability-results':
+    case 'profitability-vetites':
+    case 'profitability-display':
       return 'organizer';
     case 'event_contribute':
     case 'profitability-gamemaster':
@@ -50,6 +52,12 @@ export function resolveEventLiveJoin(
     if (kind) {
       picked = roles.find((row) => eventDatasheetKind(row, id) === kind) || null;
     }
+  }
+  if (!picked && String(route?.name || '') === 'event_details') {
+    picked =
+      roles.find((row) => eventDatasheetKind(row, id) === 'player') ||
+      roles.find((row) => !row.isOrganizer) ||
+      null;
   }
   if (!picked) picked = roles[0] || null;
 

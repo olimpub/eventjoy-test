@@ -135,7 +135,7 @@ function eventStatusContext(eventId: string | number) {
   };
 }
 
-function eventReachedCheckIn(eventId: string | number): boolean {
+export function eventReachedCheckIn(eventId: string | number): boolean {
   const ctx = eventStatusContext(eventId);
   return eventStatusReachedCheckIn(ctx.master.eventStatuses, ctx.master.eventFlowStatuses, ctx.statusId, {
     eventFlowId: ctx.eventFlowId,
@@ -202,6 +202,17 @@ export function playerEnterBlocked(
     return 'A belépés a jegyed leolvasása után érhető el.';
   }
   return null;
+}
+
+export function isPlayerWaitingForTicketScan(
+  eventId: string | number,
+  roles?: EnterableEventRole[]
+): boolean {
+  const list = roles ?? useEventStore().getEnterableRolesForEvent(eventId);
+  return list.some((role) => {
+    if (eventDatasheetKind(role, eventId) !== 'player') return false;
+    return eventReachedCheckIn(eventId) && !roleCheckedIn(eventId, role);
+  });
 }
 
 export function eventRoleEnterBlocked(

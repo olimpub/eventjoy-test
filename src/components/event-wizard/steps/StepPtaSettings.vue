@@ -276,10 +276,10 @@ const masterData = useMasterDataStore();
 const typeIconResolved = computed(() => resolveTypeIcon(props.typeIcon));
 
 const pointSlots = [
-  { key: 'ptaPoint1' as const, label: '1. hely', fallback: 10 },
-  { key: 'ptaPoint2' as const, label: '2. hely', fallback: 7 },
-  { key: 'ptaPoint3' as const, label: '3. hely', fallback: 5 },
-  { key: 'ptaPoint4' as const, label: '4. hely', fallback: 3 },
+  { key: 'ptaPoint1' as const, label: '1. hely', fallback: 8 },
+  { key: 'ptaPoint2' as const, label: '2. hely', fallback: 4 },
+  { key: 'ptaPoint3' as const, label: '3. hely', fallback: 2 },
+  { key: 'ptaPoint4' as const, label: '4. hely', fallback: 0 },
 ];
 
 const gameTypeOptions = computed(() =>

@@ -3,7 +3,6 @@ import { Notify } from 'quasar';
 import { nullableNumericId, throwIfApiFailed } from 'src/utils/apiPayload';
 import { useEventStore } from 'src/stores/event';
 import { useMasterDataStore } from 'src/stores/masterData';
-import { isEventUserCheckedInName } from 'src/utils/eventRoleNav';
 import { findPtaPlayerForEventUser, ptaDeskNumber, ptaEventPlayerId, ptaEventRoundId, ptaRoundDeskId, ptaSchedulePlayerId, ptaScheduleRoundDeskId } from 'src/modules/profitability/ptaData';
 import { findEventStatusIdByNameHints } from 'src/utils/eventFlow';
 import type { SignalRLiveRole } from 'src/utils/eventRoleNav';
@@ -320,6 +319,7 @@ export const SIGNALR_LIVE_ACTIONS = [
   'Pta.ClaimDesk',
   'Pta.PatchDesk',
   'Pta.Reset',
+  'Pta.ShowDisplay',
 ] as const;
 
 export interface LiveChangeContext {
@@ -338,14 +338,14 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
-function notifyCheckIn() {
+export function notifyTicketScanSuccess() {
   Notify.create({
-    message: 'Sikeres beléptetés. Jó szórakozást!',
+    message: 'Sikeres jegyolvasás',
     color: 'dark',
     textColor: 'green-4',
     icon: 'sym_r_check_circle',
     position: 'top',
-    timeout: 2800,
+    timeout: 2400,
     classes: 'ej-notify',
   });
 }
@@ -634,16 +634,6 @@ export function applyLiveChange(
   if (msg.Action === 'EventUser.SetStatus') {
     eventStore.applyEventUserChangePayload(msg.Payload, false);
     const toId = nullableNumericId(msg.Payload.ToStatusID ?? msg.Payload.toStatusID);
-    const myId = context?.eventUserId ?? null;
-    if (toId != null && myId != null) {
-      const ids = eventStore.collectEventUserIdsFromPayload(msg.Payload);
-      if (ids.includes(myId)) {
-        const master = useMasterDataStore();
-        if (isEventUserCheckedInName(master.getEventUserStatusName(toId))) {
-          notifyCheckIn();
-        }
-      }
-    }
     inbound(true, `keys=${payloadKeyList(msg.Payload)}`, toId);
     return;
   }
@@ -741,6 +731,9 @@ export function applyLiveChange(
     }
     applyLiveDeskResults(eventId, msg.Payload);
     inbound(true, `keys=${payloadKeyList(msg.Payload)}`);
+    void import('src/modules/profitability/ptaDisplayApi').then((mod) => {
+      mod.emitPtaDeskDisplayDirty(eventId);
+    });
     return;
   }
 
@@ -786,6 +779,9 @@ export function applyLiveChange(
     if (sName) patch.SName = sName;
     eventStore.applyEventRoundDeskPatch(eventId, roundDeskId, patch);
     inbound(true, `desk=${roundDeskId}`);
+    void import('src/modules/profitability/ptaDisplayApi').then((mod) => {
+      mod.emitPtaDeskDisplayDirty(eventId);
+    });
     return;
   }
 
@@ -797,6 +793,17 @@ export function applyLiveChange(
     const toId = nullableNumericId(msg.Payload.ToStatusID ?? msg.Payload.toStatusID);
     eventStore.resetLocalPtaEvent(eventId, { toStatusId: toId, persistLocal: false });
     inbound(true, `reset to=${toId}`, toId);
+    return;
+  }
+
+  if (msg.Action === 'Pta.ShowDisplay') {
+    void import('src/modules/profitability/ptaDisplayApi').then((mod) => {
+      mod.emitPtaShowDisplayPing(
+        { ...msg, ...msg.Payload },
+        eventId
+      );
+    });
+    inbound(true, `display ${String(msg.Payload.State ?? '')}`);
     return;
   }
 

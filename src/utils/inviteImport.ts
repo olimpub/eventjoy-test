@@ -343,7 +343,12 @@ function cellAt(cells: string[], index: number): string {
 
 function looksLikeHeader(row: string[]): boolean {
   const key = headerKey(row.join(' '));
-  return key.includes('vezeteknev') || key.includes('emailcim') || key.includes('szerepkor');
+  return (
+    key.includes('vezeteknev') ||
+    key.includes('csaladnev') ||
+    key.includes('emailcim') ||
+    key.includes('szerepkor')
+  );
 }
 
 export function missingInviteGroupingHeaders(
@@ -364,36 +369,164 @@ export function missingInviteGroupingHeaders(
   return missing;
 }
 
-/** Csapat / Szervezet / Régió / Cég csak játékosnál kötelező — játékmesternek és szervezőnek nincs. */
-export function inviteRoleNeedsGrouping(roleName: string): boolean {
-  const hay = foldHu(roleName);
-  if (!hay) return false;
-  if (
+export type InviteImportRoleKind = 'player' | 'staff' | 'unknown';
+
+export interface InviteImportRoleCatalogEntry {
+  name: string;
+  kind: InviteImportRoleKind;
+}
+
+export interface InviteImportRoleCatalog {
+  roles: InviteImportRoleCatalogEntry[];
+  tickets: InviteImportRoleCatalogEntry[];
+}
+
+function isStaffRoleHay(hay: string): boolean {
+  return (
     hay.includes('jatekmester') ||
     hay.includes('gamemaster') ||
-    hay.includes('game master')
-  ) {
-    return false;
-  }
-  if (hay.includes('szervez') || hay.includes('organizer')) return false;
+    hay.includes('game master') ||
+    hay.includes('szervez') ||
+    hay.includes('organizer')
+  );
+}
+
+function isPlayerRoleHay(hay: string): boolean {
+  if (!hay || isStaffRoleHay(hay)) return false;
   return (
     hay.includes('jatekos') ||
     hay.includes('reszvev') ||
     hay.includes('participant') ||
-    hay.includes('player') ||
+    hay === 'player' ||
+    hay.startsWith('player ') ||
+    hay.endsWith(' player') ||
     hay.includes('versenyz')
   );
 }
 
+export function inviteRoleKindFromName(name: string): InviteImportRoleKind {
+  const hay = foldHu(name);
+  if (!hay) return 'unknown';
+  if (isStaffRoleHay(hay)) return 'staff';
+  if (isPlayerRoleHay(hay)) return 'player';
+  return 'unknown';
+}
+
+function matchCatalogKind(
+  value: string,
+  entries: InviteImportRoleCatalogEntry[] | undefined
+): InviteImportRoleKind | null {
+  const key = foldHu(value);
+  if (!key || !entries?.length) return null;
+  for (const entry of entries) {
+    if (foldHu(entry.name) === key && entry.kind !== 'unknown') return entry.kind;
+  }
+  return null;
+}
+
+function resolveInviteImportKind(
+  value: string,
+  entries?: InviteImportRoleCatalogEntry[]
+): InviteImportRoleKind {
+  return matchCatalogKind(value, entries) || inviteRoleKindFromName(value);
+}
+
+/**
+ * Csoportosítás csak játékosnál kötelező.
+ * Szervező / játékmester a Szerepkör VAGY a Jegy mezőből felismerve kimarad
+ * (a sablonban a két oszlop gyakran keveredik, és szervező jegy sincs).
+ */
+export function inviteRowNeedsGrouping(
+  row: Pick<InviteImportRow, 'Szerepkör' | 'Jegy'>,
+  catalog?: InviteImportRoleCatalog | null
+): boolean {
+  const roleKind = resolveInviteImportKind(row.Szerepkör, catalog?.roles);
+  const ticketKind = resolveInviteImportKind(row.Jegy, catalog?.tickets);
+  if (roleKind === 'staff' || ticketKind === 'staff') return false;
+  return roleKind === 'player' || ticketKind === 'player';
+}
+
+/** @deprecated használd az inviteRowNeedsGrouping-ot — a jegy oszlopot is nézni kell. */
+export function inviteRoleNeedsGrouping(roleName: string): boolean {
+  return inviteRowNeedsGrouping({ Szerepkör: roleName, Jegy: '' });
+}
+
+export function buildInviteImportRoleCatalog(input: {
+  eventId: string | number;
+  eventRoles: unknown[];
+  tickets: unknown[];
+  roleTickets?: unknown[];
+  getRoleName: (roleId: number) => string;
+  kindFromRoleId: (roleId: number | null, name: string) => InviteImportRoleKind;
+}): InviteImportRoleCatalog {
+  const target = String(input.eventId);
+  const roles: InviteImportRoleCatalogEntry[] = [];
+  const roleKindByEventRoleId = new Map<string, InviteImportRoleKind>();
+
+  for (const raw of input.eventRoles || []) {
+    if (!raw || typeof raw !== 'object') continue;
+    const row = raw as Record<string, unknown>;
+    if (!isActiveFlag(row.ActiveFlg ?? row.activeFlg)) continue;
+    const rowEventId = row.EventID ?? row.eventID ?? row.EventId;
+    if (rowEventId != null && String(rowEventId) !== target) continue;
+    const masterRoleId = nullableNumericId(row.RoleID ?? row.RoleId ?? row.roleID);
+    const name =
+      String(row.RoleName ?? row.roleName ?? row.Name ?? '').trim() ||
+      (masterRoleId != null ? input.getRoleName(masterRoleId) : '');
+    const masterName = masterRoleId != null ? input.getRoleName(masterRoleId).trim() : '';
+    const kind = input.kindFromRoleId(masterRoleId, name || masterName);
+    const eventRoleId = row.id ?? row.ID ?? row.EventRoleID ?? row.eventRoleID;
+    if (eventRoleId != null && eventRoleId !== '') {
+      roleKindByEventRoleId.set(String(eventRoleId), kind);
+    }
+    if (name) roles.push({ name, kind });
+    if (masterName && foldHu(masterName) !== foldHu(name)) roles.push({ name: masterName, kind });
+  }
+
+  const tickets: InviteImportRoleCatalogEntry[] = [];
+  for (const raw of input.tickets || []) {
+    if (!raw || typeof raw !== 'object') continue;
+    const row = raw as Record<string, unknown>;
+    if (!isActiveFlag(row.ActiveFlg ?? row.activeFlg)) continue;
+    const rowEventId = row.EventID ?? row.eventID ?? row.EventId;
+    if (rowEventId != null && String(rowEventId) !== target) continue;
+    const name = String(row.TicketName ?? row.ticketName ?? row.Name ?? row.name ?? '').trim();
+    if (!name) continue;
+    const ticketId = row.id ?? row.ID ?? row.EventTicketID ?? row.eventTicketID;
+    const linked: InviteImportRoleKind[] = [];
+    if (ticketId != null && ticketId !== '') {
+      for (const linkRaw of input.roleTickets || []) {
+        if (!linkRaw || typeof linkRaw !== 'object') continue;
+        const link = linkRaw as Record<string, unknown>;
+        const linkTicketId =
+          link.EventTicketID ?? link.eventTicketID ?? link.EventTicketId ?? link.TicketID;
+        if (linkTicketId == null || String(linkTicketId) !== String(ticketId)) continue;
+        const linkRoleId = link.EventRoleID ?? link.eventRoleID ?? link.EventRoleId;
+        if (linkRoleId == null) continue;
+        const linkedKind = roleKindByEventRoleId.get(String(linkRoleId));
+        if (linkedKind) linked.push(linkedKind);
+      }
+    }
+    let kind: InviteImportRoleKind = 'unknown';
+    if (linked.includes('staff')) kind = 'staff';
+    else if (linked.includes('player')) kind = 'player';
+    else kind = inviteRoleKindFromName(name);
+    tickets.push({ name, kind });
+  }
+
+  return { roles, tickets };
+}
+
 export function listInviteGroupingCellErrors(
   rows: InviteImportRow[],
-  grouping: EventGroupingAttr[] = []
+  grouping: EventGroupingAttr[] = [],
+  catalog?: InviteImportRoleCatalog | null
 ): InviteImportErrorRow[] {
   if (!grouping.length) return [];
   const errors: InviteImportErrorRow[] = [];
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
-    if (!inviteRoleNeedsGrouping(row.Szerepkör)) continue;
+    if (!inviteRowNeedsGrouping(row, catalog)) continue;
     const missing = grouping
       .filter((attr) => {
         const col = INVITE_GROUPING_COLUMNS.find((item) => item.key === attr.key);
@@ -418,15 +551,14 @@ function mapGridToInvites(grid: string[][]): InviteImportRow[] {
 
   const header = grid[0].map((cell) => String(cell || '').trim());
   const named = {
-    last: columnIndex(header, 'vezeteknev'),
-    first: columnIndex(header, 'keresztnev'),
-    email: columnIndex(header, 'emailcim', 'email-cim', 'email', 'e-mail', 'mail'),
-    phone: columnIndex(header, 'telefonszam', 'telefon', 'telszam'),
-    role: columnIndex(header, 'szerepkor'),
-    ticket: columnIndex(header, 'jegy'),
+    last: columnIndex(header, 'vezeteknev', 'csaladnev', 'lastname'),
+    first: columnIndex(header, 'keresztnev', 'firstname'),
+    email: columnIndex(header, 'emailcim', 'email', 'mail'),
+    phone: columnIndex(header, 'telefonszam', 'telefon', 'telszam', 'mobil', 'phone'),
+    role: columnIndex(header, 'szerepkor', 'role', 'rolename'),
+    ticket: columnIndex(header, 'jegy', 'ticket', 'ticketname'),
   };
-  const hasNames = Object.values(named).every((idx) => idx >= 0);
-  const cols = hasNames
+  const cols = looksLikeHeader(header)
     ? named
     : { last: 0, first: 1, email: 2, phone: 3, role: 4, ticket: 5 };
   const groupingIdx = INVITE_GROUPING_COLUMNS.map((col) => ({
@@ -509,6 +641,11 @@ function ssRow(cells: string[]): string {
     .join('\n')}\n    </Row>`;
 }
 
+function pickExampleName(names: string[], fallback: string): string {
+  const player = names.find((name) => inviteRoleKindFromName(name) === 'player');
+  return player || names[0] || fallback;
+}
+
 function exampleRow(hints: InviteTemplateHints): string[] {
   const grouping = hints.grouping || [];
   const extra = grouping.map((attr) => {
@@ -522,8 +659,8 @@ function exampleRow(hints: InviteTemplateHints): string[] {
     'Anna',
     EXAMPLE_EMAIL,
     '+36301234567',
-    hints.roles[0] || 'Résztvevő',
-    hints.tickets[0] || 'Normál',
+    pickExampleName(hints.roles, 'Játékos'),
+    pickExampleName(hints.tickets, 'Játékos'),
     ...extra,
   ];
 }
@@ -597,7 +734,7 @@ function looksLikeOle(bytes: Uint8Array): boolean {
 
 export async function parseInviteFile(
   file: File,
-  grouping: EventGroupingAttr[] = []
+  _grouping: EventGroupingAttr[] = []
 ): Promise<InviteImportRow[]> {
   const buffer = await file.arrayBuffer();
   let strGrid: string[][] = [];
@@ -612,20 +749,14 @@ export async function parseInviteFile(
     throw new Error('A fájl nem olvasható. Győződj meg róla, hogy valós .xlsx fájl.');
   }
 
-  const missing = missingInviteGroupingHeaders(strGrid, grouping);
-  if (missing.length) {
-    throw new Error(
-      `A sablonból hiányzik: ${missing.join(', ')}. Töltsd le az aktuális sablont.`
-    );
-  }
-
   return mapGridToInvites(strGrid);
 }
 
 export function toInviteImportPayload(
   eventId: number,
   rows: InviteImportRow[],
-  grouping: EventGroupingAttr[] = []
+  grouping: EventGroupingAttr[] = [],
+  catalog?: InviteImportRoleCatalog | null
 ): InviteImportPayload {
   const enabled = new Set(grouping.map((attr) => attr.key));
   return {
@@ -639,7 +770,7 @@ export function toInviteImportPayload(
         Szerepkör: row.Szerepkör,
         Jegy: row.Jegy,
       };
-      if (inviteRoleNeedsGrouping(row.Szerepkör)) {
+      if (inviteRowNeedsGrouping(row, catalog)) {
         for (const col of INVITE_GROUPING_COLUMNS) {
           if (!enabled.has(col.key)) continue;
           invitation[col.jsonField] = String(row[col.jsonField] || '').trim();

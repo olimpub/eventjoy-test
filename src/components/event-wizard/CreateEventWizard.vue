@@ -1334,6 +1334,33 @@ async function onFinish() {
     flex-wrap: wrap;
   }
 
+  .wizard-cover {
+    overflow: hidden;
+    border-radius: 14px;
+    border: 1px dashed rgba(255, 255, 255, 0.14);
+    background: rgba(15, 23, 42, 0.45);
+    min-height: 140px;
+  }
+
+  .wizard-cover__img {
+    display: block;
+    width: 100%;
+    height: 160px;
+    object-fit: cover;
+  }
+
+  .wizard-cover__empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 140px;
+    color: #64748b;
+    font-size: 13px;
+    font-weight: 700;
+  }
+
   .wizard-field-label {
     font-size: 11px;
     font-weight: 700;

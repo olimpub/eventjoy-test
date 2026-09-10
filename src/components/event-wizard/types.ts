@@ -92,7 +92,7 @@ export interface WizardBasics {
   labels: WizardLabelItem[];
   roles: WizardEventRole[];
   tickets: WizardTicket[];
-  /** tblEvent.EventImageUrl — csak roundtrip, a varázsló nem tölti */
+  /** tblEvent.EventImageUrl — a Szerkesztés alapadatai mutatják; feltöltés később */
   eventImageUrl: string | null;
   /** Kapcsolattartó — 3. lépés */
   contactKind: 'person' | 'organization';
@@ -161,10 +161,10 @@ export function createEmptyBasics(): WizardBasics {
     ptaChampionshipId: null,
     ptaChampionshipFlg: false,
     ptaCategory: 1,
-    ptaPoint1: 10,
-    ptaPoint2: 7,
-    ptaPoint3: 5,
-    ptaPoint4: 3,
+    ptaPoint1: 8,
+    ptaPoint2: 4,
+    ptaPoint3: 2,
+    ptaPoint4: 0,
     ptaMaxParticipants: null,
     ptaOrganizationGrpFlg: false,
     ptaTeamGrpFlg: false,

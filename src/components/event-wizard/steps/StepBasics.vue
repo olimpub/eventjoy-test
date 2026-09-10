@@ -52,6 +52,23 @@
       />
     </div>
 
+    <div class="wizard-form-card">
+      <label class="wizard-field-label">Borítókép</label>
+      <div class="wizard-cover">
+        <img
+          v-if="basics.eventImageUrl"
+          :src="basics.eventImageUrl"
+          alt="Borítókép"
+          class="wizard-cover__img"
+        />
+        <div v-else class="wizard-cover__empty">
+          <q-icon name="sym_r_add_a_photo" size="28px" />
+          <span>Még nincs borítókép</span>
+        </div>
+      </div>
+      <p class="wizard-field-hint">A feltöltés formátumait később állítjuk be.</p>
+    </div>
+
   <!-- Időpont -->
     <div class="wizard-form-card">
       <div class="wizard-form-card__head">

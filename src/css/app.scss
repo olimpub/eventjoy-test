@@ -39,6 +39,10 @@ body {
   position: relative;
 }
 
+.ej-app__main--flush {
+  overflow: hidden;
+}
+
 .ej-bottom-nav {
   position: relative;
   z-index: 40;

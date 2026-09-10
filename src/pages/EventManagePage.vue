@@ -467,9 +467,8 @@ const manageActions = computed(() => {
   }> = [
     { id: 'participants', label: 'Résztvevők', icon: 'sym_r_group', onClick: openParticipants },
     { id: 'edit', label: 'Szerkesztés', icon: 'sym_r_edit_square', onClick: openWizard },
-    { id: 'cover', label: 'Borítókép', icon: 'sym_r_add_a_photo', onClick: () => comingSoon('Borítókép', 'sym_r_add_a_photo') },
-    { id: 'program', label: 'Programok', icon: 'sym_r_view_timeline', onClick: openProgramEditor },
     { id: 'tickets', label: 'Jegykezelés', icon: 'sym_r_qr_code_scanner', onClick: openScan },
+    { id: 'program', label: 'Programok', icon: 'sym_r_view_timeline', onClick: openProgramEditor },
     { id: 'files', label: 'Anyagok', icon: 'sym_r_folder', onClick: () => comingSoon('Anyagok', 'sym_r_folder') },
     {
       id: 'messages',

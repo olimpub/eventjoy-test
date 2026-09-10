@@ -129,6 +129,18 @@ Lezárt / Publikált célra a FE `CloseRound` / `PublishRound`-ot hív, **ne** `
 
 ---
 
+## 4. PTA Display (eredmény-kivetítő)
+
+Teljes szerződés (PIN token, GET payload, join kivétel): [`pta-display.md`](./pta-display.md).
+
+Új csoport: `event_{EventID}_display`. `Pta.ShowDisplay` mini **csak** ide (State, View, Scope, RoundId, GroupKey, Place). Nincs Rows. `State` fogadja: `idle` \| `leaderboard` \| `seating` \| `ceremony` \| `roundstand`.
+
+`Pta.PatchDesk` / `Pta.SetDeskResults`: ha a Display `roundstand` vagy `seating` és a desk a `RoundId` köre, **ugyanilyen mini ShowDisplay** a `display` csoportra — a PIN-es TV GET-el. Részlet: [`pta-display.md`](./pta-display.md) §4.6.2.
+
+`POST /signalr/join` display-tokennel (`X-Pta-Display-Token`): `groupNames` **csak** `event_{id}_display`. Ez a § eleji „három csoport + eventUserId” szabály **alól kivétel**. JWT `/display`: a három csoport **plusz** `display`, szerv/QM. PIN-es TV nem joinol `gamer` / `participant` / role / `user_*` csoportot.
+
+---
+
 ## Ellenőrzőlista
 
 - [ ] `ReplaceDraw` + `Reset` Outbox: van `event_{id}_gamer` (nagy snapshot vagy ping)
@@ -138,3 +150,6 @@ Lezárt / Publikált célra a FE `CloseRound` / `PublishRound`-ot hív, **ne** `
 - [ ] `PublishRound`: ciklus az aktív üléseken → `user_{EventUserID}` saját `Seat` + `Player`
 - [ ] `SetDeskResults` **nem** megy játékos `user_*` csatornára
 - [ ] Join továbbra is elfogadja a `gamer` csoportnevet
+- [ ] Display-token join: csak `event_{id}_display`; gamer/role/user kérés 403
+- [ ] `Pta.ShowDisplay` Outbox csak a `display` csoportra, mini, nincs Rows
+- [ ] `PatchDesk` Lezárt + Display `roundstand` → mini ShowDisplay a `display` csoportra

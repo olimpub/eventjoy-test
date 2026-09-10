@@ -21,10 +21,10 @@ export interface ScoreSeat {
 
 export function placementBonus(place: number, settings: PtaEventSettings | null | undefined): number {
   if (!settings || place < 1) return 0;
-  if (place === 1) return Number(settings.Point1 ?? 10);
-  if (place === 2) return Number(settings.Point2 ?? 7);
-  if (place === 3) return Number(settings.Point3 ?? 5);
-  if (place === 4) return Number(settings.Point4 ?? 3);
+  if (place === 1) return Number(settings.Point1 ?? 8);
+  if (place === 2) return Number(settings.Point2 ?? 4);
+  if (place === 3) return Number(settings.Point3 ?? 2);
+  if (place === 4) return Number(settings.Point4 ?? 0);
   return 0;
 }
 

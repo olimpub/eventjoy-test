@@ -26,10 +26,10 @@
             />
             <p v-if="step === 'identity'" class="login-tagline">{{ EVENTJOY_BRAND.tagline }}</p>
             <h1 class="login-title">
-              {{ step === 'identity' ? 'Üdvözlünk az EventJoy-ban!' : (step === 'register' ? 'Hozd létre a fiókod' : 'Üdv újra!') }}
+              {{ step === 'identity' ? 'Üdvözlünk az EventJoy-ban!' : 'Üdv újra!' }}
             </h1>
             <p class="login-subtitle">
-              {{ step === 'identity' ? 'Kérlek, add meg az azonosítód a folytatáshoz.' : (step === 'register' ? 'Úgy látjuk, új vagy nálunk! Állíts be egy jelszót.' : 'Kérlek, igazold a személyazonosságod.') }}
+              {{ step === 'identity' ? 'Kérlek, add meg az azonosítód a folytatáshoz.' : 'Kérlek, igazold a személyazonosságod. Kódot küldünk, jelszó nem kell.' }}
             </p>
           </div>
 
@@ -298,21 +298,28 @@
 
 <script setup lang="ts">
 import { ref, watch, nextTick } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useQuasar } from 'quasar'
 import { useAuthStore } from 'src/stores/auth'
 import { api } from 'src/boot/axios'
 import { AsYouType, isValidPhoneNumber } from 'libphonenumber-js'
 import { fetchSocialProfile, socialApiErrorMessage, SocialAuthError } from 'src/utils/socialAuth'
 import { EVENTJOY_BRAND } from 'src/assets/brand/eventjoy'
+import { safeLoginNextPath } from 'src/utils/eventJoin'
 import PtaBusyOverlay from 'src/modules/profitability/components/PtaBusyOverlay.vue'
 import SocialProviderIcon from 'src/components/brand/SocialProviderIcon.vue'
 
 const router = useRouter()
+const route = useRoute()
 const $q = useQuasar()
 const authStore = useAuthStore()
 const workBusy = ref(false)
 const workLabel = ref('Bejelentkezés…')
+
+function goAfterLogin() {
+  const next = safeLoginNextPath(route.query.next)
+  void router.replace(next || '/')
+}
 
 // State
 const step = ref<'identity' | 'password' | 'otp' | 'register'>('identity')
@@ -320,7 +327,6 @@ const identity = ref('')
 const password = ref('')
 const otpCode = ref('')
 const showPassword = ref(false)
-const tempUserId = ref<number | null>(null)
 const loginType = ref<'email' | 'phone'>('email')
 
 // --- TELEFONSZÁM FORMÁZÓ LOGIKA (libphonenumber-js) ---
@@ -379,24 +385,12 @@ async function handleCheckIdentity() {
     const result = await authStore.checkIdentity(rawIdentity)
     hideLoading()
     
-    if (result.StatusID === 4) {
+    if (result?.StatusID === 4) {
       showToast('Ez a fiók fel lett függesztve!', 'warning')
       return
     }
 
-    if (result.UserExists) {
-      tempUserId.value = result.UserID // Elmentjük a UserID-t az OTP híváshoz!
-      
-      if (result.HasPassword) {
-        step.value = 'password' // Van jelszava, kérjük be
-      } else {
-        // Nincs jelszava, rögtön kérjük le az OTP kódot
-        await requestOtpDirectly()
-      }
-    } else {
-      // Nem létezik -> Regisztráció
-      step.value = 'register'
-    }
+    await requestOtpDirectly()
   } catch (error: any) {
     hideLoading()
     const msg = error.response?.data?.Result1?.ReturnDescription || 'Hiba történt a szerverrel való kommunikációban.'
@@ -458,7 +452,7 @@ async function handlePasswordLogin() {
     
     hideLoading()
     showToast(`Üdvözlünk újra az EventJoy-ban!`, 'positive')
-    router.push('/')
+    goAfterLogin()
   } catch (error: any) {
     hideLoading()
     const msg = error.response?.data?.Result1?.ReturnDescription || 'Hibás jelszó!'
@@ -498,7 +492,7 @@ async function handleOtpLogin() {
     
     hideLoading()
     showToast('Sikeres belépés!', 'positive')
-    router.push('/')
+    goAfterLogin()
   } catch (error: any) {
     hideLoading()
     const msg = error.response?.data?.Result1?.ReturnDescription || 'Hibás vagy lejárt kód!'
@@ -536,7 +530,7 @@ async function handleRegister() {
     
     hideLoading()
     showToast('Fiók sikeresen létrehozva!', 'positive')
-    router.push('/')
+    goAfterLogin()
   } catch (error: any) {
     hideLoading()
     const msg = error.response?.data?.Result1?.ReturnDescription || 'Hiba a regisztráció során!'
@@ -578,7 +572,7 @@ async function socialLogin(provider: string) {
       provider === 'Google' ? 'Sikeres belépés a Google fiókkal!' : 'Sikeres belépés a Facebook fiókkal!',
       'positive'
     )
-    router.push('/')
+    goAfterLogin()
   } catch (error: unknown) {
     hideLoading()
     console.error(error)
