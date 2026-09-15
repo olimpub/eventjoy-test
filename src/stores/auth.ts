@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { api } from 'src/boot/axios';
-import { hasDatasetKey, isTruthyFlag, pickDataset, unwrapApiPayload, warnIfDatasetMissing } from 'src/utils/apiPayload';
+import { hasDatasetKey, isTruthyFlag, pickDataset, readIsSysadmin, readIsSysadminFromJwt, throwIfApiFailed, unwrapApiPayload, warnIfDatasetMissing } from 'src/utils/apiPayload';
+import { normalizeOwnedEventTypeIds } from 'src/utils/eventTypeAccess';
 import { useMasterDataStore } from './masterData';
 import { useEventStore } from './event';
 import { useCommunicationStore } from './communication';
@@ -68,6 +69,9 @@ function normalizeSocialLogins(rows: unknown): SocialLogin[] {
     .filter((row) => row.Provider);
 }
 
+let unauthorizedInFlight: Promise<'restored' | 'logout'> | null = null;
+let suppressUnauthorized = false;
+
 function normalizeUserOrganizations(rows: unknown): UserOrganization[] {
   const list = Array.isArray(rows) ? rows : rows ? [rows] : [];
   return list
@@ -92,13 +96,32 @@ export const useAuthStore = defineStore('auth', {
     loginIdentifiers: [] as any[],
     socialLogins: [] as SocialLogin[],
     userOrganizations: [] as UserOrganization[],
+    ownedEventTypeIds: [] as number[],
     token: localStorage.getItem('token') || '',
+    originalAdminToken: localStorage.getItem('originalAdminToken') || '',
     role: null as 'admin' | 'facilitator' | 'player' | null,
     emailCheckResult: null as { UserExists: boolean; HasPassword: boolean; StatusID: number } | null,
   }),
   getters: {
     isAuthenticated: (state) => !!state.token,
     isAdmin: (state) => state.role === 'admin',
+    isSysadmin: (state) => readIsSysadmin(state.user) || readIsSysadminFromJwt(state.token),
+    isImpersonating: (state) => !!state.originalAdminToken,
+    currentUserId: (state) => {
+      const user = state.user;
+      if (!user || typeof user !== 'object') return null;
+      const raw = user.id ?? user.ID ?? user.Id ?? user.UserID ?? user.userID ?? user.UserId;
+      const num = Number(raw);
+      return Number.isFinite(num) && num > 0 ? num : null;
+    },
+    currentUserDisplayName: (state) => {
+      const user = state.user;
+      if (!user || typeof user !== 'object') return 'felhasználó';
+      const last = String(user.LastName ?? user.lastName ?? '').trim();
+      const first = String(user.FirstName ?? user.firstName ?? '').trim();
+      const name = `${last} ${first}`.trim();
+      return name || String(user.EmailAddress ?? user.Email ?? user.email ?? 'felhasználó').trim();
+    },
     primaryUserOrganization: (state) =>
       state.userOrganizations.find((uo) => uo.IsPrimary) || state.userOrganizations[0] || null,
     primaryOrganizationId(): number | null {
@@ -141,7 +164,7 @@ export const useAuthStore = defineStore('auth', {
     async passwordLogin(payload: { IdentityValue: string; Password: string; DeviceId: string; DeviceName: string }) {
       try {
         const response = await api.post('/auth/password-login', payload);
-        this.setToken(response.data.Result2.Token);
+        this.beginFreshSession(response.data.Result2.Token);
         return response.data;
       } catch (error) {
         console.error('Password login failed', error);
@@ -152,7 +175,7 @@ export const useAuthStore = defineStore('auth', {
     async register(payload: { IdentityValue: string; Password: string; DeviceId: string; DeviceName: string }) {
       try {
         const response = await api.post('/auth/register', payload);
-        this.setToken(response.data.Result2.Token);
+        this.beginFreshSession(response.data.Result2.Token);
         return response.data;
       } catch (error) {
         console.error('Registration failed', error);
@@ -163,7 +186,7 @@ export const useAuthStore = defineStore('auth', {
     async verifyOtp(payload: { IdentityValue: string; ValidationCode: string; DeviceId: string; DeviceName: string }) {
       try {
         const response = await api.post('/auth/verify-otp', payload);
-        this.setToken(response.data.Result2.Token);
+        this.beginFreshSession(response.data.Result2.Token);
         return response.data;
       } catch (error) {
         console.error('OTP Verification failed', error);
@@ -174,7 +197,7 @@ export const useAuthStore = defineStore('auth', {
     async socialLogin(payload: { Provider: string; ProviderId: string; EmailAddress?: string; FirstName?: string; LastName?: string; DeviceId: string; DeviceName?: string }) {
       try {
         const response = await api.post('/auth/social-login', payload);
-        this.setToken(response.data.Result2.Token);
+        this.beginFreshSession(response.data.Result2.Token);
         return response.data;
       } catch (error) {
         console.error('Social Login failed', error);
@@ -195,6 +218,78 @@ export const useAuthStore = defineStore('auth', {
       if (hasDatasetKey(payload, 'LoginIdentifiers', 'loginIdentifiers')) {
         this.loginIdentifiers = pickDataset(payload, 'LoginIdentifiers', 'loginIdentifiers');
       }
+
+      if (hasDatasetKey(payload, 'BillingAddress', 'billingAddress', 'BillingAddresses')) {
+        this.billingAddress =
+          pickDataset(payload, 'BillingAddress', 'billingAddress', 'BillingAddresses') || null;
+      }
+
+      if (hasDatasetKey(payload, 'UserOrganizations', 'userOrganizations')) {
+        this.userOrganizations = normalizeUserOrganizations(
+          pickDataset(payload, 'UserOrganizations', 'userOrganizations')
+        );
+      }
+
+      if (
+        hasDatasetKey(
+          payload,
+          'OwnedEventTypeIDs',
+          'ownedEventTypeIDs',
+          'OwnedEventTypes',
+          'ownedEventTypes'
+        )
+      ) {
+        this.ownedEventTypeIds = normalizeOwnedEventTypeIds(
+          pickDataset(
+            payload,
+            'OwnedEventTypeIDs',
+            'ownedEventTypeIDs',
+            'OwnedEventTypes',
+            'ownedEventTypes'
+          )
+        );
+      }
+
+      useMasterDataStore().applyMaterialTypesFrom(payload);
+    },
+
+    async saveProfile() {
+      const user = this.user && typeof this.user === 'object' ? this.user : {};
+      const FirstName = String(user.FirstName ?? '').trim();
+      const LastName = String(user.LastName ?? '').trim();
+      const EmailAddress = String(user.EmailAddress ?? user.Email ?? '').trim();
+      const billing = Array.isArray(this.billingAddress)
+        ? this.billingAddress
+        : this.billingAddress
+          ? [this.billingAddress]
+          : [];
+      const identifiers = Array.isArray(this.loginIdentifiers)
+        ? this.loginIdentifiers
+        : this.loginIdentifiers
+          ? [this.loginIdentifiers]
+          : [];
+      const response = await api.post('/user/save', {
+        FirstName,
+        LastName,
+        EmailAddress,
+        Email: EmailAddress,
+        User: {
+          ...user,
+          FirstName,
+          LastName,
+          EmailAddress,
+          Email: EmailAddress,
+        },
+        UserOrganizations: this.userOrganizations,
+        BillingAddress: billing,
+        LoginIdentifiers: identifiers,
+      });
+      throwIfApiFailed(response.data, 'A profil mentése sikertelen.');
+      this.applyAccountDatasets(unwrapApiPayload(response.data));
+      if (this.user && typeof this.user === 'object') {
+        this.user = { ...this.user, FirstName, LastName, EmailAddress };
+      }
+      return response.data;
     },
 
     async linkSocial(payload: {
@@ -228,8 +323,18 @@ export const useAuthStore = defineStore('auth', {
         // spGetUserData result sets → JSON property (backend mapping):
         // 1 User | 2 Notifications | 3 ChatThreads | 4 EventTypePreferences
         // 5 LabelPreferences | 6 Settings | 7 LoginIdentifiers | 8 BillingAddress
-        // 9 MasterDataVersion | 10 UserOrganizations
-        this.user = firstRecord(userData.User);
+        // 9 MasterDataVersion | 10 UserOrganizations | 11 MaterialTypes | 12 OwnedEventTypeIDs
+        this.user = firstRecord(userData.User ?? userData.user ?? userData.Users ?? userData.users);
+        if (
+          this.user &&
+          !readIsSysadmin(this.user) &&
+          (readIsSysadmin(userData) || readIsSysadminFromJwt(this.token))
+        ) {
+          this.user = { ...this.user, IsSysadmin: true };
+        }
+        if (readIsSysadmin(this.user) || readIsSysadminFromJwt(this.token)) {
+          this.clearOriginalAdminToken();
+        }
         this.settings = userData.Settings ?? null;
         this.billingAddress = userData.BillingAddress ?? null;
         this.eventTypePreferences = userData.EventTypePreferences || [];
@@ -254,7 +359,22 @@ export const useAuthStore = defineStore('auth', {
         );
         warnIfDatasetMissing('auth.userOrganizations', this.userOrganizations, userData);
 
-        // Communication Data lementése
+        this.ownedEventTypeIds = normalizeOwnedEventTypeIds(
+          pickDataset(
+            userData,
+            'OwnedEventTypeIDs',
+            'ownedEventTypeIDs',
+            'OwnedEventTypes',
+            'ownedEventTypes',
+            'EventTypeOwners',
+            'eventTypeOwners',
+            'RS12',
+            'Rs12',
+            'ResultSet12',
+            'Result12'
+          )
+        );
+
         const commStore = useCommunicationStore();
         if (userData.Notifications) commStore.setNotifications(userData.Notifications);
         if (userData.ChatThreads) commStore.setChatThreads(userData.ChatThreads);
@@ -262,7 +382,8 @@ export const useAuthStore = defineStore('auth', {
         // 2. Lépés: Események és Törzsadatok betöltése PÁRHUZAMOSAN!
         const eventStore = useEventStore();
         const masterDataStore = useMasterDataStore();
-        
+        masterDataStore.applyMaterialTypesFrom(userData);
+
         const parallelTasks = [
           api.get('/event/data').then((res) => {
             eventStore.setEventData(unwrapApiPayload(res.data));
@@ -271,6 +392,9 @@ export const useAuthStore = defineStore('auth', {
         ];
 
         await Promise.all(parallelTasks);
+        // user/data a forrás, ha a master payloadban nincs / üres a MaterialTypes
+        masterDataStore.applyMaterialTypesFrom(userData);
+        warnIfDatasetMissing('masterData.materialTypes', masterDataStore.materialTypes, userData);
         const { markEventCatalogFresh } = await import('src/utils/eventCatalogRefresh');
         markEventCatalogFresh();
 
@@ -278,7 +402,11 @@ export const useAuthStore = defineStore('auth', {
           'Boot data betöltve | userOrganizations:',
           this.userOrganizations.length,
           '| organizations:',
-          masterDataStore.organizations.length
+          masterDataStore.organizations.length,
+          '| materialTypes:',
+          masterDataStore.materialTypes.length,
+          '| ownedEventTypes:',
+          this.ownedEventTypeIds.length
         );
 
         return true;
@@ -292,7 +420,20 @@ export const useAuthStore = defineStore('auth', {
       this.token = token;
       localStorage.setItem('token', token);
     },
-    logout() {
+    setOriginalAdminToken(token: string) {
+      this.originalAdminToken = token;
+      if (token) localStorage.setItem('originalAdminToken', token);
+      else localStorage.removeItem('originalAdminToken');
+    },
+    clearOriginalAdminToken() {
+      this.originalAdminToken = '';
+      localStorage.removeItem('originalAdminToken');
+    },
+    beginFreshSession(token: string) {
+      this.clearOriginalAdminToken();
+      this.setToken(token);
+    },
+    resetSessionData() {
       this.user = null;
       this.settings = null;
       this.billingAddress = null;
@@ -301,14 +442,93 @@ export const useAuthStore = defineStore('auth', {
       this.loginIdentifiers = [];
       this.socialLogins = [];
       this.userOrganizations = [];
-      this.token = '';
+      this.ownedEventTypeIds = [];
       this.role = null;
       this.emailCheckResult = null;
-      localStorage.removeItem('token');
       signalRService.stopConnection();
-
       useEventStore().$reset();
       useCommunicationStore().$reset();
+    },
+    async reloadSession() {
+      this.resetSessionData();
+      await this.fetchBootData();
+    },
+    async impersonate(userId: number) {
+      if (this.originalAdminToken) {
+        throw new Error('Már egy másik felhasználó nevében vagy.');
+      }
+      if (this.currentUserId != null && this.currentUserId === userId) {
+        throw new Error('Saját magad nevében nem léphetsz be.');
+      }
+      const response = await api.post(`/sysadmin/users/${userId}/impersonate`);
+      throwIfApiFailed(response.data, 'Az alias belépés sikertelen.');
+      const data = unwrapApiPayload(response.data);
+      const token = String(data.Token ?? data.token ?? '').trim();
+      if (!token) throw new Error('Nem érkezett impersonate token.');
+      const adminToken = this.token;
+      this.setOriginalAdminToken(adminToken);
+      this.setToken(token);
+      suppressUnauthorized = true;
+      try {
+        await this.reloadSession();
+      } catch (error) {
+        this.setToken(adminToken);
+        this.clearOriginalAdminToken();
+        try {
+          await this.reloadSession();
+        } catch {
+          /* keep the restored admin token even if boot fails */
+        }
+        throw error;
+      } finally {
+        suppressUnauthorized = false;
+      }
+      return String(data.Message ?? data.message ?? 'Sikeres alias belépés.');
+    },
+    async restoreAdminSession() {
+      const adminToken = this.originalAdminToken;
+      if (!adminToken) return false;
+      suppressUnauthorized = true;
+      try {
+        this.setToken(adminToken);
+        this.clearOriginalAdminToken();
+        await this.reloadSession();
+        return true;
+      } finally {
+        suppressUnauthorized = false;
+      }
+    },
+    async handleUnauthorized() {
+      if (suppressUnauthorized) return 'logout';
+      if (unauthorizedInFlight) return unauthorizedInFlight;
+      unauthorizedInFlight = (async () => {
+        if (this.originalAdminToken) {
+          try {
+            await this.restoreAdminSession();
+            if (typeof window !== 'undefined') window.location.replace('/admin');
+            return 'restored' as const;
+          } catch {
+            this.clearOriginalAdminToken();
+            this.logout();
+            if (typeof window !== 'undefined') window.location.replace('/login');
+            return 'logout' as const;
+          }
+        }
+        this.logout();
+        if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+          window.location.replace('/login');
+        }
+        return 'logout' as const;
+      })().finally(() => {
+        unauthorizedInFlight = null;
+      });
+      return unauthorizedInFlight;
+    },
+    logout() {
+      this.resetSessionData();
+      this.token = '';
+      this.clearOriginalAdminToken();
+      localStorage.removeItem('token');
     },
   },
 });

@@ -28,6 +28,10 @@ body {
   background: #0f172a;
 }
 
+.ej-app--admin {
+  grid-template-rows: minmax(0, 1fr);
+}
+
 /* Scroll here — html/body/#q-app stay overflow:hidden so the bottom nav
    is not clipped. Pages without their own scroller (Résztvevők, stb.)
    need this pane to be overflow-y: auto. */

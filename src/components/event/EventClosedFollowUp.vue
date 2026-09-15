@@ -96,30 +96,25 @@
       v-if="showCertificate"
       type="button"
       class="closed-followup__btn closed-followup__btn--cert"
+      :disabled="certBusy"
+      @click="downloadCertificate"
     >
-      <q-icon name="workspace_premium" size="20px" class="closed-followup__lead" />
-      <span class="closed-followup__label">Oklevél letöltése</span>
+      <q-spinner v-if="certBusy" size="20px" color="amber-4" class="closed-followup__lead" />
+      <q-icon v-else name="workspace_premium" size="20px" class="closed-followup__lead" />
+      <span class="closed-followup__label">{{ certBusy ? 'Oklevél készül…' : 'Oklevél letöltése' }}</span>
       <span class="closed-followup__chevron" aria-hidden="true" />
     </button>
   </section>
 
-  <q-dialog v-model="isConfirmOpen" transition-show="scale" transition-hide="scale">
-    <q-card class="rating-confirm">
-      <div class="rating-confirm__icon">
-        <q-icon name="sym_r_delete" size="22px" />
-      </div>
-      <h2 class="rating-confirm__title">Értékelés törlése</h2>
-      <p class="rating-confirm__message">Törlöd a leadott értékelést? Később újra leadhatod.</p>
-      <div class="rating-confirm__actions">
-        <button type="button" class="rating-confirm__btn rating-confirm__btn--ghost" @click="isConfirmOpen = false">
-          Mégsem
-        </button>
-        <button type="button" class="rating-confirm__btn rating-confirm__btn--danger" @click="confirmDeleteOk">
-          Törlés
-        </button>
-      </div>
-    </q-card>
-  </q-dialog>
+  <AppConfirmDialog
+    v-model="isConfirmOpen"
+    title="Értékelés törlése"
+    message="Törlöd a leadott értékelést? Később újra leadhatod."
+    ok-label="Törlés"
+    variant="danger"
+    icon="sym_r_delete"
+    @confirm="confirmDeleteOk"
+  />
 </template>
 
 <script setup lang="ts">
@@ -127,9 +122,17 @@ import { computed, ref, watch } from 'vue';
 import { useQuasar } from 'quasar';
 import { useMasterDataStore, ORGANIZER_ROLE_TYPE_ID } from 'src/stores/masterData';
 import { useEventStore, type EnterableEventRole, type EventUser } from 'src/stores/event';
+import { useAuthStore } from 'src/stores/auth';
 import { nullableNumericId, readAxiosErrorMessage } from 'src/utils/apiPayload';
 import { setEventUserRating } from 'src/utils/eventChange';
+import { downloadEventCertificatePdf } from 'src/utils/eventCertificate';
 import { eventDatasheetKind } from 'src/utils/eventRoleNav';
+import { findPtaPlayerForEventUser, ptaEventPlayerId, ptaEventRoundId } from 'src/modules/profitability/ptaData';
+import {
+  catalogHasPublishedStatus,
+  computePublishedPlayerFinals,
+} from 'src/modules/profitability/standings';
+import AppConfirmDialog from 'src/components/ui/AppConfirmDialog.vue';
 
 const props = defineProps<{
   eventId: string | number;
@@ -141,10 +144,12 @@ const props = defineProps<{
 const $q = useQuasar();
 const masterDataStore = useMasterDataStore();
 const eventStore = useEventStore();
+const authStore = useAuthStore();
 const ratingOpen = ref(false);
 const isConfirmOpen = ref(false);
 const editing = ref(false);
 const busy = ref(false);
+const certBusy = ref(false);
 const rating = ref(0);
 const hoverRating = ref(0);
 const comment = ref('');
@@ -190,6 +195,89 @@ const showCertificate = computed(() => {
     return kind === 'player' || kind === 'gamemaster';
   });
 });
+
+const certificateEvent = computed(() => {
+  const id = String(props.eventId);
+  return (
+    eventStore.events?.find((row: { id?: number }) => String(row.id) === id) ||
+    eventStore.myEvents?.find((row: { id?: number }) => String(row.id) === id) ||
+    null
+  );
+});
+
+const certificatePersonName = computed(() => {
+  const eu = storedEventUser.value as
+    | (EventUser & { FirstName?: string; LastName?: string; DisplayName?: string })
+    | null;
+  const last = String(eu?.LastName ?? '').trim();
+  const first = String(eu?.FirstName ?? '').trim();
+  const composed = `${last} ${first}`.trim();
+  const display = String(eu?.DisplayName ?? '').trim();
+  return composed || display || authStore.currentUserDisplayName;
+});
+
+function formatCertificateDate(raw: unknown): string {
+  if (raw == null || raw === '') return '';
+  const date = new Date(String(raw));
+  if (!Number.isFinite(date.getTime())) return '';
+  return date.toLocaleDateString('hu-HU', { year: 'numeric', month: 'long', day: 'numeric' });
+}
+
+const certificateResult = computed(() => {
+  const eventUserId = props.currentRole?.eventUserId;
+  if (eventUserId == null) return { place: null as number | null, score: null as number | null };
+  const userId = nullableNumericId(
+    eventStore.eventUsers.find((row) => Number(row.id) === Number(eventUserId))?.UserID
+  );
+  const player = findPtaPlayerForEventUser(
+    eventStore.ptaEventPlayers,
+    props.eventId,
+    eventUserId,
+    userId
+  );
+  const playerId = ptaEventPlayerId(player);
+  const rounds = eventStore.getPtaRoundsForEvent(props.eventId).map((row, index) => {
+    const id = ptaEventRoundId(row) ?? nullableNumericId(row.id) ?? index + 1;
+    const statusId = nullableNumericId(row.EventRoundStatusID);
+    const fromMaster =
+      statusId != null ? masterDataStore.getPtaEventRoundStatusById(statusId)?.SName : '';
+    return { id, status: String(fromMaster || row.SName || '') };
+  });
+  const fromBoard =
+    playerId == null
+      ? null
+      : computePublishedPlayerFinals({
+          rounds,
+          roundDesks: eventStore.getPtaRoundDesksForEvent(props.eventId),
+          schedules: eventStore.getPtaSchedulesForEvent(props.eventId),
+          catalogHasPublished: catalogHasPublishedStatus(masterDataStore.ptaEventRoundStatuses),
+        }).find((row) => row.playerId === playerId);
+  const placeRaw = fromBoard?.FinalPosition ?? (player ? Number(player.FinalPosition ?? 0) : 0);
+  const scoreRaw = fromBoard?.FinalPoint ?? (player && player.FinalPoint != null ? Number(player.FinalPoint) : null);
+  const place = placeRaw >= 1 && placeRaw <= 8 ? placeRaw : null;
+  const score = scoreRaw != null && Number.isFinite(scoreRaw) ? scoreRaw : null;
+  return { place, score };
+});
+
+async function downloadCertificate() {
+  if (certBusy.value) return;
+  certBusy.value = true;
+  try {
+    const rec = (certificateEvent.value || {}) as Record<string, unknown>;
+    await downloadEventCertificatePdf({
+      personName: certificatePersonName.value,
+      eventName: String(rec.EventName ?? rec.Name ?? rec.Title ?? rec.eventName ?? 'Esemény'),
+      eventDateLabel: formatCertificateDate(rec.StartAtUtc ?? rec.startAtUtc ?? rec.StartAt ?? rec.date),
+      roleName: props.currentRole?.name || '',
+      place: certificateResult.value.place,
+      score: certificateResult.value.score,
+    });
+  } catch (error) {
+    notify(readAxiosErrorMessage(error, 'Az oklevél letöltése sikertelen.'), false);
+  } finally {
+    certBusy.value = false;
+  }
+}
 
 function notify(message: string, ok = true) {
   $q.notify({
@@ -310,6 +398,11 @@ async function deleteRating() {
   font-weight: 800;
   letter-spacing: 0.02em;
   cursor: pointer;
+}
+
+.closed-followup__btn:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .closed-followup__lead,

@@ -5,6 +5,7 @@
       <q-toolbar class="justify-between q-px-md" style="height: 64px;">
         <!-- Left side: Brand Logo -->
         <div class="flex items-center gap-2">
+          <RestoreAdminButton />
           <img :src="headerLogo" alt="EventJoy" style="height: 26px; width: auto;" class="object-contain cursor-pointer" @click="router.push('/')" />
           <EventLiveDot />
         </div>
@@ -146,6 +147,7 @@ import { EVENTJOY_BRAND } from 'src/assets/brand/eventjoy';
 import ComingSoonCube from 'src/components/event/ComingSoonCube.vue';
 import NowPlayingBar from 'src/components/layout/NowPlayingBar.vue';
 import EventLiveDot from 'src/components/layout/EventLiveDot.vue';
+import RestoreAdminButton from 'src/components/layout/RestoreAdminButton.vue';
 import { installEventCatalogRefresh } from 'src/utils/eventCatalogRefresh';
 
 const headerLogo = EVENTJOY_BRAND.logoDark;

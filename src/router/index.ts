@@ -1,4 +1,5 @@
 import { route } from 'quasar/wrappers';
+import { Notify } from 'quasar';
 import {
   createMemoryHistory,
   createRouter,
@@ -33,21 +34,55 @@ export default route(function (/* { store, ssrContext } */) {
       to.meta.public === true ||
       isDisplayPublic;
 
+    const isAdminRoute = to.path === '/admin' || to.path.startsWith('/admin/');
+    const wantsConsumerApp = to.query.app === '1' || to.query.app === 'true';
+    const isDefaultHome = to.name === 'home' && !wantsConsumerApp;
+    const allowAdminOrRedirect = () => {
+      if (
+        isDefaultHome &&
+        authStore.isSysadmin &&
+        !authStore.isImpersonating
+      ) {
+        next('/admin');
+        return;
+      }
+      if (!isAdminRoute) {
+        next();
+        return;
+      }
+      if (authStore.isImpersonating && !authStore.isSysadmin) {
+        next('/');
+        return;
+      }
+      if (!authStore.isSysadmin) {
+        Notify.create({
+          message: 'Nincs jogosultságod',
+          color: 'dark',
+          textColor: 'orange-4',
+          position: 'top',
+          icon: 'lock',
+        });
+        next('/');
+        return;
+      }
+      next();
+    };
+
     if (!isPublic && !authStore.isAuthenticated) {
       next({ path: '/login', query: { next: to.fullPath } });
     } else if (!isPublic && authStore.isAuthenticated && !authStore.user) {
       try {
         await authStore.fetchBootData();
-        next();
+        allowAdminOrRedirect();
       } catch (err) {
         authStore.logout();
         next({ path: '/login', query: { next: to.fullPath } });
       }
     } else if (to.path === '/login' && authStore.isAuthenticated) {
-      const { safeLoginNextPath } = await import('src/utils/eventJoin');
-      next(safeLoginNextPath(to.query.next) || '/');
+      const { pathAfterLogin } = await import('src/utils/eventJoin');
+      next(pathAfterLogin(authStore.isSysadmin, to.query.next));
     } else {
-      next();
+      allowAdminOrRedirect();
     }
   });
 

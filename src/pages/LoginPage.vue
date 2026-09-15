@@ -305,7 +305,7 @@ import { api } from 'src/boot/axios'
 import { AsYouType, isValidPhoneNumber } from 'libphonenumber-js'
 import { fetchSocialProfile, socialApiErrorMessage, SocialAuthError } from 'src/utils/socialAuth'
 import { EVENTJOY_BRAND } from 'src/assets/brand/eventjoy'
-import { safeLoginNextPath } from 'src/utils/eventJoin'
+import { pathAfterLogin } from 'src/utils/eventJoin'
 import PtaBusyOverlay from 'src/modules/profitability/components/PtaBusyOverlay.vue'
 import SocialProviderIcon from 'src/components/brand/SocialProviderIcon.vue'
 
@@ -317,8 +317,7 @@ const workBusy = ref(false)
 const workLabel = ref('Bejelentkezés…')
 
 function goAfterLogin() {
-  const next = safeLoginNextPath(route.query.next)
-  void router.replace(next || '/')
+  void router.replace(pathAfterLogin(authStore.isSysadmin, route.query.next))
 }
 
 // State

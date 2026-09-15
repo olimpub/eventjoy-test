@@ -469,6 +469,135 @@ export function listAllowedEventUserStatusTransitions(args: {
     .map((row) => toTransition(row, args.eventUserStatuses, { canUndo: false }));
 }
 
+function statusBlocksDoorCheckIn(name: string): boolean {
+  const folded = foldStatusName(name);
+  return (
+    folded.includes('elutasit') ||
+    folded.includes('lemond') ||
+    folded.includes('reszt vett') ||
+    folded.includes('resztvett')
+  );
+}
+
+function findEventUserStatusByHints(
+  eventUserStatuses: unknown[],
+  hints: string[]
+): Record<string, unknown> | null {
+  const foldedHints = hints.map((hint) => foldStatusName(hint)).filter(Boolean);
+  if (!foldedHints.length) return null;
+  const rows = (eventUserStatuses || []).filter(
+    (row): row is Record<string, unknown> => !!row && typeof row === 'object'
+  );
+  return (
+    rows.find((row) => {
+      const label = foldStatusName(eventUserStatusName(row));
+      if (!label) return false;
+      return foldedHints.some((hint) => label === hint || label.includes(hint));
+    }) || null
+  );
+}
+
+function appendTransitionToStatus(
+  existing: EventUserStatusTransition[],
+  args: {
+    currentStatusId: number | null;
+    toStatusId: number;
+    eventUserStatuses: unknown[];
+  }
+): EventUserStatusTransition[] {
+  if (existing.some((item) => Number(item.toStatusId) === args.toStatusId)) return existing;
+  if (args.currentStatusId === args.toStatusId) return existing;
+  return [
+    ...existing,
+    toTransition(
+      {
+        id: -args.toStatusId,
+        TemplateID: 0,
+        StepID: null,
+        FromEventUserStatusID: args.currentStatusId,
+        ToEventUserStatusID: args.toStatusId,
+        CanUndoFlg: true,
+        ActiveFlg: true,
+      },
+      args.eventUserStatuses,
+      {
+        canUndo: false,
+        canRecordPrev: true,
+        fromStatusId: args.currentStatusId,
+        toStatusId: args.toStatusId,
+      }
+    ),
+  ];
+}
+
+/**
+ * Szervezői résztvevő-lista: a sablon From==current lépései (pl. Lemondta),
+ * plusz Megerősítve / Belépett — a QR is Belépettre ugrik, nem a következő sablonlépésre.
+ */
+export function withOrganizerDoorCheckInTransition(
+  existing: EventUserStatusTransition[],
+  args: {
+    alreadyCheckedIn: boolean;
+    currentStatusId: number | null | undefined;
+    currentStatusName?: string;
+    eventUserStatuses: unknown[];
+    steps?: EventUserFlowTemplateStep[];
+    templateId?: number | null;
+  }
+): EventUserStatusTransition[] {
+  if (args.alreadyCheckedIn) return existing;
+  const currentName = String(args.currentStatusName || '');
+  if (statusBlocksDoorCheckIn(currentName)) return existing;
+  const currentStatusId = nullableNumericId(args.currentStatusId);
+  let next = existing.slice();
+
+  const templateId = nullableNumericId(args.templateId);
+  if (templateId != null && args.steps?.length) {
+    for (const step of args.steps) {
+      if (Number(step.TemplateID) !== templateId) continue;
+      const toName = getEventUserStatusNameById(args.eventUserStatuses, step.ToEventUserStatusID, '');
+      const folded = foldStatusName(toName);
+      const useful =
+        folded.includes('belepett') ||
+        folded.includes('megerositve') ||
+        folded.includes('jovahagy');
+      if (!useful) continue;
+      if (fromStatusMatches(step.FromEventUserStatusID, currentStatusId)) continue;
+      next = appendTransitionToStatus(next, {
+        currentStatusId,
+        toStatusId: step.ToEventUserStatusID,
+        eventUserStatuses: args.eventUserStatuses,
+      });
+    }
+  }
+
+  const invited = eventUserStatusNameLooksInvited(currentName) || foldStatusName(currentName).includes('megerositesre');
+  if (invited) {
+    const confirmed = findEventUserStatusByName(args.eventUserStatuses, 'Megerősítve');
+    const confirmedId = nullableNumericId(confirmed?.id ?? confirmed?.ID ?? confirmed?.Id);
+    if (confirmedId != null) {
+      next = appendTransitionToStatus(next, {
+        currentStatusId,
+        toStatusId: confirmedId,
+        eventUserStatuses: args.eventUserStatuses,
+      });
+    }
+  }
+
+  const entered =
+    findEventUserStatusByName(args.eventUserStatuses, 'Belépett') ||
+    findEventUserStatusByHints(args.eventUserStatuses, ['belepett']);
+  const toStatusId = nullableNumericId(entered?.id ?? entered?.ID ?? entered?.Id);
+  if (toStatusId != null) {
+    next = appendTransitionToStatus(next, {
+      currentStatusId,
+      toStatusId,
+      eventUserStatuses: args.eventUserStatuses,
+    });
+  }
+  return next;
+}
+
 /**
  * Visszavonás: csak a tárolt PrevEventUserStatusID alapján.
  * Az mező csak akkor van kitöltve, ha az ide vezető lépés CanUndoFlg=true volt.

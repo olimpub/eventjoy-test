@@ -1,6 +1,16 @@
 <template>
   <q-page class="bg-brand-dark text-white relative q-pa-md">
     <CatalogPullRefresh @refresh="onPullRefresh">
+    <button
+      v-if="authStore.isSysadmin && !authStore.isImpersonating"
+      type="button"
+      class="sysadmin-entry"
+      @click="router.push('/admin')"
+    >
+      <q-icon name="admin_panel_settings" size="20px" />
+      <span>Rendszergazdai felület</span>
+      <q-icon name="chevron_right" size="18px" />
+    </button>
     <!-- Giant Background Watermark Logo (from Brand Kit) -->
     <div class="absolute -right-24 top-[15%] w-96 h-96 opacity-[0.03] pointer-events-none select-none z-0">
       <img src="~assets/eventjoy_icon.svg" alt="Watermark" draggable="false" class="w-full h-full object-contain" />
@@ -992,6 +1002,27 @@ function getRoleStyle(hexColor: string) {
 
   &.is-active {
     color: #ffffff;
+  }
+}
+
+.sysadmin-entry {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  border-radius: 16px;
+  background: rgba(245, 158, 11, 0.12);
+  color: #fde68a;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  text-align: left;
+
+  span {
+    flex: 1;
   }
 }
 

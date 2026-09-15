@@ -52,11 +52,33 @@
             <q-icon name="chevron_right" size="20px" class="profile-menu-chevron" />
           </button>
 
-          <button type="button" class="profile-menu-row" @click="openQrScanner">
+          <button type="button" class="profile-menu-row" @click="router.push({ name: 'support' })">
             <span class="profile-menu-icon profile-menu-icon--emerald">
-              <q-icon name="qr_code_scanner" size="22px" />
+              <q-icon name="sym_r_support_agent" size="22px" />
             </span>
-            <span class="profile-menu-label">QR-kód olvasó</span>
+            <span class="profile-menu-label">Támogatás</span>
+            <q-icon name="chevron_right" size="20px" class="profile-menu-chevron" />
+          </button>
+
+          <button type="button" class="profile-menu-row" @click="router.push({ name: 'whats-new' })">
+            <span class="profile-menu-icon">
+              <q-icon name="sym_r_new_releases" size="22px" />
+            </span>
+            <span class="profile-menu-label">Újdonságok</span>
+            <span v-if="latestVersion" class="profile-menu-meta">{{ latestVersion }}</span>
+            <q-icon name="chevron_right" size="20px" class="profile-menu-chevron" />
+          </button>
+
+          <button
+            v-if="authStore.isSysadmin"
+            type="button"
+            class="profile-menu-row"
+            @click="router.push('/admin')"
+          >
+            <span class="profile-menu-icon profile-menu-icon--amber">
+              <q-icon name="admin_panel_settings" size="22px" />
+            </span>
+            <span class="profile-menu-label">Rendszergazdai felület</span>
             <q-icon name="chevron_right" size="20px" class="profile-menu-chevron" />
           </button>
 
@@ -737,28 +759,23 @@
         </q-card>
       </q-dialog>
 
-      <q-dialog v-model="isSocialConfirmOpen">
-        <q-card class="social-confirm" :class="{ 'social-confirm--danger': socialConfirmMode === 'unlink' }">
-          <div class="social-confirm__icon" :class="{ 'is-danger': socialConfirmMode === 'unlink' }">
-            <q-icon :name="socialConfirmMode === 'unlink' ? 'link_off' : 'link'" size="22px" />
-          </div>
-          <h2 class="social-confirm__title">{{ socialConfirmTitle }}</h2>
-          <p class="social-confirm__message">{{ socialConfirmMessage }}</p>
-          <div class="social-confirm__actions">
-            <button type="button" class="social-confirm__btn social-confirm__btn--ghost" @click="isSocialConfirmOpen = false">
-              Mégsem
-            </button>
-            <button
-              type="button"
-              class="social-confirm__btn"
-              :class="socialConfirmMode === 'unlink' ? 'social-confirm__btn--danger' : 'social-confirm__btn--primary'"
-              @click="confirmSocialAction"
-            >
-              {{ socialConfirmMode === 'unlink' ? 'Leválasztás' : 'Csatolás' }}
-            </button>
-          </div>
-        </q-card>
-      </q-dialog>
+      <AppConfirmDialog
+        v-model="isSocialConfirmOpen"
+        :title="socialConfirmTitle"
+        :message="socialConfirmMessage"
+        :ok-label="socialConfirmMode === 'unlink' ? 'Leválasztás' : 'Csatolás'"
+        :variant="socialConfirmMode === 'unlink' ? 'danger' : 'default'"
+        :icon="socialConfirmMode === 'unlink' ? 'link_off' : 'link'"
+        @confirm="confirmSocialAction"
+      />
+      <AppConfirmDialog
+        v-model="isAppConfirmOpen"
+        :title="appConfirmTitle"
+        :message="appConfirmMessage"
+        :ok-label="appConfirmOk"
+        variant="danger"
+        @confirm="runAppConfirm"
+      />
 
     </div>
 
@@ -982,71 +999,12 @@
     </div>
 
 
-    <!-- QR Kód Olvasó Modális ablak -->
-    <q-dialog v-model="qrScannerOpen" persistent maximized transition-show="slide-up" transition-hide="slide-down">
-      <q-card class="bg-[#020617] text-white flex flex-col justify-between" style="width: 100vw; height: 100vh;">
-        <!-- Top Toolbar -->
-        <q-toolbar class="bg-[#0B0F19] border-b border-white/5 q-py-sm z-20">
-          <q-btn flat round dense icon="close" size="lg" @click="qrScannerOpen = false" class="text-white" />
-          <q-toolbar-title class="text-center font-bold text-base uppercase tracking-wider">
-            QR Kód Beolvasása
-          </q-toolbar-title>
-          <q-btn flat round dense icon="flash_on" size="md" class="text-white opacity-50" />
-        </q-toolbar>
-
-        <!-- Scanner Viewport Area -->
-        <div class="flex-grow relative flex items-center justify-center overflow-hidden bg-black">
-          
-          <!-- Szimulált radar/mátrix (ha nincs kameraelérés) -->
-          <div class="absolute inset-0 flex flex-col items-center justify-center q-pa-lg text-center bg-slate-950">
-            <q-icon name="photo_camera" size="80px" class="text-slate-600 q-mb-md animate-pulse" />
-            <div class="text-lg font-bold text-slate-300">Kamera aktiválása...</div>
-            <div class="text-xs text-slate-500 q-mt-sm max-w-xs">
-              Irányítsd a kamerát a QR kódra a beolvasáshoz.
-            </div>
-            
-            <!-- Animated Matrix Grid Background -->
-            <div class="absolute inset-0 opacity-5 pointer-events-none" style="background-image: radial-gradient(#0EA5E9 1px, transparent 1px); background-size: 16px 16px;"></div>
-          </div>
-
-          <!-- Scanner Overlay Mask (Célkereszt) -->
-          <div class="absolute inset-0 flex flex-col justify-between pointer-events-none z-10">
-            <div class="bg-black/60 flex-grow"></div>
-            
-            <div class="flex flex-row justify-between h-[250px] sm:h-[280px]">
-              <div class="bg-black/60 flex-grow"></div>
-              
-              <!-- Scanning Square Window -->
-              <div class="w-[250px] sm:w-[280px] relative border border-white/10 flex items-center justify-center">
-                <!-- Glowing Corners -->
-                <div class="absolute top-0 left-0 w-6 h-6 border-t-4 border-l-4 border-brand-primary rounded-tl-md"></div>
-                <div class="absolute top-0 right-0 w-6 h-6 border-t-4 border-r-4 border-brand-primary rounded-tr-md"></div>
-                <div class="absolute bottom-0 left-0 w-6 h-6 border-b-4 border-l-4 border-brand-primary rounded-bl-md"></div>
-                <div class="absolute bottom-0 right-0 w-6 h-6 border-b-4 border-r-4 border-brand-primary rounded-br-md"></div>
-                
-                <!-- Scanning Laser Line -->
-                <div class="absolute left-0 right-0 h-1 bg-gradient-to-r from-transparent via-brand-primary to-transparent shadow-[0_0_8px_#0EA5E9] animate-scan"></div>
-              </div>
-              
-              <div class="bg-black/60 flex-grow"></div>
-            </div>
-            
-            <div class="bg-black/60 flex-grow flex items-center justify-center">
-              <div class="text-white/70 text-sm font-bold tracking-widest uppercase bg-black/50 px-6 py-2 rounded-full backdrop-blur-md">
-                Keresés...
-              </div>
-            </div>
-          </div>
-        </div>
-      </q-card>
-    </q-dialog>
-
     <PtaBusyOverlay :model-value="workBusy" :label="workLabel" />
   </q-page>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, watch, computed, nextTick } from 'vue';
+import { ref, reactive, watch, computed, nextTick, onMounted } from 'vue';
 import { AsYouType, isValidPhoneNumber } from 'libphonenumber-js';
 import { useAuthStore, type UserOrganization } from 'src/stores/auth';
 import { useMasterDataStore, type MasterOrganization } from 'src/stores/masterData';
@@ -1054,6 +1012,7 @@ import { useEventStore } from 'src/stores/event';
 import { useRouter } from 'vue-router';
 import { useQuasar } from 'quasar';
 import PtaBusyOverlay from 'src/modules/profitability/components/PtaBusyOverlay.vue';
+import AppConfirmDialog from 'src/components/ui/AppConfirmDialog.vue';
 import SocialProviderIcon from 'src/components/brand/SocialProviderIcon.vue';
 import {
   fetchSocialProfile,
@@ -1061,32 +1020,62 @@ import {
   type SocialProfilePayload,
   type SocialProvider,
 } from 'src/utils/socialAuth';
+import { readAxiosErrorMessage } from 'src/utils/apiPayload';
+import { fetchAppVersions, latestVersionLabel } from 'src/utils/appVersions';
 
 const authStore = useAuthStore();
 const masterDataStore = useMasterDataStore();
 const eventStore = useEventStore();
 const router = useRouter();
 const $q = useQuasar();
+const latestVersion = ref('');
+
+onMounted(() => {
+  void fetchAppVersions()
+    .then((rows) => {
+      latestVersion.value = latestVersionLabel(rows);
+    })
+    .catch(() => {
+      latestVersion.value = '';
+    });
+});
+
+const isAppConfirmOpen = ref(false);
+const appConfirmTitle = ref('Megerősítés');
+const appConfirmMessage = ref('');
+const appConfirmOk = ref('Igen');
+let appConfirmFn: (() => void) | null = null;
+
+function openAppConfirm(opts: { title: string; message: string; okLabel: string }, action: () => void) {
+  appConfirmTitle.value = opts.title;
+  appConfirmMessage.value = opts.message;
+  appConfirmOk.value = opts.okLabel;
+  appConfirmFn = action;
+  isAppConfirmOpen.value = true;
+}
+
+function runAppConfirm() {
+  isAppConfirmOpen.value = false;
+  const action = appConfirmFn;
+  appConfirmFn = null;
+  action?.();
+}
 
 function confirmDeleteIdentifier(ident: any, idx: number) {
-  $q.dialog({
-    title: 'Megerősítés',
-    message: 'Biztosan törölni szeretnéd ezt az elérhetőséget?',
-    cancel: {
-      label: 'Mégsem',
-      color: 'slate',
-      flat: true
+  openAppConfirm(
+    {
+      title: 'Megerősítés',
+      message: 'Biztosan törölni szeretnéd ezt az elérhetőséget?',
+      okLabel: 'Törlés',
     },
-    ok: {
-      label: 'Törlés',
-      color: 'negative',
-      flat: true
-    },
-    persistent: true
-  }).onOk(() => {
-    console.log('Törlésre került:', ident, 'Index:', idx);
-    // TODO: backend hívás és listából való törlés
-  });
+    () => {
+      const list = Array.isArray(authStore.loginIdentifiers)
+        ? authStore.loginIdentifiers.slice()
+        : [];
+      list.splice(idx, 1);
+      authStore.loginIdentifiers = list;
+    }
+  );
 }
 
 type ManageableOrgRow = {
@@ -1226,31 +1215,24 @@ function setPrimaryOrganization(userOrgId: number) {
 }
 
 function confirmLeaveOrganization(row: ManageableOrgRow) {
-  $q.dialog({
-    title: 'Kilépés a szervezetből',
-    message: `Biztosan kilépsz a(z) „${row.displayName}” szervezetből?`,
-    cancel: {
-      label: 'Mégsem',
-      color: 'slate',
-      flat: true,
+  openAppConfirm(
+    {
+      title: 'Kilépés a szervezetből',
+      message: `Biztosan kilépsz a(z) „${row.displayName}” szervezetből?`,
+      okLabel: 'Kilépés',
     },
-    ok: {
-      label: 'Kilépés',
-      color: 'negative',
-      flat: true,
-    },
-    persistent: true,
-  }).onOk(() => {
-    authStore.userOrganizations = (authStore.userOrganizations || []).filter(
-      (uo) => Number(uo.id) !== Number(row.userOrg.id)
-    );
-    $q.notify({
-      message: 'Kiléptél a szervezetből. A mentés a profil mentésekor történik.',
-      color: 'info',
-      position: 'top',
-      icon: 'logout',
-    });
-  });
+    () => {
+      authStore.userOrganizations = (authStore.userOrganizations || []).filter(
+        (uo) => Number(uo.id) !== Number(row.userOrg.id)
+      );
+      $q.notify({
+        message: 'Kiléptél a szervezetből. A mentés a profil mentésekor történik.',
+        color: 'info',
+        position: 'top',
+        icon: 'logout',
+      });
+    }
+  );
 }
 
 function joinOrganizationLocally(orgId: number) {
@@ -1383,7 +1365,6 @@ function saveOrganizationDialog() {
 
 type ViewState = 'menu' | 'adataim' | 'preferenciak' | 'beallitasok';
 const activeView = ref<ViewState>('menu');
-const qrScannerOpen = ref(false);
 
 // Számlázási cím szerkesztő állapota
 const isBillingDialogVisible = ref(false);
@@ -1438,24 +1419,52 @@ function openBillingDialog(mode: 'add' | 'edit', addr?: any) {
   isBillingDialogVisible.value = true;
 }
 
+function billingRows(): Record<string, unknown>[] {
+  const raw = authStore.billingAddress;
+  if (Array.isArray(raw)) return raw.slice();
+  if (raw && typeof raw === 'object' && Object.keys(raw as object).length) {
+    return [{ ...(raw as Record<string, unknown>) }];
+  }
+  return [];
+}
+
 function saveBillingAddress() {
-  // TODO: Hívás a backend felé
-  console.log('Mentve:', currentBillingAddress.value);
+  const rows = billingRows();
+  const row = { ...currentBillingAddress.value };
+  const id = row.id ?? row.ID ?? row.Id;
+  const idx =
+    billingDialogMode.value === 'edit'
+      ? rows.findIndex((item) => (item.id ?? item.ID ?? item.Id) === id && id != null)
+      : -1;
+  if (idx >= 0) rows[idx] = row;
+  else rows.push(row);
+  authStore.billingAddress = rows;
   isBillingDialogVisible.value = false;
 }
 
-function savePersonalData() {
-  // TODO: User Save endpoint — user + userOrganizations + billing + identifiers
-  console.log('Személyes adatok mentve:', {
-    user: authStore.user,
-    userOrganizations: authStore.userOrganizations,
-  });
-  $q.notify({
-    message: 'Személyes adatok sikeresen mentve!',
-    color: 'positive',
-    position: 'top',
-    icon: 'check_circle'
-  });
+async function savePersonalData() {
+  if (workBusy.value) return;
+  workLabel.value = 'Mentés…';
+  workBusy.value = true;
+  try {
+    await authStore.saveProfile();
+    $q.notify({
+      message: 'Személyes adatok sikeresen mentve!',
+      color: 'positive',
+      position: 'top',
+      icon: 'check_circle',
+    });
+  } catch (error) {
+    $q.notify({
+      message: readAxiosErrorMessage(error, 'A mentés sikertelen.'),
+      color: 'dark',
+      textColor: 'red-4',
+      position: 'top',
+      icon: 'error',
+    });
+  } finally {
+    workBusy.value = false;
+  }
 }
 
 const workBusy = ref(false);
@@ -1612,13 +1621,20 @@ function saveSettings() {
 
 // mockSettings eltávolítva
 
-function logout() {
+async function logout() {
+  if (authStore.isImpersonating) {
+    try {
+      await authStore.restoreAdminSession();
+      await router.replace('/admin');
+      return;
+    } catch {
+      authStore.logout();
+      await router.push('/login');
+      return;
+    }
+  }
   authStore.logout();
-  router.push('/login');
-}
-
-function openQrScanner() {
-  qrScannerOpen.value = true;
+  await router.push('/login');
 }
 
 const isIdentifierDialogVisible = ref(false);
@@ -1686,8 +1702,12 @@ function saveIdentifier() {
     }
   }
   
-  console.log('Mentve:', { type: identifierType.value, value: newIdentifierValue.value });
-  // TODO: backend hívás
+  const list = Array.isArray(authStore.loginIdentifiers) ? authStore.loginIdentifiers.slice() : [];
+  list.push({
+    IdentifierTypeID: identifierType.value === 'email' ? 1 : 2,
+    IdentifierValueRaw: newIdentifierValue.value,
+  });
+  authStore.loginIdentifiers = list;
   isIdentifierDialogVisible.value = false;
 }
 
@@ -1827,7 +1847,7 @@ function removeLabel(id: number) {
       transform: translateX(2px);
     }
 
-    .profile-menu-icon:not(.profile-menu-icon--rose):not(.profile-menu-icon--emerald) {
+    .profile-menu-icon:not(.profile-menu-icon--rose):not(.profile-menu-icon--emerald):not(.profile-menu-icon--amber) {
       background: rgba(14, 165, 233, 0.18);
     }
   }
@@ -1862,6 +1882,11 @@ function removeLabel(id: number) {
     color: #34d399;
   }
 
+  &--amber {
+    background: rgba(245, 158, 11, 0.14);
+    color: #fbbf24;
+  }
+
   &--rose {
     background: rgba(244, 63, 94, 0.12);
     color: #fb7185;
@@ -1876,6 +1901,14 @@ function removeLabel(id: number) {
   letter-spacing: 0.02em;
   color: #cbd5e1;
   transition: color 0.2s ease;
+}
+
+.profile-menu-meta {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: #38bdf8;
 }
 
 .profile-menu-chevron {

@@ -255,27 +255,37 @@
         <q-card-section class="q-pt-md q-px-md pb-8">
           <p v-if="statusSheetRound" class="game-sheet__hint">
             {{ statusSheetRound.label }} · jelenlegi:
-            <span class="game-round__status" :class="statusClass(statusSheetRound.status)">
-              {{ statusSheetRound.status }}
+            <span class="game-round__status" :class="statusClass(statusSheetCurrentName)">
+              {{ statusSheetCurrentName }}
             </span>
           </p>
-          <p class="game-sheet__hint">
-            Lezárt: a fordulónak vége, a játékosok még nem látják az eredményt.
-            Publikált: a játékosok SignalR-en megkapják és megjelenik náluk.
-          </p>
-          <div class="game-sheet__list">
+          <p v-if="roundStatusLoading" class="game-sheet__hint">Státuszok betöltése…</p>
+          <p v-else-if="roundStatusLoadError" class="game-sheet__hint">{{ roundStatusLoadError }}</p>
+          <div v-else class="game-sheet__actions">
             <button
-              v-for="item in roundStatusOptions"
-              :key="item.id"
+              v-for="item in statusSheetNextStatuses"
+              :key="item.statusId"
               type="button"
               class="game-status-option"
-              :class="{ 'is-current': statusSheetRound?.statusId === item.id }"
-              @click="setRoundStatus(item.id, item.SName)"
+              :disabled="roundSaving"
+              @click="askRoundStatusChange(item.statusId, item.statusName)"
             >
-              <span class="game-round__status" :class="statusClass(item.SName)">{{ item.SName }}</span>
-              <q-icon v-if="statusSheetRound?.statusId === item.id" name="check" size="18px" class="text-orange-400" />
-              <q-icon v-else name="chevron_right" size="18px" class="text-slate-500" />
+              <span class="game-round__status" :class="statusClass(item.statusName)">{{ item.statusName }}</span>
+              <q-icon name="chevron_right" size="18px" class="text-slate-500" />
             </button>
+            <button
+              v-if="statusSheetCanUndo"
+              type="button"
+              class="game-status-option is-undo"
+              :disabled="roundSaving"
+              @click="askRoundStatusRollback"
+            >
+              <span>Visszavonás</span>
+              <q-icon name="sym_r_undo" size="18px" class="text-slate-500" />
+            </button>
+            <p v-if="!statusSheetNextStatuses.length && !statusSheetCanUndo" class="game-sheet__hint">
+              Erről a státuszról nincs további lépés.
+            </p>
           </div>
         </q-card-section>
       </q-card>
@@ -467,6 +477,17 @@
       @change="onPhotoPicked"
     />
 
+    <AppConfirmDialog
+      v-model="isRoundStatusConfirmOpen"
+      :title="roundStatusConfirmTitle"
+      :message="roundStatusConfirmMessage"
+      :ok-label="roundStatusConfirmOk"
+      :variant="roundStatusConfirmVariant"
+      :busy="roundSaving"
+      @confirm="finishRoundStatusConfirm(true)"
+      @cancel="finishRoundStatusConfirm(false)"
+    />
+
     <DrawSummarySheet
       v-model="isDrawSummaryOpen"
       :summary="drawSummary"
@@ -484,13 +505,21 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useQuasar } from 'quasar';
 import { eventDatasheetKind, eventRolePath, eventRoleQuery } from 'src/utils/eventRoleNav';
-import { nullableNumericId, readAxiosErrorMessage } from 'src/utils/apiPayload';
+import { nullableNumericId, readAxiosErrorMessage, readAxiosHttpStatus } from 'src/utils/apiPayload';
 import { claimPtaDesk, closePtaRound, patchPtaDesk, publishPtaRound, replacePtaDraw, setPtaDeskResults, setPtaRoundStatus } from 'src/utils/eventChange';
 import { pingPtaLiveRoundDisplay } from 'src/modules/profitability/ptaDisplayApi';
+import {
+  fetchPtaRoundAvailableStatuses,
+  postPtaRoundStatus,
+  rollbackPtaRoundStatus,
+  type PtaRoundAvailableStatus,
+  type PtaRoundStatusAvailability,
+} from 'src/modules/profitability/ptaRoundStatusApi';
 import { eventPlayPhase } from 'src/utils/eventFlow';
 import { summarizePtaDraw, type PtaDrawQuality } from 'src/modules/profitability/drawQuality';
 import DrawSummarySheet from 'src/modules/profitability/components/DrawSummarySheet.vue';
 import PtaBusyOverlay from 'src/modules/profitability/components/PtaBusyOverlay.vue';
+import AppConfirmDialog from 'src/components/ui/AppConfirmDialog.vue';
 import { paintBusy } from 'src/modules/profitability/paintBusy';
 import { pickOpenRoundId, ptaRoundStatusKind, isPublishedStatus, canEnterRoundResults, findPtaRoundStatusIdByNameHints, isLiveStatus as isRoundLiveStatus, isSettledRoundStatus, deskHasRecordedResults } from 'src/modules/profitability/standings';
 import { PLAYERS_PER_DESK, ptaSeatColorFromRow } from 'src/modules/profitability/drawEngine';
@@ -573,6 +602,15 @@ const roundsPanelOpen = ref(false);
 const searchQuery = ref('');
 const isStatusSheetOpen = ref(false);
 const statusSheetRoundId = ref<number | null>(null);
+const roundStatusAvailability = ref<PtaRoundStatusAvailability | null>(null);
+const roundStatusLoading = ref(false);
+const roundStatusLoadError = ref('');
+const isRoundStatusConfirmOpen = ref(false);
+const roundStatusConfirmTitle = ref('Megerősítés');
+const roundStatusConfirmMessage = ref('');
+const roundStatusConfirmOk = ref('Igen');
+const roundStatusConfirmVariant = ref<'default' | 'undo' | 'danger'>('default');
+let roundStatusConfirmResolver: ((ok: boolean) => void) | null = null;
 const isTableSheetOpen = ref(false);
 const isPhotoPreviewOpen = ref(false);
 const cameraInput = ref<HTMLInputElement | null>(null);
@@ -873,21 +911,20 @@ const tableGroups = computed(() => {
   return [{ key: 'all', label: '', tables: filteredTables.value }];
 });
 
-const roundStatusOptions = computed(() => {
-  const rows = masterDataStore.ptaEventRoundStatuses || [];
-  const active = rows.filter((row) => row.ActiveFlg);
-  const list = (active.length ? active : rows).slice();
-  if (list.length) return list;
-  return [
-    { id: -1, SName: 'Megnyitva', ActiveFlg: true },
-    { id: -2, SName: 'Kisorsolva', ActiveFlg: true },
-    { id: -3, SName: 'Folyamatban', ActiveFlg: true },
-    { id: -4, SName: 'Lezárt', ActiveFlg: true },
-    { id: -5, SName: 'Publikált', ActiveFlg: true },
-  ];
-});
-
 const statusSheetRound = computed(() => rounds.value.find((round) => round.id === statusSheetRoundId.value) || null);
+
+const statusSheetCurrentName = computed(
+  () =>
+    roundStatusAvailability.value?.currentStatusName ||
+    statusSheetRound.value?.status ||
+    'Státusz'
+);
+
+const statusSheetNextStatuses = computed<PtaRoundAvailableStatus[]>(
+  () => roundStatusAvailability.value?.availableNextStatuses || []
+);
+
+const statusSheetCanUndo = computed(() => !!roundStatusAvailability.value?.canUndoCurrent);
 
 const ptaSettings = computed(() => eventStore.getPtaSettingsForEvent(eventId.value));
 const photoMandatory = computed(() => !!ptaSettings.value?.PhotoUploadMadatoryFlg);
@@ -1016,11 +1053,79 @@ function seatsForCard(table: GameTableRow) {
   });
 }
 
+async function loadRoundStatusAvailability(roundId: number) {
+  roundStatusLoading.value = true;
+  roundStatusLoadError.value = '';
+  try {
+    roundStatusAvailability.value = await fetchPtaRoundAvailableStatuses(roundId);
+    const currentId = roundStatusAvailability.value.currentStatusId;
+    const currentName = roundStatusAvailability.value.currentStatusName;
+    if (currentId != null || currentName) {
+      eventStore.applyEventRoundStatus(roundId, currentId, currentName || null);
+    }
+  } catch (error) {
+    roundStatusAvailability.value = null;
+    roundStatusLoadError.value = readAxiosErrorMessage(
+      error,
+      'A forduló elérhető státuszai nem tölthetők.'
+    );
+  } finally {
+    roundStatusLoading.value = false;
+  }
+}
+
 function openRoundStatus(roundId: number) {
   if (!canChangeRoundStatus.value) return;
   selectedRoundId.value = roundId;
   statusSheetRoundId.value = roundId;
+  roundStatusAvailability.value = null;
   isStatusSheetOpen.value = true;
+  void loadRoundStatusAvailability(roundId);
+}
+
+function askRoundStatusConfirm(opts: {
+  title: string;
+  message: string;
+  okLabel: string;
+  variant?: 'default' | 'undo' | 'danger';
+}): Promise<boolean> {
+  roundStatusConfirmTitle.value = opts.title;
+  roundStatusConfirmMessage.value = opts.message;
+  roundStatusConfirmOk.value = opts.okLabel;
+  roundStatusConfirmVariant.value = opts.variant || 'default';
+  isRoundStatusConfirmOpen.value = true;
+  return new Promise((resolve) => {
+    roundStatusConfirmResolver = resolve;
+  });
+}
+
+function finishRoundStatusConfirm(ok: boolean) {
+  const resolve = roundStatusConfirmResolver;
+  roundStatusConfirmResolver = null;
+  isRoundStatusConfirmOpen.value = false;
+  resolve?.(ok);
+}
+
+async function askRoundStatusChange(statusId: number, statusName: string) {
+  const confirmed = await askRoundStatusConfirm({
+    title: statusName,
+    message: `Biztosan átállítod erre: ${statusName}?`,
+    okLabel: 'Igen',
+  });
+  if (!confirmed) return;
+  await setRoundStatus(statusId, statusName);
+}
+
+async function askRoundStatusRollback() {
+  const confirmed = await askRoundStatusConfirm({
+    title: 'Visszavonás',
+    message:
+      'Biztosan visszavonod a legutóbbi státuszmódosítást? Ezzel az állapot visszakerül a megelőző státuszba.',
+    okLabel: 'Visszavonás',
+    variant: 'undo',
+  });
+  if (!confirmed) return;
+  await rollbackRoundStatus();
 }
 
 async function setRoundStatus(statusId: number, statusName: string) {
@@ -1030,24 +1135,56 @@ async function setRoundStatus(statusId: number, statusName: string) {
   const prevId = statusSheetRound.value?.statusId ?? null;
   const prevName = statusSheetRound.value?.status || '';
   eventStore.applyEventRoundStatus(roundId, statusId, statusName);
-  isStatusSheetOpen.value = false;
   const id = nullableNumericId(eventId.value);
   if (id == null) return;
   const kind = ptaRoundStatusKind(statusName);
   roundSaving.value = true;
   workLabel.value = kind === 'publish' ? 'Publikálás…' : kind === 'close' ? 'Lezárás…' : 'Mentés…';
   try {
-    if (kind === 'close') {
-      await closePtaRound({ eventId: id, eventRoundId: roundId, toStatusId: statusId });
-    } else if (kind === 'publish') {
-      await publishPtaRound({ eventId: id, eventRoundId: roundId, toStatusId: statusId });
-    } else {
-      await setPtaRoundStatus({ eventId: id, eventRoundId: roundId, toStatusId: statusId });
+    try {
+      await postPtaRoundStatus(roundId, statusId);
+    } catch (error) {
+      if (readAxiosHttpStatus(error) !== 404) throw error;
+      if (kind === 'close') {
+        await closePtaRound({ eventId: id, eventRoundId: roundId, toStatusId: statusId });
+      } else if (kind === 'publish') {
+        await publishPtaRound({ eventId: id, eventRoundId: roundId, toStatusId: statusId });
+      } else {
+        await setPtaRoundStatus({ eventId: id, eventRoundId: roundId, toStatusId: statusId });
+      }
     }
+    await loadRoundStatusAvailability(roundId);
   } catch (error) {
     eventStore.applyEventRoundStatus(roundId, prevId, prevName);
     $q.notify({
       message: readAxiosErrorMessage(error, 'A forduló státusza nem változott.'),
+      color: 'dark',
+      textColor: 'red-4',
+      position: 'top',
+    });
+  } finally {
+    roundSaving.value = false;
+  }
+}
+
+async function rollbackRoundStatus() {
+  if (!canChangeRoundStatus.value || roundSaving.value) return;
+  const roundId = statusSheetRoundId.value ?? selectedRoundId.value;
+  if (roundId == null) return;
+  roundSaving.value = true;
+  workLabel.value = 'Visszavonás…';
+  try {
+    await rollbackPtaRoundStatus(roundId);
+    await loadRoundStatusAvailability(roundId);
+    $q.notify({
+      message: 'Státusz visszavonva.',
+      color: 'dark',
+      textColor: 'orange-4',
+      position: 'top',
+    });
+  } catch (error) {
+    $q.notify({
+      message: readAxiosErrorMessage(error, 'A visszavonás sikertelen.'),
       color: 'dark',
       textColor: 'red-4',
       position: 'top',
@@ -2630,7 +2767,8 @@ async function onFinalizeDraw() {
   color: #94a3b8;
 }
 
-.game-sheet__list {
+.game-sheet__list,
+.game-sheet__actions {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -2654,6 +2792,17 @@ async function onFinalizeDraw() {
 .game-status-option.is-current {
   border-color: rgba(246, 139, 41, 0.45);
   background: rgba(246, 139, 41, 0.1);
+}
+
+.game-status-option.is-undo {
+  border-color: rgba(148, 163, 184, 0.25);
+  background: rgba(148, 163, 184, 0.06);
+  color: #94a3b8;
+}
+
+.game-status-option:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 
 </style>

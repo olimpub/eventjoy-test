@@ -150,33 +150,16 @@
       </q-card>
     </q-dialog>
 
-    <q-dialog
+    <AppConfirmDialog
       v-model="isConfirmOpen"
-      transition-show="scale"
-      transition-hide="scale"
+      :title="confirmTitle"
+      :message="confirmMessage"
+      :ok-label="confirmOkLabel"
+      :variant="confirmDanger ? 'danger' : confirmIsUndo ? 'undo' : 'default'"
+      @confirm="finishConfirm(true)"
+      @cancel="finishConfirm(false)"
       @hide="onConfirmHide"
-    >
-      <q-card class="manage-confirm">
-        <div class="manage-confirm__icon" :class="{ 'is-danger': confirmDanger, 'is-undo': confirmIsUndo }">
-          <q-icon :name="confirmDanger ? 'sym_r_cancel' : 'sym_r_undo'" size="22px" />
-        </div>
-        <h2 class="manage-confirm__title">{{ confirmTitle }}</h2>
-        <p class="manage-confirm__message">{{ confirmMessage }}</p>
-        <div class="manage-confirm__actions">
-          <button type="button" class="manage-confirm__btn manage-confirm__btn--ghost" @click="finishConfirm(false)">
-            Mégsem
-          </button>
-          <button
-            type="button"
-            class="manage-confirm__btn"
-            :class="confirmDanger ? 'manage-confirm__btn--danger' : 'manage-confirm__btn--primary'"
-            @click="finishConfirm(true)"
-          >
-            {{ confirmOkLabel }}
-          </button>
-        </div>
-      </q-card>
-    </q-dialog>
+    />
 
     <q-dialog
       v-model="isSoonOpen"
@@ -230,6 +213,7 @@ import { resetPtaEvent, replacePtaDraw, setEventStatus } from 'src/utils/eventCh
 import { summarizePtaDraw, type PtaDrawQuality } from 'src/modules/profitability/drawQuality';
 import DrawSummarySheet from 'src/modules/profitability/components/DrawSummarySheet.vue';
 import PtaBusyOverlay from 'src/modules/profitability/components/PtaBusyOverlay.vue';
+import AppConfirmDialog from 'src/components/ui/AppConfirmDialog.vue';
 import { paintBusy } from 'src/modules/profitability/paintBusy';
 import '../theme.css';
 
@@ -528,7 +512,7 @@ const manageActions = computed(() => {
     { id: 'vetites', label: 'Vetítés', icon: 'sym_r_present_to_all', onClick: openVetites },
     { id: 'results', label: 'Eredmények', icon: 'sym_r_emoji_events', onClick: openResults },
     { id: 'program', label: 'Programok', icon: 'sym_r_view_timeline', onClick: openProgramEditor },
-    { id: 'files', label: 'Anyagok', icon: 'sym_r_folder', onClick: () => comingSoon('Anyagok', 'sym_r_folder') },
+    { id: 'files', label: 'Anyagok', icon: 'sym_r_folder', onClick: openMaterials },
     {
       id: 'messages',
       label: 'Üzenetek',
@@ -632,6 +616,13 @@ function openParticipants() {
 function openScan() {
   router.push({
     path: `/event/${eventId.value}/manage/scan`,
+    query: { ...route.query, from: 'pta' },
+  });
+}
+
+function openMaterials() {
+  router.push({
+    path: `/event/${eventId.value}/manage/materials`,
     query: { ...route.query, from: 'pta' },
   });
 }

@@ -38,6 +38,10 @@ export function safeLoginNextPath(raw: unknown): string | null {
   return next;
 }
 
+export function pathAfterLogin(isSysadmin: boolean, nextRaw?: unknown): string {
+  return safeLoginNextPath(nextRaw) || (isSysadmin ? '/admin' : '/');
+}
+
 export function userNeedsDisplayName(user: unknown): boolean {
   if (!user || typeof user !== 'object') return true;
   const row = user as Record<string, unknown>;

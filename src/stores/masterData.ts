@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { api } from 'src/boot/axios';
-import { isActiveFlag, isTruthyFlag, nullableNumericId, pickDataset, unwrapApiPayload, warnIfDatasetMissing } from 'src/utils/apiPayload';
+import { isActiveFlag, isTruthyFlag, nullableNumericId, pickDataset, pickFilledDataset, unwrapApiPayload, warnIfDatasetMissing } from 'src/utils/apiPayload';
 import {
   eventTypeHasPtaFlag,
   normalizePtaChampionships,
@@ -103,6 +103,76 @@ function isActiveRecord(row: Record<string, unknown>): boolean {
   return isActiveFlag(flag);
 }
 
+export interface MasterMaterialType {
+  id: number;
+  TypeName: string;
+  TypeCode: string;
+  SortOrder: number;
+}
+
+const MATERIAL_TYPE_KEYS = [
+  'MaterialTypes',
+  'materialTypes',
+  'TblMaterialTypes',
+  'tblMaterialTypes',
+  'TblMaterialType',
+  'tblMaterialType',
+  'MaterialType',
+  'materialType',
+] as const;
+
+function isMaterialTypeRow(row: unknown): row is Record<string, unknown> {
+  if (!row || typeof row !== 'object') return false;
+  const rec = row as Record<string, unknown>;
+  const hasId =
+    rec.MaterialTypeID != null ||
+    rec.materialTypeID != null ||
+    rec.MaterialTypeId != null ||
+    rec.materialTypeId != null;
+  const hasLabel =
+    rec.TypeName != null ||
+    rec.MaterialTypeName != null ||
+    rec.TypeCode != null ||
+    rec.MaterialTypeCode != null;
+  return hasId && hasLabel;
+}
+
+function pickMaterialTypeRows(payload: unknown): unknown[] {
+  const named = pickFilledDataset(payload, ...MATERIAL_TYPE_KEYS);
+  if (named.length) return named;
+  if (!payload || typeof payload !== 'object') return [];
+
+  for (const [key, val] of Object.entries(payload as Record<string, unknown>)) {
+    if (!/material[_]?types?$/i.test(key) && !/tblmaterialtype/i.test(key)) continue;
+    if (Array.isArray(val) && val.length) return val;
+    if (val && typeof val === 'object' && !Array.isArray(val) && isMaterialTypeRow(val)) return [val];
+  }
+
+  for (const val of Object.values(payload as Record<string, unknown>)) {
+    if (!Array.isArray(val) || !val.length) continue;
+    if (isMaterialTypeRow(val[0])) return val;
+  }
+
+  return [];
+}
+
+function normalizeMaterialTypes(rows: unknown[]): MasterMaterialType[] {
+  return (rows || [])
+    .filter((row): row is Record<string, unknown> => !!row && typeof row === 'object')
+    .filter((row) => isActiveRecord(row))
+    .map((row) => {
+      const id = rowId(row) ?? nullableNumericId(row.MaterialTypeID ?? row.materialTypeID ?? row.MaterialTypeId);
+      return {
+        id: id ?? 0,
+        TypeName: String(row.TypeName ?? row.Name ?? row.MaterialTypeName ?? row.typeName ?? '').trim(),
+        TypeCode: String(row.TypeCode ?? row.Code ?? row.MaterialTypeCode ?? row.typeCode ?? '').trim(),
+        SortOrder: nullableNumericId(row.SortOrder ?? row.sortOrder) ?? 0,
+      };
+    })
+    .filter((row) => row.id > 0)
+    .sort((a, b) => a.SortOrder - b.SortOrder || a.TypeName.localeCompare(b.TypeName, 'hu'));
+}
+
 function normalizeEventStatuses(rows: unknown[]): Record<string, unknown>[] {
   return (rows || [])
     .filter((row): row is Record<string, unknown> => !!row && typeof row === 'object')
@@ -129,6 +199,7 @@ function normalizeEventTypes(rows: unknown[]): any[] {
       id: rowId(row) ?? Number(row.id),
       CanEnterFlg: isTruthyFlag(row.CanEnterFlg ?? row.canEnterFlg),
       PTAFlg: isTruthyFlag(row.PTAFlg ?? row.PtaFlg ?? row.ptaFlg),
+      PublicFlg: row.PublicFlg ?? row.publicFlg,
       EventFlowID: nullableNumericId(row.EventFlowID ?? row.eventFlowID ?? row.EventFlowId),
     }))
     .filter((row) => Number.isFinite(Number(row.id)));
@@ -273,6 +344,7 @@ export const useMasterDataStore = defineStore('masterData', {
     ptaChampionships: normalizePtaChampionships(
       JSON.parse(localStorage.getItem('md_ptaChampionships') || '[]')
     ),
+    materialTypes: normalizeMaterialTypes(JSON.parse(localStorage.getItem('md_materialTypes') || '[]')),
     labels: JSON.parse(localStorage.getItem('md_labels') || '[]'), // TODO: backend integráció (címkék/tag-ek master adata)
   }),
 
@@ -515,6 +587,13 @@ export const useMasterDataStore = defineStore('masterData', {
     },
   },
   actions: {
+    applyMaterialTypesFrom(payload: unknown) {
+      const rows = normalizeMaterialTypes(pickMaterialTypeRows(payload));
+      if (!rows.length) return;
+      this.materialTypes = rows;
+      localStorage.setItem('md_materialTypes', JSON.stringify(rows));
+    },
+
     async checkAndSync(serverVersion: number) {
       try {
         const response = await api.get('/master/data');
@@ -673,6 +752,8 @@ export const useMasterDataStore = defineStore('masterData', {
         this.ptaChampionships = normalizePtaChampionships(
           pickDataset(data, 'PtaChampionships', 'ptaChampionships', 'RS27', 'ResultSet27', 'Result27')
         );
+        this.applyMaterialTypesFrom(data);
+        warnIfDatasetMissing('masterData.materialTypes', this.materialTypes, data);
         warnIfDatasetMissing('masterData.organizations', this.organizations, data);
         warnIfDatasetMissing('masterData.organizationTypes', this.organizationTypes, data);
         warnIfDatasetMissing('masterData.organizationUserTypes', this.organizationUserTypes, data);
@@ -712,6 +793,7 @@ export const useMasterDataStore = defineStore('masterData', {
         localStorage.setItem('md_ptaEventRoundStatuses', JSON.stringify(this.ptaEventRoundStatuses));
         localStorage.setItem('md_ptaExtraPrizes', JSON.stringify(this.ptaExtraPrizes));
         localStorage.setItem('md_ptaChampionships', JSON.stringify(this.ptaChampionships));
+        localStorage.setItem('md_materialTypes', JSON.stringify(this.materialTypes));
 
         console.log(
           'Master Data szinkronizálva! Verzió:',
@@ -731,7 +813,9 @@ export const useMasterDataStore = defineStore('masterData', {
           '| eventUserFlowTemplates:',
           this.eventUserFlowTemplates.length,
           '| eventUserFlowTemplateSteps:',
-          this.eventUserFlowTemplateSteps.length
+          this.eventUserFlowTemplateSteps.length,
+          '| materialTypes:',
+          this.materialTypes.length
         );
       } catch (error) {
         console.error('Hiba a Master Data szinkronizálásakor', error);

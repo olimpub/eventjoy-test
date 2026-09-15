@@ -28,7 +28,7 @@
     <router-link
       class="ej-bottom-nav__item"
       to="/profile"
-      exact-active-class="ej-bottom-nav__item--on"
+      :class="{ 'ej-bottom-nav__item--on': isProfileSection }"
     >
       <q-icon name="person" size="22px" />
       <span>Profil</span>
@@ -37,7 +37,14 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
+import { useRoute } from 'vue-router'
 import { KLUBHUB_BRAND } from 'src/assets/brand/klubhub'
 
+const route = useRoute()
 const klubhubIcon = KLUBHUB_BRAND.icon
+const isProfileSection = computed(() => {
+  const name = String(route.name || '')
+  return name === 'profile' || name === 'support' || name === 'support_ticket' || name === 'whats-new'
+})
 </script>

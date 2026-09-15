@@ -92,8 +92,44 @@ export function isActiveFlag(value: unknown): boolean {
 
 export function isTruthyFlag(value: unknown): boolean {
   if (value === true || value === 1 || value === '1') return true;
-  if (typeof value === 'string' && value.toLowerCase() === 'true') return true;
+  if (typeof value === 'number' && Number.isFinite(value) && value !== 0) return true;
+  if (typeof value === 'string') {
+    const text = value.trim().toLowerCase();
+    if (text === 'true' || text === '1' || text === 'yes' || text === '-1') return true;
+  }
   return false;
+}
+
+/** User.IsSysadmin / IsSysAdmin / SysAdminFlg — a BE casingje változó. */
+export function readIsSysadmin(source: unknown): boolean {
+  if (!source || typeof source !== 'object') return false;
+  const rec = source as Record<string, unknown>;
+  const direct =
+    rec.IsSysadmin ??
+    rec.isSysadmin ??
+    rec.IsSysAdmin ??
+    rec.isSysAdmin ??
+    rec.SysAdminFlg ??
+    rec.sysAdminFlg ??
+    rec.Sysadmin ??
+    rec.sysadmin;
+  if (isTruthyFlag(direct)) return true;
+  for (const [key, value] of Object.entries(rec)) {
+    if (/sysadmin/i.test(key) && isTruthyFlag(value)) return true;
+  }
+  return false;
+}
+
+export function readIsSysadminFromJwt(token: string): boolean {
+  const parts = String(token || '').split('.');
+  if (parts.length < 2) return false;
+  try {
+    const padded = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const extra = padded.length % 4 === 0 ? '' : '='.repeat(4 - (padded.length % 4));
+    return readIsSysadmin(JSON.parse(atob(padded + extra)));
+  } catch {
+    return false;
+  }
 }
 
 /** DB id mező: üres / 0 / null → null */

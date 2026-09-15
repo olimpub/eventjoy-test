@@ -147,33 +147,16 @@
       </q-card>
     </q-dialog>
 
-    <q-dialog
+    <AppConfirmDialog
       v-model="isConfirmOpen"
-      transition-show="scale"
-      transition-hide="scale"
+      :title="confirmTitle"
+      :message="confirmMessage"
+      :ok-label="confirmOkLabel"
+      :variant="confirmDanger ? 'danger' : confirmIsUndo ? 'undo' : 'default'"
+      @confirm="finishConfirm(true)"
+      @cancel="finishConfirm(false)"
       @hide="onConfirmHide"
-    >
-      <q-card class="manage-confirm">
-        <div class="manage-confirm__icon" :class="{ 'is-danger': confirmDanger, 'is-undo': confirmIsUndo }">
-          <q-icon :name="confirmDanger ? 'sym_r_cancel' : 'sym_r_undo'" size="22px" />
-        </div>
-        <h2 class="manage-confirm__title">{{ confirmTitle }}</h2>
-        <p class="manage-confirm__message">{{ confirmMessage }}</p>
-        <div class="manage-confirm__actions">
-          <button type="button" class="manage-confirm__btn manage-confirm__btn--ghost" @click="finishConfirm(false)">
-            Mégsem
-          </button>
-          <button
-            type="button"
-            class="manage-confirm__btn"
-            :class="confirmDanger ? 'manage-confirm__btn--danger' : 'manage-confirm__btn--primary'"
-            @click="finishConfirm(true)"
-          >
-            {{ confirmOkLabel }}
-          </button>
-        </div>
-      </q-card>
-    </q-dialog>
+    />
 
     <q-dialog
       v-model="isSoonOpen"
@@ -213,6 +196,7 @@ import { useMasterDataStore } from 'src/stores/masterData';
 import { findEventStatus, type EventStatusTransition } from 'src/utils/eventFlow';
 import { nullableNumericId, readAxiosErrorMessage } from 'src/utils/apiPayload';
 import { setEventStatus } from 'src/utils/eventChange';
+import AppConfirmDialog from 'src/components/ui/AppConfirmDialog.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -469,7 +453,7 @@ const manageActions = computed(() => {
     { id: 'edit', label: 'Szerkesztés', icon: 'sym_r_edit_square', onClick: openWizard },
     { id: 'tickets', label: 'Jegykezelés', icon: 'sym_r_qr_code_scanner', onClick: openScan },
     { id: 'program', label: 'Programok', icon: 'sym_r_view_timeline', onClick: openProgramEditor },
-    { id: 'files', label: 'Anyagok', icon: 'sym_r_folder', onClick: () => comingSoon('Anyagok', 'sym_r_folder') },
+    { id: 'files', label: 'Anyagok', icon: 'sym_r_folder', onClick: openMaterials },
     {
       id: 'messages',
       label: 'Üzenetek',
@@ -573,6 +557,13 @@ function openParticipants() {
 function openScan() {
   router.push({
     path: `/event/${eventId.value}/manage/scan`,
+    query: route.query,
+  });
+}
+
+function openMaterials() {
+  router.push({
+    path: `/event/${eventId.value}/manage/materials`,
     query: route.query,
   });
 }

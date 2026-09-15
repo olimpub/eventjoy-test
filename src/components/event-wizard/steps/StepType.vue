@@ -99,6 +99,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { useMasterDataStore } from 'src/stores/masterData';
+import { useAuthStore } from 'src/stores/auth';
+import { userCanCreateEventType } from 'src/utils/eventTypeAccess';
 import { resolveEventGroupIcon, resolveEventTypeIcon, typeIconToken } from '../brandedTypeIcons';
 import { entityId, isActiveFlag, type WizardMode } from '../types';
 import WizardModeIcon from '../WizardModeIcon.vue';
@@ -115,7 +117,15 @@ const emit = defineEmits<{
 }>();
 
 const masterData = useMasterDataStore();
+const authStore = useAuthStore();
 const query = ref('');
+
+function isCreatableType(t: Record<string, unknown>) {
+  if (!isActiveFlag(t.ActiveFlg ?? t.activeFlg)) return false;
+  if (userCanCreateEventType(t, authStore.ownedEventTypeIds)) return true;
+  // Szerkesztésnél a már kiválasztott típus maradjon, akkor is ha az owner lista közben változott.
+  return props.mode === 'edit' && props.typeId != null && entityId(t) === props.typeId;
+}
 
 watch(
   () => props.groupId,
@@ -128,6 +138,7 @@ const groups = computed(() => {
   const list = (masterData.eventTypeGroups || []) as any[];
   return list
     .filter((g) => isActiveFlag(g.ActiveFlg ?? g.activeFlg ?? g.ActiveFlag))
+    .filter((g) => typeCount(g) > 0)
     .sort((a, b) => {
       const oa = Number(a.OrderIndex ?? a.orderIndex ?? 0);
       const ob = Number(b.OrderIndex ?? b.orderIndex ?? 0);
@@ -141,7 +152,7 @@ const types = computed(() => {
     .filter((t) => {
       const tg = Number(t.EventTypeGroupID ?? t.eventTypeGroupId ?? t.GroupID ?? 0);
       if (tg !== props.groupId) return false;
-      return isActiveFlag(t.ActiveFlg ?? t.activeFlg);
+      return isCreatableType(t);
     })
     .sort((a, b) => String(typeName(a)).localeCompare(String(typeName(b)), 'hu'));
 });
@@ -164,7 +175,7 @@ function typeCount(g: any): number {
   const gid = entityId(g);
   return ((masterData.eventTypes || []) as any[]).filter((t) => {
     const tg = Number(t.EventTypeGroupID ?? t.eventTypeGroupId ?? t.GroupID ?? 0);
-    return tg === gid && isActiveFlag(t.ActiveFlg ?? t.activeFlg);
+    return tg === gid && isCreatableType(t);
   }).length;
 }
 
@@ -176,7 +187,7 @@ function typesInGroup(g: any) {
   const gid = entityId(g);
   return ((masterData.eventTypes || []) as any[]).filter((t) => {
     const tg = Number(t.EventTypeGroupID ?? t.eventTypeGroupId ?? t.GroupID ?? 0);
-    return tg === gid && isActiveFlag(t.ActiveFlg ?? t.activeFlg);
+    return tg === gid && isCreatableType(t);
   });
 }
 

@@ -373,32 +373,16 @@
       </q-card>
     </q-dialog>
 
-    <q-dialog
+    <AppConfirmDialog
       v-model="isConfirmOpen"
-      transition-show="scale"
-      transition-hide="scale"
+      :title="confirmTitle"
+      :message="confirmMessage"
+      :ok-label="confirmOkLabel"
+      :variant="confirmIsUndo ? 'undo' : 'default'"
+      @confirm="finishConfirm(true)"
+      @cancel="finishConfirm(false)"
       @hide="onConfirmHide"
-    >
-      <q-card class="part-confirm">
-        <div class="part-confirm__icon" :class="{ 'is-undo': confirmIsUndo }">
-          <q-icon name="sym_r_undo" size="22px" />
-        </div>
-        <h2 class="part-confirm__title">{{ confirmTitle }}</h2>
-        <p class="part-confirm__message">{{ confirmMessage }}</p>
-        <div class="part-confirm__actions">
-          <button type="button" class="part-confirm__btn part-confirm__btn--ghost" @click="finishConfirm(false)">
-            Mégsem
-          </button>
-          <button
-            type="button"
-            class="part-confirm__btn part-confirm__btn--primary"
-            @click="finishConfirm(true)"
-          >
-            {{ confirmOkLabel }}
-          </button>
-        </div>
-      </q-card>
-    </q-dialog>
+    />
     <WalkInRegisterSheet
       v-model="isWalkInOpen"
       :event-id="eventId"
@@ -437,7 +421,7 @@ import { useAuthStore } from 'src/stores/auth';
 import { useEventStore, type EventUser } from 'src/stores/event';
 import { useMasterDataStore, ORGANIZER_ROLE_TYPE_ID } from 'src/stores/masterData';
 import { nullableNumericId, readAxiosErrorMessage } from 'src/utils/apiPayload';
-import { EVENT_USER_FLOW_TEMPLATE_CODE, type EventUserStatusTransition } from 'src/utils/eventUserFlow';
+import { EVENT_USER_FLOW_TEMPLATE_CODE, type EventUserStatusTransition, withOrganizerDoorCheckInTransition } from 'src/utils/eventUserFlow';
 import { membershipRoleKind } from 'src/utils/eventUserStatus';
 import { setEventUserStatus } from 'src/utils/eventChange';
 import InviteExcelImport from 'src/components/event/InviteExcelImport.vue';
@@ -445,6 +429,7 @@ import WalkInRegisterSheet from 'src/components/event/WalkInRegisterSheet.vue';
 import JoinQrSheet from 'src/components/event/JoinQrSheet.vue';
 import ParticipantContactSheet from 'src/components/event/ParticipantContactSheet.vue';
 import { eventReachedCheckIn, isEventUserCheckedInName } from 'src/utils/eventRoleNav';
+import AppConfirmDialog from 'src/components/ui/AppConfirmDialog.vue';
 
 interface ParticipantRow {
   id: number;
@@ -641,10 +626,7 @@ const participants = computed(() =>
 
 const forwardTransitions = computed(() => {
   if (!selected.value) return [];
-  return masterDataStore.getAllowedEventUserStatusTransitions(
-    selected.value.templateId,
-    selected.value.statusId
-  );
+  return transitionsFor(selected.value);
 });
 
 const canOpenStatusSheet = computed(() => forwardTransitions.value.length > 0);
@@ -747,8 +729,23 @@ function openDetail(row: ParticipantRow) {
   isDetailOpen.value = true;
 }
 
+function transitionsFor(row: ParticipantRow): EventUserStatusTransition[] {
+  const base = masterDataStore.getAllowedEventUserStatusTransitions(row.templateId, row.statusId);
+  const roleTypeId =
+    row.masterRoleId != null ? masterDataStore.getRoleTypeIdByRoleId(row.masterRoleId) : null;
+  if (roleTypeId === ORGANIZER_ROLE_TYPE_ID) return base;
+  return withOrganizerDoorCheckInTransition(base, {
+    alreadyCheckedIn: row.checkedIn,
+    currentStatusId: row.statusId,
+    currentStatusName: row.statusName,
+    eventUserStatuses: masterDataStore.eventUserStatuses,
+    steps: masterDataStore.eventUserFlowTemplateSteps,
+    templateId: row.templateId,
+  });
+}
+
 function rowCanChangeStatus(row: ParticipantRow): boolean {
-  return masterDataStore.getAllowedEventUserStatusTransitions(row.templateId, row.statusId).length > 0;
+  return transitionsFor(row).length > 0;
 }
 
 function openStatusForRow(row: ParticipantRow) {
