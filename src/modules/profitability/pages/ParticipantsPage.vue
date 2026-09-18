@@ -19,7 +19,16 @@
           <h1 class="part-header__title">Résztvevők</h1>
           <p class="part-header__event">{{ eventName }}</p>
         </div>
-        <div v-if="!isReadOnly" class="part-header__actions">
+        <div class="part-header__actions">
+          <button
+            type="button"
+            class="part-help-btn"
+            aria-label="Súgó: Résztvevők"
+            @click="helpStore.openArticle('participants')"
+          >
+            <q-icon name="help" size="22px" />
+          </button>
+          <template v-if="!isReadOnly">
           <button
             type="button"
             class="part-add-btn"
@@ -45,8 +54,8 @@
           >
             <q-icon name="sym_r_upload_file" size="26px" />
           </button>
+          </template>
         </div>
-        <span v-else class="part-header__actions" aria-hidden="true" />
       </header>
 
       <div class="part-kpis">
@@ -454,6 +463,7 @@ import { EVENT_USER_FLOW_TEMPLATE_CODE, type EventUserStatusTransition, withOrga
 import { membershipRoleKind } from 'src/utils/eventUserStatus';
 import { setEventUserStatus } from 'src/utils/eventChange';
 import AppConfirmDialog from 'src/components/ui/AppConfirmDialog.vue';
+import { useHelpStore } from 'src/stores/help';
 import {
   findPtaPlayerForEventUser,
   listEnabledGroupingAttrs,
@@ -495,6 +505,7 @@ interface ParticipantRow {
 const route = useRoute();
 const router = useRouter();
 const $q = useQuasar();
+const helpStore = useHelpStore();
 const authStore = useAuthStore();
 const eventStore = useEventStore();
 const masterDataStore = useMasterDataStore();
@@ -1094,6 +1105,7 @@ function comingSoon(label: string, icon = 'sym_r_schedule') {
   min-height: 48px;
 }
 
+.part-help-btn,
 .part-add-btn,
 .part-qr-btn,
 .part-excel-btn {
@@ -1105,6 +1117,12 @@ function comingSoon(label: string, icon = 'sym_r_schedule') {
   flex-shrink: 0;
   border-radius: 16px;
   cursor: pointer;
+}
+
+.part-help-btn {
+  border: 1px solid rgba(56, 189, 248, 0.55);
+  background: rgba(14, 165, 233, 0.22);
+  color: #7dd3fc;
 }
 
 .part-add-btn {
@@ -1120,6 +1138,7 @@ function comingSoon(label: string, icon = 'sym_r_schedule') {
   color: #f68b29;
 }
 
+.part-help-btn:active,
 .part-add-btn:active,
 .part-qr-btn:active,
 .part-excel-btn:active {

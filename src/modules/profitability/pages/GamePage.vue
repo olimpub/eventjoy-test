@@ -742,7 +742,7 @@ function seatPeople(): Record<string, unknown>[] {
 function playerName(playerId: number | null, schedule?: Record<string, unknown> | null): string {
   return resolvePtaSeatName({
     playerId,
-    players: [...eventStore.getPtaPlayersForEvent(eventId.value), ...eventStore.ptaEventPlayers],
+    players: eventStore.getPtaPlayersForEvent(eventId.value),
     people: seatPeople(),
     eventId: eventId.value,
     schedule,

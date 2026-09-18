@@ -519,6 +519,28 @@ export function alignSchedulePlayerIds(
   }
 }
 
+function schedulePlayerRefs(schedules: Record<string, unknown>[]): Set<number> {
+  const refs = new Set<number>();
+  for (const row of schedules || []) {
+    const playerId = ptaSchedulePlayerId(row);
+    if (playerId != null) refs.add(playerId);
+    const eventUserId = ptaEventUserId(row);
+    if (eventUserId != null) refs.add(eventUserId);
+    const userId = nullableNumericId(row.UserID ?? row.userID ?? row.UserId);
+    if (userId != null) refs.add(userId);
+  }
+  return refs;
+}
+
+function playerMatchesScheduleRefs(row: PtaEventPlayer, refs: Set<number>): boolean {
+  const ids = [
+    ptaEventPlayerId(row),
+    ptaEventUserId(row),
+    nullableNumericId(row.UserID ?? row.userID ?? row.UserId),
+  ];
+  return ids.some((id) => id != null && refs.has(id));
+}
+
 export function mergePtaPlayerNames(
   incoming: PtaEventPlayer[],
   previous: PtaEventPlayer[]
@@ -566,14 +588,16 @@ export function hydratePtaPlayerGraph(args: {
 
   let players = args.players;
   const previousPlayers = args.previousPlayers || [];
-  if (!players.length && previousPlayers.length) {
-    players = previousPlayers.filter((row) => {
+  if (players.length) {
+    players = mergePtaPlayerNames(players, previousPlayers);
+  } else if (previousPlayers.length) {
+    const scoped = previousPlayers.filter((row) => {
       if (key == null) return true;
       const rowEvent = String(row.EventID ?? row.eventID ?? row.EventId ?? '');
       return !rowEvent || rowEvent === String(key);
     });
-  } else {
-    players = mergePtaPlayerNames(players, previousPlayers);
+    const refs = schedulePlayerRefs(args.schedules);
+    players = refs.size ? scoped.filter((row) => playerMatchesScheduleRefs(row, refs)) : [];
   }
 
   let schedules = args.schedules;

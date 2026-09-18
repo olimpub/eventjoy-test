@@ -52,6 +52,14 @@
             <q-icon name="chevron_right" size="20px" class="profile-menu-chevron" />
           </button>
 
+          <button type="button" class="profile-menu-row" @click="router.push({ name: 'help' })">
+            <span class="profile-menu-icon">
+              <q-icon name="sym_r_help" size="22px" />
+            </span>
+            <span class="profile-menu-label">Súgó</span>
+            <q-icon name="chevron_right" size="20px" class="profile-menu-chevron" />
+          </button>
+
           <button type="button" class="profile-menu-row" @click="router.push({ name: 'support' })">
             <span class="profile-menu-icon profile-menu-icon--emerald">
               <q-icon name="sym_r_support_agent" size="22px" />
@@ -932,6 +940,18 @@
         />
       </q-toolbar>
       <div class="flex-grow overflow-y-auto no-scrollbar q-pa-md pb-12">
+
+        <q-list class="flex flex-col relative overflow-hidden q-mb-md" style="background-color: rgba(15, 23, 42, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.08); box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2); border-radius: 24px; padding: 8px;">
+          <q-item tag="label" v-ripple class="q-py-lg rounded-xl">
+            <q-item-section>
+              <div class="text-white tracking-wide" style="font-size: 16px; font-weight: 700;">Súgó gomb a fejlécben</div>
+              <div class="text-slate-500 text-xs font-bold mt-1">A Profil → Súgó ettől függetlenül mindig elérhető.</div>
+            </q-item-section>
+            <q-item-section side>
+              <q-toggle color="brand-primary" :model-value="helpStore.headerEnabled" @update:model-value="onHelpHeaderToggle" />
+            </q-item-section>
+          </q-item>
+        </q-list>
         
         <q-list v-if="authStore.settings" class="flex flex-col relative overflow-hidden" style="background-color: rgba(15, 23, 42, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.08); box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2); border-radius: 24px; padding: 8px;">
           <q-item tag="label" v-ripple class="q-py-lg rounded-xl">
@@ -1009,6 +1029,7 @@ import { AsYouType, isValidPhoneNumber } from 'libphonenumber-js';
 import { useAuthStore, type UserOrganization } from 'src/stores/auth';
 import { useMasterDataStore, type MasterOrganization } from 'src/stores/masterData';
 import { useEventStore } from 'src/stores/event';
+import { useHelpStore } from 'src/stores/help';
 import { useRouter } from 'vue-router';
 import { useQuasar } from 'quasar';
 import PtaBusyOverlay from 'src/modules/profitability/components/PtaBusyOverlay.vue';
@@ -1026,9 +1047,14 @@ import { fetchAppVersions, latestVersionLabel } from 'src/utils/appVersions';
 const authStore = useAuthStore();
 const masterDataStore = useMasterDataStore();
 const eventStore = useEventStore();
+const helpStore = useHelpStore();
 const router = useRouter();
 const $q = useQuasar();
 const latestVersion = ref('');
+
+function onHelpHeaderToggle(value: boolean) {
+  helpStore.setHeaderEnabled(!!value);
+}
 
 onMounted(() => {
   void fetchAppVersions()

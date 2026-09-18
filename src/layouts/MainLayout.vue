@@ -11,8 +11,21 @@
         </div>
 
 
-        <!-- Right side: Newsfeed + Notifications + Messages -->
+        <!-- Right side: Help + Newsfeed + Notifications + Messages -->
         <div class="flex items-center gap-2 sm:gap-4">
+          <q-btn
+            v-if="helpStore.headerEnabled"
+            flat
+            round
+            dense
+            icon="sym_r_help"
+            class="text-sky-400 hover:text-white relative"
+            size="18px"
+            aria-label="Súgó ehhez a képernyőhöz"
+            @click="openScreenHelp"
+          >
+            <q-tooltip>Súgó</q-tooltip>
+          </q-btn>
           <q-btn
             flat
             round
@@ -146,6 +159,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { EVENTJOY_BRAND } from 'src/assets/brand/eventjoy';
 import ComingSoonCube from 'src/components/event/ComingSoonCube.vue';
 import NowPlayingBar from 'src/components/layout/NowPlayingBar.vue';
+import { useHelpStore } from 'src/stores/help';
 import EventLiveDot from 'src/components/layout/EventLiveDot.vue';
 import RestoreAdminButton from 'src/components/layout/RestoreAdminButton.vue';
 import { installEventCatalogRefresh } from 'src/utils/eventCatalogRefresh';
@@ -155,6 +169,14 @@ const headerLogo = EVENTJOY_BRAND.logoDark;
 const $q = useQuasar();
 const route = useRoute();
 const router = useRouter();
+const helpStore = useHelpStore();
+
+function openScreenHelp() {
+  const names = [route.name, ...route.matched.map((record) => record.name)]
+    .filter((name) => name != null && name !== '')
+    .map(String);
+  helpStore.openForRoute(names.join(','), route.fullPath);
+}
 
 const isSoonOpen = ref(false);
 const soonLabel = ref('Hamarosan elérhető');

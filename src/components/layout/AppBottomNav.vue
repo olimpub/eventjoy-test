@@ -45,6 +45,6 @@ const route = useRoute()
 const klubhubIcon = KLUBHUB_BRAND.icon
 const isProfileSection = computed(() => {
   const name = String(route.name || '')
-  return name === 'profile' || name === 'support' || name === 'support_ticket' || name === 'whats-new'
+  return name === 'profile' || name === 'support' || name === 'support_ticket' || name === 'whats-new' || name === 'help' || name === 'help-article'
 })
 </script>

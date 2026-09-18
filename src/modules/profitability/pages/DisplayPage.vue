@@ -424,7 +424,7 @@ function seatingLiveSource() {
     const rid = ptaEventRoundId(row);
     return rid != null && roundIds.has(rid);
   });
-  const livePlayers = [...eventStore.getPtaPlayersForEvent(eventId.value), ...eventStore.ptaEventPlayers];
+  const livePlayers = eventStore.getPtaPlayersForEvent(eventId.value);
   return {
     desks: eventStore.getPtaDesksForEvent(eventId.value),
     roundDesks,

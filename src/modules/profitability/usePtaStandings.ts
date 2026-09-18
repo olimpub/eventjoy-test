@@ -124,7 +124,7 @@ export function usePtaStandings(options?: { publishedOnly?: boolean; feed?: 'sto
 
   function playerRows() {
     if (feed.value) return feed.value.players;
-    return [...eventStore.getPtaPlayersForEvent(eventId.value), ...eventStore.ptaEventPlayers];
+    return eventStore.getPtaPlayersForEvent(eventId.value);
   }
 
   function peopleRows() {

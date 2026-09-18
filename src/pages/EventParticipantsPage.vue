@@ -22,6 +22,14 @@
         <div class="part-header__actions">
           <button
             type="button"
+            class="part-help-btn"
+            aria-label="Súgó: Résztvevők"
+            @click="helpStore.openArticle('participants')"
+          >
+            <q-icon name="help" size="22px" />
+          </button>
+          <button
+            type="button"
             class="part-add-btn"
             aria-label="Helyszíni regisztráció"
             @click="isWalkInOpen = true"
@@ -430,6 +438,7 @@ import JoinQrSheet from 'src/components/event/JoinQrSheet.vue';
 import ParticipantContactSheet from 'src/components/event/ParticipantContactSheet.vue';
 import { eventReachedCheckIn, isEventUserCheckedInName } from 'src/utils/eventRoleNav';
 import AppConfirmDialog from 'src/components/ui/AppConfirmDialog.vue';
+import { useHelpStore } from 'src/stores/help';
 
 interface ParticipantRow {
   id: number;
@@ -456,6 +465,7 @@ interface ParticipantRow {
 const route = useRoute();
 const router = useRouter();
 const $q = useQuasar();
+const helpStore = useHelpStore();
 const authStore = useAuthStore();
 const eventStore = useEventStore();
 const masterDataStore = useMasterDataStore();
@@ -983,6 +993,7 @@ function comingSoon(label: string) {
   margin-right: 10px;
 }
 
+.part-help-btn,
 .part-add-btn,
 .part-qr-btn,
 .part-excel-btn {
@@ -994,6 +1005,12 @@ function comingSoon(label: string) {
   flex-shrink: 0;
   border-radius: 16px;
   cursor: pointer;
+}
+
+.part-help-btn {
+  border: 1px solid rgba(56, 189, 248, 0.55);
+  background: rgba(14, 165, 233, 0.22);
+  color: #7dd3fc;
 }
 
 .part-add-btn {
@@ -1009,6 +1026,7 @@ function comingSoon(label: string) {
   color: #38bdf8;
 }
 
+.part-help-btn:active,
 .part-add-btn:active,
 .part-qr-btn:active,
 .part-excel-btn:active {

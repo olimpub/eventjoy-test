@@ -420,12 +420,34 @@ function clearLocalEventStatuses() {
 
 function forgetPtaDraw(eventId: number | string) {
   const all = readLocalJson<Record<string, LocalPtaDrawSnapshot>>(LS_PTA_DRAW, {});
+  if (!(String(eventId) in all)) {
+    if (!Object.keys(all).length) {
+      try {
+        localStorage.removeItem(LS_PTA_DRAW);
+      } catch {
+        /* ignore */
+      }
+    }
+    return;
+  }
   delete all[String(eventId)];
+  if (!Object.keys(all).length) {
+    try {
+      localStorage.removeItem(LS_PTA_DRAW);
+    } catch {
+      /* ignore */
+    }
+    return;
+  }
   writeLocalJson(LS_PTA_DRAW, all);
 }
 
 function clearLocalPtaDraws() {
-  writeLocalJson(LS_PTA_DRAW, {});
+  try {
+    localStorage.removeItem(LS_PTA_DRAW);
+  } catch {
+    /* ignore */
+  }
 }
 
 export interface EnterableEventRole {
@@ -1153,39 +1175,6 @@ export const useEventStore = defineStore('event', {
       }
     ) {
       const key = eventId == null || eventId === '' ? null : String(eventId);
-      if (key != null) {
-        if (!snapshot.desks.length) snapshot.desks = ptaRowsForEvent(this.ptaEventDesks, key);
-        if (!snapshot.rounds.length) snapshot.rounds = ptaRowsForEvent(this.ptaEventRounds, key);
-        if (!snapshot.roundDesks.length) {
-          const roundIds = new Set(
-            (snapshot.rounds.length ? snapshot.rounds : ptaRowsForEvent(this.ptaEventRounds, key))
-              .map((row) => ptaEventRoundId(row) ?? nullableNumericId(row.id))
-              .filter((id): id is number => id != null)
-          );
-          snapshot.roundDesks = this.ptaEventRoundDesks.filter((row) => {
-            const roundId = ptaEventRoundId(row);
-            return roundId != null && (roundIds.size === 0 || roundIds.has(roundId));
-          });
-        }
-      }
-      snapshot.roundDesks = normalizePtaRoundDesks(snapshot.roundDesks);
-      snapshot.rounds = snapshot.rounds.length
-        ? normalizePtaEventRounds(snapshot.rounds)
-        : snapshot.rounds;
-      attachPtaDeskNumbers(snapshot.roundDesks, snapshot.desks);
-      const hydrated = hydratePtaPlayerGraph({
-        eventId: key,
-        desks: snapshot.desks,
-        rounds: snapshot.rounds,
-        roundDesks: snapshot.roundDesks,
-        players: snapshot.players,
-        schedules: snapshot.schedules,
-        prizes: snapshot.prizes,
-        previousPlayers: key != null ? ptaRowsForEvent(this.ptaEventPlayers, key) : this.ptaEventPlayers,
-        previousSchedules: this.ptaGameSchedules,
-      });
-      snapshot.players = hydrated.players;
-      snapshot.schedules = hydrated.schedules;
       const apiHasDraw =
         snapshot.desks.length > 0 ||
         snapshot.rounds.length > 0 ||
@@ -1216,7 +1205,34 @@ export const useEventStore = defineStore('event', {
           this.reapplyPtaDeskClaims();
           return;
         }
+        this.resetLocalPtaEvent(key, { persistLocal: false });
+        if (snapshot.settings.length) {
+          this.ptaEventSettings = [
+            ...this.ptaEventSettings.filter((row) => String(row.EventID) !== key),
+            ...snapshot.settings,
+          ];
+        }
+        return;
       }
+
+      snapshot.roundDesks = normalizePtaRoundDesks(snapshot.roundDesks);
+      snapshot.rounds = snapshot.rounds.length
+        ? normalizePtaEventRounds(snapshot.rounds)
+        : snapshot.rounds;
+      attachPtaDeskNumbers(snapshot.roundDesks, snapshot.desks);
+      const hydrated = hydratePtaPlayerGraph({
+        eventId: key,
+        desks: snapshot.desks,
+        rounds: snapshot.rounds,
+        roundDesks: snapshot.roundDesks,
+        players: snapshot.players,
+        schedules: snapshot.schedules,
+        prizes: snapshot.prizes,
+        previousPlayers: key != null ? ptaRowsForEvent(this.ptaEventPlayers, key) : this.ptaEventPlayers,
+        previousSchedules: snapshot.schedules.length ? [] : this.ptaGameSchedules,
+      });
+      snapshot.players = hydrated.players;
+      snapshot.schedules = hydrated.schedules;
 
       if (key == null) {
         stripAutoAssignedGameMasters(snapshot.desks, snapshot.roundDesks);
@@ -1619,6 +1635,7 @@ export const useEventStore = defineStore('event', {
         return deskId == null || !oldRoundDeskIds.has(deskId);
       });
 
+      const remainingPlayers = ptaRowsExceptEvent(this.ptaEventPlayers, eventId);
       const built = buildPtaDraw({
         eventId: numId,
         playing,
@@ -1629,7 +1646,7 @@ export const useEventStore = defineStore('event', {
         remainingRounds,
         remainingRoundDesks,
         remainingSchedules,
-        allPlayers: this.ptaEventPlayers,
+        allPlayers: remainingPlayers,
       });
       if (!built.ok) return built;
 
@@ -1640,19 +1657,8 @@ export const useEventStore = defineStore('event', {
       this.ptaEventRounds = [...remainingRounds, ...built.rounds];
       this.ptaEventRoundDesks = [...remainingRoundDesks, ...built.roundDesks];
       this.ptaGameSchedules = [...remainingSchedules, ...built.schedules];
-
-      const nextPlayers = this.ptaEventPlayers.slice();
-      for (const row of built.players) {
-        const eventUserId = nullableNumericId(row.EventUserID);
-        const idx = nextPlayers.findIndex((player) => {
-          if (String(player.EventID ?? player.eventID ?? '') !== String(eventId)) return false;
-          return nullableNumericId(player.EventUserID ?? player.eventUserID) === eventUserId;
-        });
-        if (idx >= 0) nextPlayers[idx] = { ...nextPlayers[idx], ...row };
-        else nextPlayers.push(row);
-      }
-      this.ptaEventPlayers = nextPlayers;
-      this.persistCurrentPtaDraw(eventId);
+      this.ptaEventPlayers = [...remainingPlayers, ...built.players];
+      forgetPtaDraw(eventId);
       this.refreshPtaPlayerFinals(eventId);
       return built;
     },

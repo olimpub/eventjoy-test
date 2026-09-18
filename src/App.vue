@@ -11,6 +11,7 @@
       <router-view />
     </div>
     <AppBottomNav v-if="showBottomNav" />
+    <HelpSheet />
   </div>
 </template>
 
@@ -19,6 +20,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import SplashScreen from 'components/SplashScreen.vue'
 import AppBottomNav from 'src/components/layout/AppBottomNav.vue'
+import HelpSheet from 'src/components/help/HelpSheet.vue'
 
 const route = useRoute()
 const isSplashVisible = ref(true)

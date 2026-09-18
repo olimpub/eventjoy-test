@@ -13,6 +13,15 @@
           <h1 class="vet-header__title">Vetítés</h1>
           <p class="vet-header__event">{{ eventName }}</p>
         </div>
+        <q-btn
+          flat
+          round
+          dense
+          icon="sym_r_help"
+          class="text-sky-400 bg-white/5"
+          aria-label="Súgó: Vetítés"
+          @click="helpStore.openArticle('vetites')"
+        />
       </header>
 
       <p class="vet-hint">
@@ -185,6 +194,7 @@ import { Notify } from 'quasar';
 import QRCode from 'qrcode';
 import { nullableNumericId } from 'src/utils/apiPayload';
 import { useEventStore } from 'src/stores/event';
+import { useHelpStore } from 'src/stores/help';
 import { eventDatasheetKind, eventRolePath, eventRoleQuery } from 'src/utils/eventRoleNav';
 import { resolvePtaSeatName, type EventGroupingKey } from 'src/modules/profitability/ptaData';
 import {
@@ -205,6 +215,7 @@ import '../theme.css';
 
 const route = useRoute();
 const router = useRouter();
+const helpStore = useHelpStore();
 const eventStore = useEventStore();
 
 const {
@@ -373,7 +384,7 @@ function publishedRoundIdForTv(): number | null {
 function playerName(playerId: number | null): string {
   return resolvePtaSeatName({
     playerId,
-    players: [...eventStore.getPtaPlayersForEvent(eventId.value), ...eventStore.ptaEventPlayers],
+    players: eventStore.getPtaPlayersForEvent(eventId.value),
     people: [
       ...eventStore.getParticipantDirectoryForEvent(eventId.value),
       ...eventStore.getEventParticipantsForEvent(eventId.value),

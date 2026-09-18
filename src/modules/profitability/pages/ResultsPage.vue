@@ -288,7 +288,7 @@ function roundStatusName(row: Record<string, unknown>): string {
 function playerName(playerId: number | null): string {
   return resolvePtaSeatName({
     playerId,
-    players: [...eventStore.getPtaPlayersForEvent(eventId.value), ...eventStore.ptaEventPlayers],
+    players: eventStore.getPtaPlayersForEvent(eventId.value),
     people: [
       ...eventStore.getParticipantDirectoryForEvent(eventId.value),
       ...eventStore.getEventParticipantsForEvent(eventId.value),
@@ -308,7 +308,7 @@ function playerGroupLine(playerId: number | null | undefined): string {
 
 function groupingValueForPlayer(playerId: number, key: EventGroupingKey): string {
   const player = findPtaPlayerByRef(
-    [...eventStore.getPtaPlayersForEvent(eventId.value), ...eventStore.ptaEventPlayers],
+    eventStore.getPtaPlayersForEvent(eventId.value),
     eventId.value,
     playerId
   );
