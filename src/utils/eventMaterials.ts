@@ -246,6 +246,76 @@ async function fetchMaterialDownloadSasUrl(eventId: number, item: EventMaterial)
   throw lastError || new Error('A letöltési URL nem kérhető.');
 }
 
+const readableBlobCache = new Map<string, string>();
+const readableBlobInflight = new Map<string, Promise<string>>();
+
+function materialMatchesBlob(row: EventMaterial, url: string, fileName: string): boolean {
+  return row.blobUrl === url || (!!fileName && (row.fileName === fileName || row.blobUrl.endsWith(`/${fileName}`)));
+}
+
+async function registerUploadedBlob(
+  eventId: number,
+  blobUrl: string,
+  fileName: string,
+  materialTypeId: number
+): Promise<EventMaterial | null> {
+  const response = await api.post(`/event/${eventId}/materials`, {
+    FileName: fileName || 'desk.jpg',
+    BlobUrl: blobUrl,
+    ContentType: 'image/jpeg',
+    SizeInBytes: 1,
+    PublicName: fileName || 'Asztalfotó',
+    MaterialTypeID: materialTypeId,
+  });
+  throwIfApiFailed(response.data, 'A fotó mentése sikertelen.');
+  const materials = await fetchEventMaterials(eventId);
+  return materials.find((row) => materialMatchesBlob(row, blobUrl, fileName)) ?? null;
+}
+
+/** Már feltöltött, privát materials blob → read SAS az <img> számára. */
+export async function resolveReadableBlobUrl(
+  eventId: number,
+  blobUrl: string,
+  materialTypeId?: number | null
+): Promise<string> {
+  const url = String(blobUrl || '').trim();
+  if (!url || url.startsWith('blob:') || url.startsWith('data:') || isReadSasUrl(url)) return url;
+  const cached = readableBlobCache.get(url);
+  if (cached) return cached;
+  const pending = readableBlobInflight.get(url);
+  if (pending) return pending;
+
+  const task = (async () => {
+    const fileName = decodeURIComponent(url.split('?')[0].split('/').pop() || '');
+    let item =
+      (await fetchEventMaterials(eventId)).find((row) => materialMatchesBlob(row, url, fileName)) ?? null;
+    if (!item && materialTypeId != null) {
+      item = await registerUploadedBlob(eventId, url, fileName, materialTypeId);
+    }
+    if (!item) return '';
+    const objectUrl = await fetchMaterialFileObjectUrl(eventId, item);
+    if (!objectUrl) return '';
+    readableBlobCache.set(url, objectUrl);
+    return objectUrl;
+  })().finally(() => {
+    readableBlobInflight.delete(url);
+  });
+
+  readableBlobInflight.set(url, task);
+  return task;
+}
+
+async function fetchMaterialFileObjectUrl(eventId: number, item: EventMaterial): Promise<string> {
+  const response = await api.get(`/event/${eventId}/materials/${item.eventMaterialId}/file`, {
+    responseType: 'blob',
+  });
+  const contentType = String(response.headers['content-type'] || '');
+  if (contentType.includes('json')) return '';
+  const blob = response.data as Blob;
+  if (!blob?.size || (await looksLikeAzureXmlError(blob))) return '';
+  return URL.createObjectURL(new Blob([blob], { type: contentType || blob.type || 'image/jpeg' }));
+}
+
 async function downloadFromApiStream(eventId: number, item: EventMaterial, filename: string): Promise<void> {
   const response = await api.get(`/event/${eventId}/materials/${item.eventMaterialId}/file`, {
     responseType: 'blob',

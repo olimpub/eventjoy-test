@@ -204,12 +204,23 @@
                 <q-icon name="sym_r_swords" size="14px" />
                 JM
               </button>
-              <span
-                class="game-table__status"
-                :class="statusClass(table.deskStatus)"
-                :title="table.deskStatus"
-              >
-                <q-icon :name="deskStatusIcon(table.deskStatus)" size="18px" />
+              <span class="game-table__tools">
+                <button
+                  v-if="table.photoUrl || localPhotoByDesk[table.id]"
+                  type="button"
+                  class="game-table__photo-btn"
+                  aria-label="Fotó megtekintése"
+                  @click.stop="openCardPhoto(table)"
+                >
+                  <q-icon name="photo" size="18px" />
+                </button>
+                <span
+                  class="game-table__status"
+                  :class="statusClass(table.deskStatus)"
+                  :title="table.deskStatus"
+                >
+                  <q-icon :name="deskStatusIcon(table.deskStatus)" size="18px" />
+                </span>
               </span>
             </div>
             <div
@@ -223,9 +234,12 @@
                 {{ seat.resultPoint == null ? '—' : seat.resultPoint }}
               </span>
             </div>
-            <div v-if="photoMandatory" class="game-table__photo">
-              <q-icon :name="table.photoUrl ? 'photo' : 'add_a_photo'" size="16px" />
-              <span>{{ table.photoUrl ? 'Fotó' : 'Fotó feltöltés' }}</span>
+            <div
+              v-if="photoMandatory && !(table.photoUrl || localPhotoByDesk[table.id])"
+              class="game-table__photo"
+            >
+              <q-icon name="add_a_photo" size="16px" />
+              <span>Fotó feltöltés</span>
             </div>
               </div>
             </div>
@@ -318,22 +332,25 @@
           />
         </q-card-section>
         <q-card-section class="q-pt-sm q-px-md pb-6">
-          <div v-if="shownPhotoUrl" class="game-photo game-photo--preview">
-            <button type="button" class="game-photo__thumb" :disabled="photoUploading" @click="isPhotoPreviewOpen = true">
-              <img :src="shownPhotoUrl" alt="Asztal fotó" class="game-photo__img" />
-              <span class="game-photo__view">
-                <q-icon name="zoom_in" size="18px" />
-                Megtekintés
-              </span>
+          <div v-if="sheetHasPhoto" class="game-photo-split">
+            <button
+              type="button"
+              class="game-photo-split__part"
+              aria-label="Fotó megtekintése"
+              :disabled="photoUploading"
+              @click="openPhoto(shownPhotoUrl || selectedTable?.photoUrl || '')"
+            >
+              <q-icon name="photo" size="22px" />
             </button>
             <button
               v-if="!deskLocked"
               type="button"
-              class="game-photo__retake"
+              class="game-photo-split__part"
+              aria-label="Új fotó"
               :disabled="photoUploading"
               @click="openCamera"
             >
-              <q-icon name="photo_camera" size="18px" />
+              <q-icon name="photo_camera" size="22px" />
             </button>
           </div>
           <button
@@ -431,7 +448,7 @@
             v-if="canEnterResults && !selectedTable.isClosed"
             type="button"
             class="game-close-desk"
-            :disabled="deskSaving || photoUploading"
+            :disabled="deskSaving || photoUploading || !canCloseDesk"
             @click="closeDesk"
           >
             {{ deskSaving ? 'Mentés…' : 'Asztal lezárása' }}
@@ -470,7 +487,7 @@
       </q-card>
     </q-dialog>
     <q-dialog v-model="isPhotoPreviewOpen">
-      <q-card v-if="shownPhotoUrl" class="game-photo-preview">
+      <q-card v-if="photoPreviewSrc" class="game-photo-preview">
         <q-btn
           icon="close"
           flat
@@ -479,7 +496,7 @@
           v-close-popup
           class="game-photo-preview__close"
         />
-        <img :src="shownPhotoUrl" alt="Asztal fotó" class="game-photo-preview__img" />
+        <img :src="photoPreviewSrc" alt="Asztal fotó" class="game-photo-preview__img" />
       </q-card>
     </q-dialog>
     <input
@@ -521,7 +538,7 @@ import { useQuasar } from 'quasar';
 import { eventDatasheetKind, eventRolePath, eventRoleQuery } from 'src/utils/eventRoleNav';
 import { nullableNumericId, readAxiosErrorMessage, readAxiosHttpStatus } from 'src/utils/apiPayload';
 import { claimPtaDesk, closePtaRound, patchPtaDesk, publishPtaRound, replacePtaDraw, setPtaDeskResults, setPtaRoundStatus } from 'src/utils/eventChange';
-import { uploadPtaDeskPhoto } from 'src/utils/eventMaterials';
+import { resolveReadableBlobUrl, uploadPtaDeskPhoto } from 'src/utils/eventMaterials';
 import { pingPtaLiveRoundDisplay } from 'src/modules/profitability/ptaDisplayApi';
 import {
   fetchPtaRoundAvailableStatuses,
@@ -629,8 +646,11 @@ const roundStatusConfirmVariant = ref<'default' | 'undo' | 'danger'>('default');
 let roundStatusConfirmResolver: ((ok: boolean) => void) | null = null;
 const isTableSheetOpen = ref(false);
 const isPhotoPreviewOpen = ref(false);
+const photoPreviewSrc = ref('');
 const photoUploading = ref(false);
 const pendingPhotoUrl = ref('');
+const localPhotoByDesk = ref<Record<number, string>>({});
+const readablePhotoByDesk = ref<Record<number, string>>({});
 const cameraInput = ref<HTMLInputElement | null>(null);
 const sheetSeats = ref<GameSeatRow[]>([]);
 const sheetManualOrder = ref(false);
@@ -945,11 +965,60 @@ const statusSheetNextStatuses = computed<PtaRoundAvailableStatus[]>(
 
 const statusSheetCanUndo = computed(() => !!roundStatusAvailability.value?.canUndoCurrent);
 
+const photoMaterialTypeId = computed(() => masterDataStore.materialTypes[0]?.id ?? null);
 const ptaSettings = computed(() => eventStore.getPtaSettingsForEvent(eventId.value));
 const photoMandatory = computed(() => !!ptaSettings.value?.PhotoUploadMadatoryFlg);
 
 const selectedTable = computed(() => currentTables.value.find((table) => table.id === selectedTableId.value) || null);
-const shownPhotoUrl = computed(() => pendingPhotoUrl.value || selectedTable.value?.photoUrl || '');
+function openPhoto(url: string) {
+  if (!url) return;
+  photoPreviewSrc.value = url;
+  isPhotoPreviewOpen.value = true;
+}
+
+function openCardPhoto(table: { id: number; photoUrl: string }) {
+  openPhoto(deskPhotoUrl(table) || table.photoUrl || localPhotoByDesk.value[table.id] || '');
+}
+
+function deskPhotoUrl(table: { id: number; photoUrl: string } | null | undefined): string {
+  if (!table) return '';
+  const local = localPhotoByDesk.value[table.id];
+  if (local) return local;
+  const readable = readablePhotoByDesk.value[table.id];
+  if (readable) return readable;
+  const raw = table.photoUrl || '';
+  if (raw.startsWith('blob:') || raw.startsWith('data:') || /[?&]sig=/i.test(raw)) return raw;
+  return '';
+}
+
+const shownPhotoUrl = computed(
+  () => pendingPhotoUrl.value || deskPhotoUrl(selectedTable.value)
+);
+const sheetHasPhoto = computed(() => {
+  const table = selectedTable.value;
+  if (!table) return false;
+  return !!(pendingPhotoUrl.value || localPhotoByDesk.value[table.id] || table.photoUrl);
+});
+
+watch(
+  () =>
+    `${photoMaterialTypeId.value}|${currentTables.value.map((table) => `${table.id}:${table.photoUrl}`).join('|')}`,
+  () => {
+    const id = nullableNumericId(eventId.value);
+    if (id == null) return;
+    for (const table of currentTables.value) {
+      const raw = table.photoUrl;
+      if (!raw || localPhotoByDesk.value[table.id] || readablePhotoByDesk.value[table.id]) continue;
+      void resolveReadableBlobUrl(id, raw, photoMaterialTypeId.value)
+        .then((url) => {
+          if (!url || url === raw) return;
+          readablePhotoByDesk.value = { ...readablePhotoByDesk.value, [table.id]: url };
+        })
+        .catch(() => undefined);
+    }
+  },
+  { immediate: true }
+);
 
 function clearScoreDrafts() {
   amountDrafts.value = {};
@@ -978,7 +1047,7 @@ function hydrateSheetSeats() {
 const rankedSeats = computed(() => {
   const table = selectedTable.value;
   const useSheet = isTableSheetOpen.value && sheetSeats.value.length > 0;
-  const seats = useSheet ? sheetSeats.value : table?.seats || [];
+  const seats = seatsWithDrafts(useSheet ? sheetSeats.value : table?.seats || []);
   const manual = useSheet ? sheetManualOrder.value : !!table?.manualOrder;
   const ranked = rankDeskSeats(seats, ptaSettings.value, manual);
   return ranked.seats.map((seat) => ({
@@ -990,7 +1059,7 @@ const rankedSeats = computed(() => {
 const deskHasTie = computed(() => {
   const table = selectedTable.value;
   const useSheet = isTableSheetOpen.value && sheetSeats.value.length > 0;
-  const seats = useSheet ? sheetSeats.value : table?.seats || [];
+  const seats = seatsWithDrafts(useSheet ? sheetSeats.value : table?.seats || []);
   const manual = useSheet ? sheetManualOrder.value : !!table?.manualOrder;
   if (!seats.length) return false;
   return rankDeskSeats(seats, ptaSettings.value, manual).hasTie;
@@ -1547,7 +1616,8 @@ async function onPhotoPicked(event: Event) {
   clearPendingPhoto();
   try {
     const jpeg = await compressPhoto(file, table.id);
-    pendingPhotoUrl.value = URL.createObjectURL(jpeg);
+    const previewUrl = URL.createObjectURL(jpeg);
+    pendingPhotoUrl.value = previewUrl;
     const blobUrl = await uploadPtaDeskPhoto(id, table.id, jpeg);
     await patchPtaDesk({
       eventId: id,
@@ -1558,7 +1628,10 @@ async function onPhotoPicked(event: Event) {
       PhotoUrl: blobUrl,
       AzurePhotoUrl: blobUrl,
     });
-    clearPendingPhoto();
+    const previous = localPhotoByDesk.value[table.id];
+    if (previous?.startsWith('blob:') && previous !== previewUrl) URL.revokeObjectURL(previous);
+    localPhotoByDesk.value = { ...localPhotoByDesk.value, [table.id]: previewUrl };
+    pendingPhotoUrl.value = '';
   } catch (error) {
     clearPendingPhoto();
     $q.notify({
@@ -1609,10 +1682,16 @@ function compressPhoto(file: File, roundDeskId: number): Promise<File> {
   });
 }
 
+function focusedFieldRaw(playerId: number, field: 'amount' | 'truck'): string | undefined {
+  if (focusedScore.value?.playerId !== playerId || focusedScore.value.field !== field) return undefined;
+  const attr = field === 'amount' ? 'data-amount' : 'data-truck';
+  return document.querySelector<HTMLInputElement>(`[${attr}="${playerId}"]`)?.value;
+}
+
 function seatsWithDrafts(seats: GameSeatRow[]): GameSeatRow[] {
   return seats.map((seat) => {
-    const amountRaw = amountDrafts.value[seat.playerId];
-    const truckRaw = truckDrafts.value[seat.playerId];
+    const amountRaw = focusedFieldRaw(seat.playerId, 'amount') ?? amountDrafts.value[seat.playerId];
+    const truckRaw = focusedFieldRaw(seat.playerId, 'truck') ?? truckDrafts.value[seat.playerId];
     return {
       ...seat,
       amount: amountRaw !== undefined ? parseAmount(amountRaw) : seat.amount,
@@ -1621,20 +1700,21 @@ function seatsWithDrafts(seats: GameSeatRow[]): GameSeatRow[] {
   });
 }
 
+const canCloseDesk = computed(() => {
+  const seats = rankedSeats.value;
+  return seats.length > 0 && seats.every((seat) => seat.position != null && seat.resultPoint != null);
+});
+
 async function closeDesk() {
   const table = selectedTable.value;
   if (!table || !canEnterResults.value || deskSaving.value) return;
-  focusedScore.value = null;
-  pendingRoundPromote = false;
   const source = seatsWithDrafts(sheetSeats.value.length ? sheetSeats.value : table.seats);
   const ranked = rankDeskSeats(source, ptaSettings.value, sheetManualOrder.value || table.manualOrder);
-  if (!ranked.allFilled) {
-    $q.notify({ message: 'Mind a négy összeg kell a lezáráshoz.', color: 'dark', textColor: 'red-4', position: 'top' });
-    return;
-  }
-  if (ranked.seats.some((seat) => seat.position == null || seat.resultPoint == null)) {
+  focusedScore.value = null;
+  pendingRoundPromote = false;
+  if (!ranked.allFilled || ranked.seats.some((seat) => seat.position == null || seat.resultPoint == null)) {
     $q.notify({
-      message: 'Mind a négy helyezés és pontszám kell a lezáráshoz.',
+      message: 'Előbb töltsd ki mind a négy eredményt, hogy meglegyen a sorrend.',
       color: 'dark',
       textColor: 'red-4',
       position: 'top',
@@ -2405,45 +2485,36 @@ async function onFinalizeDraw() {
   cursor: default;
 }
 
-.game-photo--preview {
-  border-style: solid;
-  cursor: default;
+.game-photo-split {
+  display: flex;
+  width: 100%;
+  margin: 0 0 10px;
+  overflow: hidden;
+  border: 1px dashed rgba(246, 139, 41, 0.45);
+  border-radius: 12px;
+  background: rgba(246, 139, 41, 0.08);
 }
 
-.game-photo__thumb {
-  display: block;
-  width: 100%;
-  padding: 0;
+.game-photo-split__part {
+  display: flex;
+  flex: 1 1 50%;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 8px;
   border: 0;
   background: transparent;
-  color: inherit;
-  cursor: pointer;
-}
-
-.game-photo__view {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 8px 10px;
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.game-photo__retake {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  border: 0;
-  border-radius: 9999px;
-  background: rgba(10, 11, 12, 0.78);
   color: #fdba74;
   cursor: pointer;
+}
+
+.game-photo-split__part + .game-photo-split__part {
+  border-left: 1px dashed rgba(246, 139, 41, 0.45);
+}
+
+.game-photo-split__part:disabled {
+  opacity: 0.7;
+  cursor: default;
 }
 
 .hidden {
@@ -2787,6 +2858,26 @@ async function onFinalizeDraw() {
   font-size: 11px;
   font-weight: 800;
   color: #cbd5e1;
+}
+
+.game-table__tools {
+  display: inline-flex;
+  align-items: center;
+  justify-self: end;
+  gap: 2px;
+}
+
+.game-table__photo-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #fdba74;
 }
 
 .game-table__photo {
