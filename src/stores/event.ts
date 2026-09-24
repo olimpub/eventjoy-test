@@ -27,6 +27,9 @@ import {
 } from 'src/modules/profitability/ptaData';
 import { buildPtaDraw, type PtaDrawBuildResult } from 'src/modules/profitability/buildPtaDraw';
 import { PLAYERS_PER_DESK, normalizePtaSchedules } from 'src/modules/profitability/drawEngine';
+import { isOlimpubEventType } from 'src/modules/olimpub/constants';
+import { isAxiosNetworkError } from 'src/utils/networkStatus';
+import { normalizeOpSettings, type OpEventSettings } from 'src/modules/olimpub/opData';
 import { isProfitabilityEventType } from 'src/modules/profitability/constants';
 import {
   catalogHasPublishedStatus,
@@ -526,6 +529,7 @@ export const useEventStore = defineStore('event', {
     eventTypeOwners: [] as any[],
     eventPrograms: [] as EventProgram[],
     ptaEventSettings: [] as PtaEventSettings[],
+    opEventSettings: [] as OpEventSettings[],
     ptaEventDesks: [] as Record<string, unknown>[],
     ptaEventRounds: [] as Record<string, unknown>[],
     ptaEventRoundDesks: [] as Record<string, unknown>[],
@@ -710,6 +714,14 @@ export const useEventStore = defineStore('event', {
       const numId = Number(eventId);
       return (
         state.ptaEventSettings.find(
+          (row) => Number(row.EventID) === numId || String(row.EventID) === String(eventId)
+        ) || null
+      );
+    },
+    getOpSettingsForEvent: (state) => (eventId: number | string) => {
+      const numId = Number(eventId);
+      return (
+        state.opEventSettings.find(
           (row) => Number(row.EventID) === numId || String(row.EventID) === String(eventId)
         ) || null
       );
@@ -905,13 +917,15 @@ export const useEventStore = defineStore('event', {
         const typeCanEnter = masterDataStore.eventTypeCanEnter(eventTypeId ?? null);
         const ptaSheet =
           isProfitabilityEventType(eventTypeId ?? null) || !!this.getPtaSettingsForEvent(eventId);
+        const opSheet =
+          isOlimpubEventType(eventTypeId ?? null) || !!this.getOpSettingsForEvent(eventId);
         const seen = new Set<string>();
         const result: EnterableEventRole[] = [];
 
         for (const eu of this.getEventUsersForEvent(eventId)) {
           const masterRoleId = resolveMasterRoleId(this.roles, eu);
           const isOrganizer = masterDataStore.isOrganizerRole(masterRoleId);
-          if (!isOrganizer && !typeCanEnter && !ptaSheet) continue;
+          if (!isOrganizer && !typeCanEnter && !ptaSheet && !opSheet) continue;
 
           const eventRoleId = eu.EventRoleID;
           const key = eventRoleId != null ? `er-${eventRoleId}` : `eu-${eu.id}`;
@@ -953,8 +967,13 @@ export const useEventStore = defineStore('event', {
     },
 
     async refreshEventData() {
-      const response = await api.get('/event/data');
-      this.setEventData(unwrapApiPayload(response.data));
+      try {
+        const response = await api.get('/event/data');
+        this.setEventData(unwrapApiPayload(response.data));
+      } catch (error) {
+        if (isAxiosNetworkError(error)) return;
+        throw error;
+      }
     },
 
     upsertEvents(rows: unknown[]) {
@@ -1075,6 +1094,14 @@ export const useEventStore = defineStore('event', {
         this.roles = [...byId.values()];
       }
 
+      this.replaceEventOpFromApi(
+        this.eventUserScreenContext?.eventId ?? null,
+        normalizeOpSettings(
+          pickDataset(data, 'OpSettings', 'opSettings'),
+          this.eventUserScreenContext?.eventId
+        )
+      );
+
       this.replaceEventPtaFromApi(this.eventUserScreenContext?.eventId ?? null, {
         settings: normalizePtaEventSettings(
           pickDataset(data, 'EventSettings', 'eventSettings', 'PtaEventSettings')
@@ -1155,6 +1182,22 @@ export const useEventStore = defineStore('event', {
         if (id == null || !Object.prototype.hasOwnProperty.call(this.ptaDeskClaims, id)) continue;
         row.GameMasterUserID = this.ptaDeskClaims[id];
       }
+    },
+
+    replaceEventOpFromApi(eventId: number | string | null, settings: OpEventSettings[]) {
+      const key = eventId == null || eventId === '' ? null : String(eventId);
+      if (key == null) {
+        if (settings.length) {
+          const byEvent = new Map(this.opEventSettings.map((row) => [String(row.EventID), row]));
+          for (const row of settings) byEvent.set(String(row.EventID), row);
+          this.opEventSettings = [...byEvent.values()];
+        }
+        return;
+      }
+      this.opEventSettings = [
+        ...this.opEventSettings.filter((row) => String(row.EventID) !== key),
+        ...settings,
+      ];
     },
 
     /**

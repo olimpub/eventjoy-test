@@ -36,7 +36,7 @@ export function resultPointOf(
   return amount + placementBonus(place, settings);
 }
 
-function scoreKey(amount: number | null, onTrack: number | null): number | null {
+export function scoreKey(amount: number | null, onTrack: number | null): number | null {
   if (amount == null) return null;
   return amount * 100 + (onTrack ?? 0);
 }
@@ -52,7 +52,19 @@ export function compareScoreSeats(a: ScoreSeat, b: ScoreSeat): number {
   const amountA = a.amount ?? -1;
   const amountB = b.amount ?? -1;
   if (amountB !== amountA) return amountB - amountA;
-  return (b.onTrack ?? -1) - (a.onTrack ?? -1);
+  const trackDiff = (b.onTrack ?? -1) - (a.onTrack ?? -1);
+  if (trackDiff !== 0) return trackDiff;
+  return (a.position ?? 999) - (b.position ?? 999);
+}
+
+/** Azonos pontú szomszédok: a feljebb lévő lefelé, a lejjebb lévő felfelé léphet. */
+export function tieNudge(seats: ScoreSeat[], index: number): { up: boolean; down: boolean } {
+  const key = scoreKey(seats[index]?.amount ?? null, seats[index]?.onTrack ?? null);
+  if (key == null) return { up: false, down: false };
+  const prev = index > 0 ? scoreKey(seats[index - 1].amount, seats[index - 1].onTrack) : null;
+  const next =
+    index < seats.length - 1 ? scoreKey(seats[index + 1].amount, seats[index + 1].onTrack) : null;
+  return { up: prev === key, down: next === key };
 }
 
 export function rankDeskSeats<T extends ScoreSeat>(
@@ -62,9 +74,14 @@ export function rankDeskSeats<T extends ScoreSeat>(
 ): { seats: T[]; hasTie: boolean; allFilled: boolean } {
   const allFilled = seats.length > 0 && seats.every((seat) => seat.amount != null);
   const hasTie = seatsHaveTie(seats);
-  const ordered =
-    !allFilled || manualOrder ? seats.slice() : seats.slice().sort(compareScoreSeats);
-  const canPlace = allFilled && (!hasTie || manualOrder);
+  const keepManual =
+    manualOrder && seats.length > 0 && seats.every((seat) => seat.position != null);
+  const ordered = !allFilled
+    ? seats.slice()
+    : keepManual
+      ? seats.slice().sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+      : seats.slice().sort(compareScoreSeats);
+  const canPlace = allFilled;
 
   const ranked = ordered.map((seat, index) => {
     if (!canPlace || seat.amount == null) {

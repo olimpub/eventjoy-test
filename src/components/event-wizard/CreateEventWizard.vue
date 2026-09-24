@@ -103,6 +103,16 @@
           @back="goBack"
           @next="goNext"
         />
+        <StepOpSettings
+          v-else-if="step === WIZARD_STEP.ptaSettings && isOp"
+          :model-value="basics"
+          :type-name="selection.typeName"
+          :type-icon="selection.typeIcon"
+          :mode="mode"
+          @update:model-value="patchBasics"
+          @back="goBack"
+          @next="goNext"
+        />
         <StepPtaSettings
           v-else-if="step === WIZARD_STEP.ptaSettings"
           :model-value="basics"
@@ -154,6 +164,7 @@ import StepBasics from './steps/StepBasics.vue';
 import StepRestrictions from './steps/StepRestrictions.vue';
 import StepTickets from './steps/StepTickets.vue';
 import StepPtaSettings from './steps/StepPtaSettings.vue';
+import StepOpSettings from './steps/StepOpSettings.vue';
 import StepPlaceholder from './steps/StepPlaceholder.vue';
 import { hydrateWizardFromEvent } from './hydrateFromEvent';
 import {
@@ -162,6 +173,7 @@ import {
   WIZARD_STEP_LABELS,
   canNavigateToWizardStep,
   createEmptyBasics,
+  ensureOpStarterRolesAndTickets,
   ensurePtaStarterRolesAndTickets,
   fillEmptyTicketRegistrationWindows,
   visibleWizardSteps,
@@ -171,7 +183,9 @@ import {
   type WizardSelection,
   type WizardStep,
 } from './types';
+import { isOlimpubEventType } from 'src/modules/olimpub/constants';
 import { isProfitabilityEventType } from 'src/modules/profitability/constants';
+import { useOlimpubStore } from 'src/stores/olimpub';
 import { buildEventSavePayload, saveEvent } from 'src/utils/eventSave';
 import { navigateToOrganizerDatasheet } from 'src/utils/eventRoleNav';
 import { nullableNumericId, readAxiosErrorMessage } from 'src/utils/apiPayload';
@@ -197,6 +211,7 @@ const $q = useQuasar();
 const router = useRouter();
 const eventStore = useEventStore();
 const masterDataStore = useMasterDataStore();
+const olimpubStore = useOlimpubStore();
 const uiStore = useUiStore();
 const step = ref<WizardStep>(1);
 
@@ -218,6 +233,8 @@ const stepLabel = computed(() => {
 });
 
 const isPta = computed(() => isProfitabilityEventType(selection.typeId));
+const isOp = computed(() => isOlimpubEventType(selection.typeId));
+const hasSettingsStep = computed(() => isPta.value || isOp.value);
 
 const hasExtraSheet = computed(() => {
   if (selection.typeId == null) return false;
@@ -225,7 +242,7 @@ const hasExtraSheet = computed(() => {
   return wizardTypeHasExtraSheet(eventType as Record<string, unknown> | undefined);
 });
 
-const visibleSteps = computed(() => visibleWizardSteps(hasExtraSheet.value, isPta.value));
+const visibleSteps = computed(() => visibleWizardSteps(hasExtraSheet.value, hasSettingsStep.value));
 
 function canGoToStep(n: number): boolean {
   return canNavigateToWizardStep(
@@ -234,7 +251,7 @@ function canGoToStep(n: number): boolean {
     selection,
     basics,
     hasExtraSheet.value,
-    isPta.value
+    hasSettingsStep.value
   );
 }
 
@@ -257,7 +274,7 @@ watch(
   (open) => {
     if (!open) return;
     if (props.mode === 'edit') {
-      loadForEdit();
+      void loadForEdit();
       return;
     }
     reset();
@@ -266,9 +283,10 @@ watch(
 );
 
 watch(
-  [isPta, hasExtraSheet],
+  [isPta, isOp, hasExtraSheet],
   () => {
     ensurePtaDefaults();
+    ensureOpDefaults();
     if (!visibleSteps.value.includes(step.value)) {
       step.value = visibleSteps.value[visibleSteps.value.length - 1] || 1;
     }
@@ -279,6 +297,7 @@ watch(
   () => masterDataStore.roles.length,
   () => {
     ensurePtaDefaults();
+    ensureOpDefaults();
   }
 );
 
@@ -287,7 +306,7 @@ function applyHydration(payload: { selection: WizardSelection; basics: WizardBas
   Object.assign(basics, payload.basics);
 }
 
-function loadForEdit() {
+async function loadForEdit() {
   const id = props.eventId;
   if (id == null || id === '') {
     reset();
@@ -301,6 +320,10 @@ function loadForEdit() {
     close();
     return;
   }
+  await Promise.all([
+    olimpubStore.loadMaster().catch(() => undefined),
+    olimpubStore.loadEvent(id).catch(() => undefined),
+  ]);
   const hydrated = hydrateWizardFromEvent(id, eventStore, masterDataStore);
   if (!hydrated) {
     reset();
@@ -316,6 +339,7 @@ function loadForEdit() {
   }
   applyHydration(hydrated);
   ensurePtaDefaults();
+  ensureOpDefaults();
   step.value = 2;
 }
 
@@ -370,6 +394,7 @@ function goBack() {
 
 function goNext() {
   ensurePtaDefaults();
+  ensureOpDefaults();
   fillEmptyTicketRegistrationWindows(basics.tickets, basics);
   const steps = visibleSteps.value;
   const idx = steps.indexOf(step.value);
@@ -396,6 +421,17 @@ function ensurePtaDefaults() {
   );
 }
 
+function ensureOpDefaults() {
+  if (!isOp.value) return;
+  void olimpubStore.loadMaster().catch(() => undefined);
+  if (props.mode !== 'create') return;
+  ensureOpStarterRolesAndTickets(
+    basics,
+    masterDataStore.roles,
+    masterDataStore.getDefaultEventUserFlowTemplateId(!!basics.publicFlg, true)
+  );
+}
+
 function onCategorySelect(payload: { id: number; name: string }) {
   if (selection.groupId === payload.id) {
     clearType();
@@ -414,6 +450,7 @@ function onTypeSelect(payload: { id: number; code: string; name: string; icon: s
   selection.typeName = payload.name;
   selection.typeIcon = payload.icon;
   ensurePtaDefaults();
+  ensureOpDefaults();
   step.value = 2;
 }
 
@@ -434,12 +471,14 @@ async function onFinish() {
         ? eventStore.events?.find((e: { id?: number | string }) => String(e.id) === String(props.eventId)) ||
           eventStore.myEvents?.find((e: { id?: number | string }) => String(e.id) === String(props.eventId))
         : null;
+    fillEmptyTicketRegistrationWindows(basics.tickets, basics);
     const payload = buildEventSavePayload({
       mode: props.mode,
       eventId: props.eventId,
       selection,
       basics,
       includePta: isPta.value,
+      includeOp: isOp.value,
       eventStatusId:
         props.mode === 'edit'
           ? nullableNumericId(existing?.EventStatusID) ?? EVENT_STATUS_PLANNING

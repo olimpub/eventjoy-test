@@ -1,4 +1,5 @@
 import { RouteRecordRaw } from 'vue-router';
+import olimpubRoutes from 'src/modules/olimpub/routes';
 import profitabilityRoutes from 'src/modules/profitability/routes';
 import sysadminRoutes from 'src/modules/sysadmin/routes';
 
@@ -49,6 +50,8 @@ const routes: RouteRecordRaw[] = [
 
   // ProfitAbility modul útvonalai
   ...profitabilityRoutes,
+
+  ...olimpubRoutes,
 
   ...sysadminRoutes,
 

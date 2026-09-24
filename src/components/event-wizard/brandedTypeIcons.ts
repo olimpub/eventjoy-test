@@ -2,6 +2,8 @@ import { EVENTJOY_BRAND } from 'src/assets/brand/eventjoy';
 import { OLIMPUB_BRAND } from 'src/assets/brand/olimpub';
 import { TEAMCRAFT_BRAND } from 'src/assets/brand/teamcraft';
 import { SPEEDMEETING_BRAND } from 'src/assets/brand/speedmeeting';
+import { eventTypeHasOpFlag } from 'src/modules/olimpub/opData';
+import { OP_EVENT_TYPE_ID } from 'src/modules/olimpub/constants';
 import { eventTypeHasPtaFlag } from 'src/modules/profitability/ptaData';
 import { PTA_EVENT_TYPE_ID } from 'src/modules/profitability/constants';
 import ptaLogo from 'src/assets/PTA.png';
@@ -24,6 +26,9 @@ type IconSource = {
   PTAFlg?: unknown;
   PtaFlg?: unknown;
   ptaFlg?: unknown;
+  OPFlg?: unknown;
+  OpFlg?: unknown;
+  opFlg?: unknown;
 };
 
 const EXCLUSIVE_GROUP_ID = 99;
@@ -57,6 +62,9 @@ export function isPtaEventType(type: IconSource | null | undefined): boolean {
 
 export function isOlimpubEventType(type: IconSource | null | undefined): boolean {
   if (!type) return false;
+  if (eventTypeHasOpFlag(type as Record<string, unknown>)) return true;
+  const id = Number(type.id);
+  if (Number.isFinite(id) && id === OP_EVENT_TYPE_ID) return true;
   return /olimpub|olimp.?pub/.test(blob(type));
 }
 

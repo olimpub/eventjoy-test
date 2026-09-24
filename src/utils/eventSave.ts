@@ -2,6 +2,8 @@ import { api } from 'src/boot/axios';
 import {
   combineDateTimeToUtcIso,
   EVENT_STATUS_PLANNING,
+  eventEndDate,
+  localDateTimeParts,
   type WizardBasics,
   type WizardMode,
   type WizardSelection,
@@ -53,6 +55,7 @@ export interface EventSavePayload {
   RoleTickets: Array<{ RoleTempId: string; TicketTempId: string }>;
   PtaSettings: Record<string, unknown> | null;
   PtaPrizes: Array<{ PrizeID: number }>;
+  OpSettings: Record<string, unknown> | null;
 }
 
 export function buildEventSavePayload(args: {
@@ -61,9 +64,10 @@ export function buildEventSavePayload(args: {
   selection: WizardSelection;
   basics: WizardBasics;
   includePta?: boolean;
+  includeOp?: boolean;
   eventStatusId?: number | null;
 }): EventSavePayload {
-  const { mode, eventId, selection, basics, includePta, eventStatusId } = args;
+  const { mode, eventId, selection, basics, includePta, includeOp, eventStatusId } = args;
   const startAt = combineDateTimeToUtcIso(basics.startDate, basics.startTime);
   const endAt = combineDateTimeToUtcIso(
     basics.isMultiDay ? basics.endDate || basics.startDate : basics.startDate,
@@ -85,6 +89,11 @@ export function buildEventSavePayload(args: {
           ? { id: basics.eventLocationId }
           : null;
 
+  const fallbackWindow = {
+    date: eventEndDate(basics) || basics.startDate || localDateTimeParts().date,
+    time: basics.endTime || '18:00',
+  };
+
   const tickets = (basics.tickets || []).map((t) => ({
     TempId: t.tempId,
     Code: t.Code,
@@ -93,8 +102,12 @@ export function buildEventSavePayload(args: {
     Price: t.isFree ? 0 : t.Price,
     CurrencyCode: t.CurrencyCode || 'HUF',
     Capacity: t.Capacity,
-    RegistrationStartAtUtc: combineDateTimeToUtcIso(t.RegistrationStartDate, t.RegistrationStartTime),
-    RegistrationEndAtUtc: combineDateTimeToUtcIso(t.RegistrationEndDate, t.RegistrationEndTime),
+    RegistrationStartAtUtc:
+      combineDateTimeToUtcIso(t.RegistrationStartDate, t.RegistrationStartTime || '00:00') ||
+      combineDateTimeToUtcIso(localDateTimeParts().date, t.RegistrationStartTime || '00:00'),
+    RegistrationEndAtUtc:
+      combineDateTimeToUtcIso(t.RegistrationEndDate, t.RegistrationEndTime || fallbackWindow.time) ||
+      combineDateTimeToUtcIso(fallbackWindow.date, t.RegistrationEndTime || fallbackWindow.time),
     TemplateID: t.TemplateID,
     ActiveFlg: t.ActiveFlg !== false,
   }));
@@ -126,6 +139,19 @@ export function buildEventSavePayload(args: {
           PhotoUploadMandatoryFlg: basics.ptaPhotoUploadMandatoryFlg,
           ExtraPrizeFlg: basics.ptaExtraPrizeFlg,
           ShowUserPositionFlg: basics.ptaShowUserPositionFlg,
+        }
+      : null;
+
+  const opSettings =
+    includeOp
+      ? {
+          DeskCountHint: basics.opDeskCountHint,
+          MaxTeamSize: basics.opMaxTeamSize,
+          PlannedDurationMin: basics.opPlannedDurationMin,
+          ShadowAwardFlg: basics.opShadowAwardFlg,
+          TopicIds: basics.opTopicIds || [],
+          ExtraGameIds: basics.opExtraGameIds || [],
+          KabalaIds: basics.opKabalaIds || [],
         }
       : null;
 
@@ -165,6 +191,7 @@ export function buildEventSavePayload(args: {
       includePta && basics.ptaExtraPrizeFlg
         ? (basics.ptaExtraPrizeIds || []).map((PrizeID) => ({ PrizeID }))
         : [],
+    OpSettings: opSettings,
   };
 }
 

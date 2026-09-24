@@ -173,7 +173,7 @@
             </span>
             <span class="res-board__score">{{ row.amount }}</span>
             <span class="res-board__truck">{{ row.onTrack }}</span>
-            <span class="res-board__points">{{ row.resultPoint }} e</span>
+            <span class="res-board__points">{{ row.resultPoint }}</span>
           </div>
         </div>
       </template>

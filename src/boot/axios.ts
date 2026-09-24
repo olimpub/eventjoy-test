@@ -1,5 +1,6 @@
 import { boot } from 'quasar/wrappers';
 import axios, { AxiosError, AxiosInstance } from 'axios';
+import { isAxiosNetworkError, markNetworkFailure, markNetworkOk } from 'src/utils/networkStatus';
 
 declare module '@vue/runtime-core' {
   interface ComponentCustomProperties {
@@ -50,11 +51,18 @@ api.interceptors.request.use((config) => {
 });
 
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    markNetworkOk();
+    return response;
+  },
   (error: AxiosError) => {
     const url = error.config?.url || '';
     const status = error.response?.status;
     if (String(url).includes('/logs/error') || isAzureBlobUrl(url)) return Promise.reject(error);
+    if (isAxiosNetworkError(error)) {
+      markNetworkFailure();
+      return Promise.reject(error);
+    }
     if (status === 401) {
       if (!String(url).includes('/auth/')) {
         void import('src/stores/auth').then(({ useAuthStore }) => {

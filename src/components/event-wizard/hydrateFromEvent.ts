@@ -1,5 +1,6 @@
 import { useEventStore } from 'src/stores/event';
 import { useMasterDataStore } from 'src/stores/masterData';
+import { useOlimpubStore } from 'src/stores/olimpub';
 import { typeIconToken } from './brandedTypeIcons';
 import {
   createEmptyBasics,
@@ -157,6 +158,18 @@ export function hydrateWizardFromEvent(
     basics.ptaExtraPrizeIds = collectEventPrizeIds(eventStore, eventId);
     basics.ptaExtraPrizeFlg = pta.ExtraPrizeFlg || basics.ptaExtraPrizeIds.length > 0;
     basics.ptaShowUserPositionFlg = pta.ShowUserPositionFlg !== false;
+  }
+
+  const op =
+    eventStore.getOpSettingsForEvent(eventId) || useOlimpubStore().getSettingsForEvent(eventId);
+  if (op) {
+    basics.opDeskCountHint = op.DeskCountHint;
+    basics.opMaxTeamSize = op.MaxTeamSize;
+    basics.opPlannedDurationMin = op.PlannedDurationMin;
+    basics.opShadowAwardFlg = op.ShadowAwardFlg;
+    basics.opTopicIds = [...(op.TopicIds || [])];
+    basics.opKabalaIds = [...(op.KabalaIds || [])];
+    basics.opExtraGameIds = [...(op.ExtraGameIds || [])];
   }
 
   const selection: WizardSelection = {

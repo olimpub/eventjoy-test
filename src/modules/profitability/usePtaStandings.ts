@@ -17,7 +17,9 @@ import {
   aggregateStandings,
   buildStandings,
   deskHasRecordedResults,
+  isSettledRoundStatus,
   pickLatestReleasedRoundId,
+  pickLatestSettledRoundId,
   pickOpenRoundId,
   roundResultsReleased,
   type ResultsScope,
@@ -54,6 +56,7 @@ export function parseGroupingQuery(
 
 export function usePtaStandings(options?: { publishedOnly?: boolean; feed?: 'store' | 'display' }) {
   const publishedOnly = options?.publishedOnly === true;
+  const onDisplay = options?.feed === 'display';
   const useDisplayFeed = options?.feed === 'display';
   const route = useRoute();
   const eventStore = useEventStore();
@@ -206,7 +209,8 @@ export function usePtaStandings(options?: { publishedOnly?: boolean; feed?: 'sto
 
   const visibleRounds = computed(() => {
     if (publishedOnly || !isStaffView.value) {
-      return rounds.value.filter((round) => roundResultsReleased(round.status));
+      const allow = onDisplay ? isSettledRoundStatus : roundResultsReleased;
+      return rounds.value.filter((round) => allow(round.status));
     }
     return rounds.value;
   });
@@ -217,7 +221,9 @@ export function usePtaStandings(options?: { publishedOnly?: boolean; feed?: 'sto
     visibleRounds,
     (list) => {
       if (selectedRoundId.value != null && list.some((round) => round.id === selectedRoundId.value)) return;
-      selectedRoundId.value = publishedOnly ? pickLatestReleasedRoundId(list) : pickOpenRoundId(list);
+      selectedRoundId.value = publishedOnly
+        ? (onDisplay ? pickLatestSettledRoundId(list) : pickLatestReleasedRoundId(list))
+        : pickOpenRoundId(list);
     },
     { immediate: true }
   );

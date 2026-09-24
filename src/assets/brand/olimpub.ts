@@ -1,10 +1,16 @@
 import olimpubIcon from './modules/olimpub/olimpub_app_icon_gradient.png';
+import olimpubIconTransparent from './modules/olimpub/olimpub_icon_transparent.png';
+import olimpubLogoDark from './modules/olimpub/olimpub_logo_full_dark.png';
+import olimpubLogoLight from './modules/olimpub/olimpub_logo_full_light.png';
 
-/** EventJoy Exkluzív — pubkvíz ikon a típusválasztóhoz. */
+/** EventJoy Exkluzív — interaktív zenés kvíz. */
 export const OLIMPUB_BRAND = {
   id: 'olimpub' as const,
   name: 'Olimpub',
-  tagline: 'Pubkvíz, verseny.',
+  tagline: 'Interaktív zenés kvíz.',
   icon: olimpubIcon,
-  primary: '#F59E0B',
+  iconTransparent: olimpubIconTransparent,
+  logoDark: olimpubLogoDark,
+  logoLight: olimpubLogoLight,
+  primary: '#F5B942',
 };

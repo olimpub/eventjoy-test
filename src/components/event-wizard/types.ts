@@ -1,3 +1,5 @@
+import { isOlimpubEventType } from 'src/modules/olimpub/constants';
+
 export type WizardStep = 1 | 2 | 3 | 4 | 5 | 6;
 
 export const WIZARD_STEP: Record<string, WizardStep> = {
@@ -119,6 +121,14 @@ export interface WizardBasics {
   ptaExtraPrizeFlg: boolean;
   ptaExtraPrizeIds: number[];
   ptaShowUserPositionFlg: boolean;
+  /** OP Beállítások — OP.tblEventSettings */
+  opDeskCountHint: number | null;
+  opMaxTeamSize: number;
+  opPlannedDurationMin: number;
+  opShadowAwardFlg: boolean;
+  opTopicIds: number[];
+  opKabalaIds: number[];
+  opExtraGameIds: string[];
 }
 
 export const EVENT_STATUS_PLANNING = 1;
@@ -174,6 +184,13 @@ export function createEmptyBasics(): WizardBasics {
     ptaExtraPrizeFlg: false,
     ptaExtraPrizeIds: [],
     ptaShowUserPositionFlg: true,
+    opDeskCountHint: null,
+    opMaxTeamSize: 6,
+    opPlannedDurationMin: 90,
+    opShadowAwardFlg: true,
+    opTopicIds: [],
+    opKabalaIds: [],
+    opExtraGameIds: [],
   };
 }
 
@@ -197,7 +214,7 @@ export function ticketRegistrationWindow(
   return {
     RegistrationStartDate: start.date,
     RegistrationStartTime: start.time,
-    RegistrationEndDate: eventEndDate(basics) || '',
+    RegistrationEndDate: eventEndDate(basics) || basics.startDate || start.date,
     RegistrationEndTime: basics.endTime || '18:00',
   };
 }
@@ -211,8 +228,11 @@ export function fillEmptyTicketRegistrationWindows(tickets: WizardTicket[], basi
       ticket.RegistrationStartTime = window.RegistrationStartTime;
       changed = true;
     }
-    if (!ticket.RegistrationEndDate && window.RegistrationEndDate) {
+    if (!ticket.RegistrationEndDate) {
       ticket.RegistrationEndDate = window.RegistrationEndDate;
+      ticket.RegistrationEndTime = ticket.RegistrationEndTime || window.RegistrationEndTime;
+      changed = true;
+    } else if (!ticket.RegistrationEndTime) {
       ticket.RegistrationEndTime = window.RegistrationEndTime;
       changed = true;
     }
@@ -331,6 +351,57 @@ export function ensurePtaStarterRolesAndTickets(
   fillEmptyTicketRegistrationWindows(basics.tickets, basics);
 }
 
+/** OP create: Játékos / Játékmester / Szervező + csak játékos jegy. Kvízmesternek nincs jegy. */
+export function ensureOpStarterRolesAndTickets(
+  basics: WizardBasics,
+  catalogRoles: unknown[],
+  defaultTemplateId: number | null
+) {
+  for (const name of PTA_STARTER_ROLE_NAMES) {
+    const resolved = resolveMasterRoleByName(catalogRoles, name);
+    if (!resolved.RoleID) continue;
+    const existing = findStarterRole(basics.roles, name);
+    if (existing) {
+      existing.RoleID = resolved.RoleID;
+      existing.roleName = resolved.roleName;
+      continue;
+    }
+    basics.roles.push({
+      tempId: crypto.randomUUID(),
+      RoleID: resolved.RoleID,
+      ActiveFlg: true,
+      roleName: resolved.roleName,
+    });
+  }
+
+  const window = ticketRegistrationWindow(basics);
+  const role = findStarterRole(basics.roles, 'Játékos');
+  let ticket = (basics.tickets || []).find(
+    (row) => row.TicketName.trim().toLowerCase() === 'játékos'
+  );
+  if (!ticket) {
+    ticket = createEmptyTicket(basics.eventUid, basics.tickets.length + 1, window);
+    ticket.TicketName = 'Játékos';
+    ticket.isFree = true;
+    ticket.Price = 0;
+    ticket.TemplateID = defaultTemplateId;
+    basics.tickets.push(ticket);
+  }
+  if (role && !ticket.roleTempIds.includes(role.tempId)) {
+    ticket.roleTempIds = [
+      ...ticket.roleTempIds.filter((id) => basics.roles.some((row) => row.tempId === id)),
+      role.tempId,
+    ];
+  }
+  if (!ticket.TemplateID && defaultTemplateId) ticket.TemplateID = defaultTemplateId;
+
+  basics.tickets = (basics.tickets || []).filter(
+    (row) => row.TicketName.trim().toLowerCase() !== 'játékmester'
+  );
+
+  fillEmptyTicketRegistrationWindows(basics.tickets, basics);
+}
+
 /** EV-{UID8}-T{n}-{RAND4} */
 export function generateTicketCode(eventUid: string, ticketIndex: number): string {
   const uid = (eventUid || crypto.randomUUID()).replace(/-/g, '').slice(0, 8).toUpperCase();
@@ -366,9 +437,9 @@ export function wizardTypeHasExtraSheet(eventType: Record<string, unknown> | nul
   return raw === true || raw === 1 || raw === '1';
 }
 
-export function visibleWizardSteps(hasExtraSheet: boolean, isPta = false): WizardStep[] {
+export function visibleWizardSteps(hasExtraSheet: boolean, hasSettings = false): WizardStep[] {
   const steps: WizardStep[] = [1, 2, 3];
-  if (isPta) steps.push(4);
+  if (hasSettings) steps.push(4);
   steps.push(5);
   if (hasExtraSheet) steps.push(6);
   return steps;
@@ -430,6 +501,12 @@ export function isPtaSettingsComplete(basics: WizardBasics): boolean {
   return points.every((n) => Number.isFinite(n));
 }
 
+export function isOpSettingsComplete(basics: WizardBasics): boolean {
+  if (!Number.isFinite(basics.opMaxTeamSize) || basics.opMaxTeamSize < 1) return false;
+  if (!Number.isFinite(basics.opPlannedDurationMin) || basics.opPlannedDurationMin < 60) return false;
+  return (basics.opPlannedDurationMin - 60) % 30 === 0;
+}
+
 /** Adott lépés kitöltött-e (navigáció / progress) */
 export function isWizardStepComplete(
   step: WizardStep,
@@ -444,7 +521,9 @@ export function isWizardStepComplete(
     case 3:
       return (basics.roles || []).length > 0;
     case 4:
-      return isPtaSettingsComplete(basics);
+      return isOlimpubEventType(selection.typeId)
+        ? isOpSettingsComplete(basics)
+        : isPtaSettingsComplete(basics);
     case 5:
       return (basics.tickets || []).length > 0 && basics.tickets.every(isTicketComplete);
     case 6:

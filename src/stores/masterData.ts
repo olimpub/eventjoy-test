@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { api } from 'src/boot/axios';
 import { isActiveFlag, isTruthyFlag, nullableNumericId, pickDataset, pickFilledDataset, unwrapApiPayload, warnIfDatasetMissing } from 'src/utils/apiPayload';
+import { eventTypeHasOpFlag } from 'src/modules/olimpub/opData';
 import {
   eventTypeHasPtaFlag,
   normalizePtaChampionships,
@@ -199,6 +200,7 @@ function normalizeEventTypes(rows: unknown[]): any[] {
       id: rowId(row) ?? Number(row.id),
       CanEnterFlg: isTruthyFlag(row.CanEnterFlg ?? row.canEnterFlg),
       PTAFlg: isTruthyFlag(row.PTAFlg ?? row.PtaFlg ?? row.ptaFlg),
+      OPFlg: isTruthyFlag(row.OPFlg ?? row.OpFlg ?? row.opFlg),
       PublicFlg: row.PublicFlg ?? row.publicFlg,
       EventFlowID: nullableNumericId(row.EventFlowID ?? row.eventFlowID ?? row.EventFlowId),
     }))
@@ -544,6 +546,14 @@ export const useMasterDataStore = defineStore('masterData', {
         if (typeId == null) return false;
         const t = this.getEventTypeById(Number(typeId));
         return eventTypeHasPtaFlag(t as Record<string, unknown> | undefined);
+      };
+    },
+    /** EventTypes.OPFlg — Olimpub modul */
+    eventTypeIsOp() {
+      return (typeId: number | null | undefined) => {
+        if (typeId == null) return false;
+        const t = this.getEventTypeById(Number(typeId));
+        return eventTypeHasOpFlag(t as Record<string, unknown> | undefined);
       };
     },
     getPtaGameTypeById: (state) => (id: number) =>

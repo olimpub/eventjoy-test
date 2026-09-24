@@ -459,7 +459,7 @@ function statusClass(status: string) {
 
 function formatScore(value: number | null | undefined) {
   if (value == null) return '—';
-  return `${value} e`;
+  return String(value);
 }
 
 function closePanel() {

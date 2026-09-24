@@ -1,4 +1,5 @@
 import type { Router } from 'vue-router';
+import { isOlimpubEventType } from 'src/modules/olimpub/constants';
 import { isProfitabilityEventType, eventTypeIdOf } from 'src/modules/profitability/constants';
 import { findPtaPlayerForEventUser } from 'src/modules/profitability/ptaData';
 import { useEventStore, isGameMasterRole, type EnterableEventRole } from 'src/stores/event';
@@ -28,6 +29,12 @@ function isPtaDatasheetEvent(eventId?: string | number | null): boolean {
   if (eventId == null || eventId === '') return false;
   if (isProfitabilityEventType(resolveEventTypeId(eventId))) return true;
   return !!useEventStore().getPtaSettingsForEvent(eventId);
+}
+
+function isOpDatasheetEvent(eventId?: string | number | null): boolean {
+  if (eventId == null || eventId === '') return false;
+  if (isOlimpubEventType(resolveEventTypeId(eventId))) return true;
+  return !!useEventStore().getOpSettingsForEvent(eventId);
 }
 
 export function eventDatasheetKind(
@@ -87,6 +94,9 @@ export function eventOrganizerManagePath(
   eventTypeId?: number | null
 ): string {
   const typeId = resolveEventTypeId(eventId, eventTypeId);
+  if (isOlimpubEventType(typeId) || isOpDatasheetEvent(eventId)) {
+    return `/olimpub/event/${eventId}/manage`;
+  }
   if (isProfitabilityEventType(typeId)) {
     return `/profitability/event/${eventId}/manage`;
   }
@@ -97,8 +107,15 @@ export function eventOrganizerManagePath(
   return `/event/${eventId}/manage`;
 }
 
-export function eventGameMasterPath(eventId: string | number): string {
-  return `/profitability/event/${eventId}/contribute`;
+export function eventGameMasterPath(eventId: string | number, eventTypeId?: number | null): string {
+  const typeId = resolveEventTypeId(eventId, eventTypeId);
+  if (isOlimpubEventType(typeId) || isOpDatasheetEvent(eventId)) {
+    return `/olimpub/event/${eventId}/quizmaster`;
+  }
+  if (isProfitabilityEventType(typeId) || useEventStore().getPtaSettingsForEvent(eventId)) {
+    return `/profitability/event/${eventId}/contribute`;
+  }
+  return `/event/${eventId}/contribute`;
 }
 
 function eventStatusContext(eventId: string | number) {
@@ -231,9 +248,15 @@ export function eventRolePath(
     case 'organizer':
       return eventOrganizerManagePath(eventId, eventTypeId);
     case 'gamemaster':
-      return eventGameMasterPath(eventId);
+      return eventGameMasterPath(eventId, eventTypeId);
     case 'player':
-      return `/profitability/event/${eventId}`;
+      if (isOlimpubEventType(eventTypeId ?? resolveEventTypeId(eventId)) || isOpDatasheetEvent(eventId)) {
+        return `/olimpub/event/${eventId}`;
+      }
+      if (isProfitabilityEventType(eventTypeId ?? resolveEventTypeId(eventId)) || isPtaDatasheetEvent(eventId)) {
+        return `/profitability/event/${eventId}`;
+      }
+      return `/event/${eventId}`;
     default:
       return `/event/${eventId}/contribute`;
   }

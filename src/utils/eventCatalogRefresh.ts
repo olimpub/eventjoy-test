@@ -29,6 +29,8 @@ export async function refreshEventCatalog(options?: { force?: boolean }): Promis
     try {
       const { useEventStore } = await import('src/stores/event');
       await useEventStore().refreshEventData();
+    } catch {
+      /* Network Error: a banner kezeli, ne legyen unhandled rejection */
     } finally {
       inFlight = null;
     }

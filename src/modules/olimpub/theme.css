@@ -1,0 +1,180 @@
+/* Olimpub — quiz-night tokens. Gold accent on ink, not a yellow wash. */
+
+:root {
+  --op-gold: #f5b942;
+  --op-gold-deep: #e09b12;
+  --op-page: #070a14;
+  --op-ink: #0b1020;
+  --op-panel: rgba(12, 16, 28, 0.88);
+  --op-cream: #fff6e8;
+  --op-muted: #c4b8a0;
+  --op-radius: 22px;
+  --op-radius-sm: 14px;
+}
+
+.op-scope {
+  font-family: var(--font-sans);
+  color: var(--op-cream);
+  background-color: var(--op-page);
+}
+
+.op-scope .op-display {
+  font-weight: 800;
+  letter-spacing: 0.01em;
+}
+
+.op-glow {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 80% 42% at 50% -8%, rgba(245, 185, 66, 0.28), transparent 58%),
+    radial-gradient(circle at 88% 18%, rgba(245, 185, 66, 0.08), transparent 36%);
+}
+
+.op-scope .op-glass {
+  background: var(--op-panel);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(245, 185, 66, 0.16);
+}
+
+.op-scope ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.op-scope ::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.op-scope ::-webkit-scrollbar-thumb {
+  background: rgba(245, 185, 66, 0.4);
+  border-radius: 10px;
+}
+
+.op-watermark {
+  position: absolute;
+  right: -3rem;
+  top: 18%;
+  width: 18rem;
+  height: 18rem;
+  opacity: 0.16;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.op-watermark img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.op-inner {
+  position: relative;
+  z-index: 10;
+  width: 100%;
+  max-width: 42rem;
+  margin: 0 auto;
+  padding: 1.25rem 1.5rem 6rem;
+}
+
+@media (min-width: 640px) {
+  .op-inner {
+    padding-left: 2rem;
+    padding-right: 2rem;
+  }
+}
+
+.op-scope .part-header__event,
+.op-scope .scan-header__event,
+.op-scope .mat-header__event {
+  color: var(--op-muted);
+}
+
+.op-scope .part-help-btn,
+.op-scope .part-excel-btn,
+.op-scope .part-qr-btn {
+  border-color: rgba(245, 185, 66, 0.5);
+  background: rgba(245, 185, 66, 0.16);
+  color: var(--op-gold);
+}
+
+.op-scope .part-add-btn,
+.op-scope .mat-add-btn,
+.op-scope .scan-next {
+  background: var(--op-gold);
+  color: #1a1408;
+}
+
+.op-scope .part-kpi,
+.op-scope .part-empty,
+.op-scope .part-card {
+  background: rgba(12, 16, 28, 0.78);
+  border-color: rgba(245, 185, 66, 0.12);
+}
+
+.op-scope .part-kpi__value {
+  color: var(--op-gold);
+}
+
+.op-scope .part-empty__btn {
+  border-color: rgba(245, 185, 66, 0.4);
+  background: rgba(245, 185, 66, 0.12);
+  color: var(--op-gold);
+}
+
+.op-scope .part-active-chip.is-role,
+.op-scope .part-filter-group__label.is-role,
+.op-scope .part-filter-option.is-on.is-role {
+  color: var(--op-gold);
+  background: rgba(245, 185, 66, 0.14);
+  border-color: rgba(245, 185, 66, 0.35);
+}
+
+.op-scope .part-avatar {
+  background: rgba(245, 185, 66, 0.14);
+  color: var(--op-gold);
+}
+
+.op-scope .scan-stage {
+  border-color: rgba(245, 185, 66, 0.22);
+  background: #070a14;
+}
+
+.op-scope .scan-sheet,
+.op-scope .mat-sheet {
+  background: rgba(11, 16, 32, 0.96);
+  border-top-color: rgba(245, 185, 66, 0.35);
+}
+
+.op-scope .mat-card {
+  background: rgba(12, 16, 28, 0.78);
+  border-color: rgba(245, 185, 66, 0.12);
+}
+
+.op-scope .mat-download,
+.op-scope .mat-empty__btn {
+  border-color: rgba(245, 185, 66, 0.4);
+  background: rgba(245, 185, 66, 0.14);
+  color: var(--op-gold);
+}
+
+.op-scope.part-sheet,
+.op-scope.scan-sheet,
+.op-scope.mat-sheet,
+.op-scope.part-confirm {
+  background: rgba(11, 16, 32, 0.96);
+  border-color: rgba(245, 185, 66, 0.28);
+}
+
+.op-scope .part-sheet__title,
+.op-scope .part-confirm__title,
+.op-scope .mat-sheet__title {
+  color: var(--op-gold);
+}
+
+.op-scope .part-confirm__btn--primary {
+  background: var(--op-gold);
+  color: #1a1408;
+}

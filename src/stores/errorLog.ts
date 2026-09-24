@@ -62,24 +62,28 @@ function clientInfo() {
   };
 }
 
-function redactSensitive(value: unknown, depth = 0): unknown {
-  if (value == null || depth > 6) return value;
+function redactSensitive(value: unknown, depth = 0, seen?: WeakSet<object>): unknown {
+  if (value == null) return value;
+  if (depth > 6) return '[Truncated]';
   if (typeof value === 'string') {
     const trimmed = value.length > MAX_CONTEXT_CHARS ? `${value.slice(0, MAX_CONTEXT_CHARS)}…` : value;
     try {
       if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-        return redactSensitive(JSON.parse(trimmed), depth + 1);
+        return redactSensitive(JSON.parse(trimmed), depth + 1, seen);
       }
     } catch {
       /* keep string */
     }
     return trimmed;
   }
-  if (Array.isArray(value)) return value.slice(0, 50).map((item) => redactSensitive(item, depth + 1));
   if (typeof value !== 'object') return value;
+  const seenSet = seen || new WeakSet<object>();
+  if (seenSet.has(value)) return '[Circular]';
+  seenSet.add(value);
+  if (Array.isArray(value)) return value.slice(0, 50).map((item) => redactSensitive(item, depth + 1, seenSet));
   const out: Record<string, unknown> = {};
   for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
-    out[key] = REDACT_KEYS.test(key) ? '[redacted]' : redactSensitive(nested, depth + 1);
+    out[key] = REDACT_KEYS.test(key) ? '[redacted]' : redactSensitive(nested, depth + 1, seenSet);
   }
   return out;
 }

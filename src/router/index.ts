@@ -7,6 +7,11 @@ import {
   createWebHistory,
 } from 'vue-router';
 import routes from './routes';
+import {
+  connectToEventLive,
+  disconnectEventLive,
+  isEventLiveJoinRoute,
+} from 'src/services/signalrService';
 
 export default route(function (/* { store, ssrContext } */) {
   const createHistory = process.env.SERVER
@@ -87,20 +92,23 @@ export default route(function (/* { store, ssrContext } */) {
   });
 
   Router.afterEach((to, from) => {
+    const toDisplay = to.name === 'profitability-display' || to.name === 'olimpub-display';
+    const fromLive = isEventLiveJoinRoute(from.name);
+    const toLive = isEventLiveJoinRoute(to.name);
+    const sameEvent = String(to.params.id || '') === String(from.params.id || '');
+    if (fromLive && (!toLive || !sameEvent) && !toDisplay) {
+      disconnectEventLive();
+    }
+
     void (async () => {
-      const { connectToEventLive, disconnectEventLive, isEventLiveJoinRoute } = await import(
-        'src/services/signalrService'
-      );
       const { useAuthStore } = await import('src/stores/auth');
       const authStore = useAuthStore();
-      if (to.name === 'profitability-display') {
-        return;
-      }
+      if (toDisplay) return;
       if (!authStore.isAuthenticated) {
         disconnectEventLive();
         return;
       }
-      if (isEventLiveJoinRoute(to.name) && to.params.id) {
+      if (toLive && to.params.id) {
         try {
           const { resolveEventLiveJoin } = await import('src/utils/eventEnter');
           const join = resolveEventLiveJoin(String(to.params.id), null, to);
@@ -109,9 +117,6 @@ export default route(function (/* { store, ssrContext } */) {
           console.error('SignalR csatlakozás sikertelen:', err);
         }
         return;
-      }
-      if (isEventLiveJoinRoute(from.name) && !isEventLiveJoinRoute(to.name)) {
-        disconnectEventLive();
       }
 
       const { isEventCatalogRefreshRoute, refreshEventCatalog } = await import(

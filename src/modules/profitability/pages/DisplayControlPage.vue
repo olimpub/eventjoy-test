@@ -199,9 +199,9 @@ import { eventDatasheetKind, eventRolePath, eventRoleQuery } from 'src/utils/eve
 import { resolvePtaSeatName, type EventGroupingKey } from 'src/modules/profitability/ptaData';
 import {
   buildStandings,
-  pickLatestReleasedRoundId,
+  isSettledRoundStatus,
+  pickLatestSettledRoundId,
   pickOpenRoundId,
-  roundResultsReleased,
   type ResultsScope,
 } from 'src/modules/profitability/standings';
 import {
@@ -241,7 +241,7 @@ const controlGroupKey = ref<EventGroupingKey | null>(null);
 const ceremonyPlace = ref(8);
 
 const publishedRounds = computed(() =>
-  rounds.value.filter((round) => roundResultsReleased(round.status))
+  rounds.value.filter((round) => isSettledRoundStatus(round.status))
 );
 
 const controlRounds = computed(() =>
@@ -261,7 +261,7 @@ watch(
     controlRoundId.value =
       controlMode.value === 'seating' || controlMode.value === 'roundstand'
         ? selectedRoundId.value ?? pickOpenRoundId(list)
-        : pickLatestReleasedRoundId(list);
+        : pickLatestSettledRoundId(list);
   },
   { immediate: true }
 );
@@ -378,7 +378,7 @@ async function copyTvUrl() {
 }
 
 function publishedRoundIdForTv(): number | null {
-  return pickLatestReleasedRoundId(publishedRounds.value);
+  return pickLatestSettledRoundId(publishedRounds.value);
 }
 
 function playerName(playerId: number | null): string {
@@ -437,11 +437,11 @@ async function sendControl(mode: 'players' | 'groups' | 'seating' | 'ceremony' |
     return;
   }
   if (mode !== 'idle' && !liveRound && roundId == null) {
-    tvError.value = 'Előbb publikáld a fordulót.';
+    tvError.value = 'Előbb zárd le vagy publikáld a fordulót.';
     return;
   }
   if (mode === 'ceremony' && ceremonyStandingCount.value <= 0) {
-    tvError.value = 'Előbb publikáld a fordulót.';
+    tvError.value = 'Előbb zárd le vagy publikáld a fordulót.';
     return;
   }
   controlMode.value = mode;

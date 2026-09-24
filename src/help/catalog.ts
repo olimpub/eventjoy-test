@@ -90,6 +90,7 @@ function articleIdFromPath(path: string): string | null {
     .replace(/\/+$/, '')
     .toLowerCase();
   if (p.endsWith('/participants') || p.includes('/participants/')) return 'participants';
+  if (p.includes('/olimpub/event/')) return 'organize';
   if (p.endsWith('/vetites') || p.includes('/vetites/')) return 'vetites';
   if (p.endsWith('/manage/materials') || p.includes('/manage/materials/')) return 'materials';
   if (p.endsWith('/manage/scan') || p.includes('/manage/scan/')) return 'check-in';

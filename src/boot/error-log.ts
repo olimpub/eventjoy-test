@@ -1,5 +1,14 @@
 import { boot } from 'quasar/wrappers';
 import { createErrorLogPayload, useErrorLogStore } from 'src/stores/errorLog';
+import { isAxiosNetworkError } from 'src/utils/networkStatus';
+import { isGoogle3pLoadError, markGoogleAuthBlocked } from 'src/utils/googleAuthStatus';
+
+function isNoisyClientError(err: unknown): boolean {
+  if (isAxiosNetworkError(err)) return true;
+  if (isGoogle3pLoadError(err)) return true;
+  const msg = err instanceof Error ? err.message : String(err ?? '');
+  return /ResizeObserver loop/i.test(msg);
+}
 
 function safePush(build: () => void) {
   try {
@@ -13,6 +22,7 @@ export default boot(({ app }) => {
   const store = useErrorLogStore();
 
   app.config.errorHandler = (err, instance, info) => {
+    if (isNoisyClientError(err)) return;
     console.error(err);
     safePush(() => {
       const component =
@@ -30,7 +40,12 @@ export default boot(({ app }) => {
   };
 
   window.addEventListener('error', (event) => {
-    if (!event.error && event.message === 'ResizeObserver loop limit exceeded') return;
+    const src = (event.target as HTMLScriptElement | null)?.src || '';
+    if (/accounts\.google\.com|gsi\/client/i.test(src) || isGoogle3pLoadError(event.message)) {
+      markGoogleAuthBlocked();
+      return;
+    }
+    if (isNoisyClientError(event.error || event.message)) return;
     safePush(() => {
       store.pushError(
         createErrorLogPayload(event.error || event.message, 'Window Error', {
@@ -43,9 +58,18 @@ export default boot(({ app }) => {
         })
       );
     });
-  });
+  }, true);
 
   window.addEventListener('unhandledrejection', (event) => {
+    if (isGoogle3pLoadError(event.reason)) {
+      markGoogleAuthBlocked();
+      event.preventDefault();
+      return;
+    }
+    if (isNoisyClientError(event.reason)) {
+      event.preventDefault();
+      return;
+    }
     safePush(() => {
       store.pushError(
         createErrorLogPayload(event.reason, 'Unhandled Promise Rejection', {

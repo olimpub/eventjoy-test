@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { googleTokenLogin } from 'vue3-google-login';
+import { googleAuthBlockedMessage, isGoogleAuthAvailable } from 'src/utils/googleAuthStatus';
 
 export type SocialProvider = 'Google' | 'Facebook';
 
@@ -73,6 +74,9 @@ function facebookMe(): Promise<{ id?: string; email?: string; first_name?: strin
 /** OAuth a loginról és az Adataim csatolásról. Nem hív EventJoy API-t. */
 export async function fetchSocialProfile(provider: SocialProvider): Promise<SocialProfilePayload> {
   if (provider === 'Google') {
+    if (!isGoogleAuthAvailable()) {
+      throw new SocialAuthError(googleAuthBlockedMessage());
+    }
     const response = await googleTokenLogin();
     if (!response?.access_token) {
       throw new SocialAuthError('Nem sikerült a Google bejelentkezés.', true);

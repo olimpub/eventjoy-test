@@ -328,6 +328,16 @@ export async function registerEventMaterial(input: EventMaterialUploadInput, blo
   throwIfApiFailed(response.data, 'Az anyag mentése sikertelen.');
 }
 
+export async function uploadPtaDeskPhoto(eventId: number, roundDeskId: number, file: File): Promise<string> {
+  const named =
+    file.name && /\.(jpe?g|png|webp)$/i.test(file.name)
+      ? file
+      : new File([file], `desk-${roundDeskId}.jpg`, { type: file.type || 'image/jpeg' });
+  const urls = await fetchMaterialUploadUrl(eventId, named);
+  await putFileToSasUrl(urls.sasUrl, named);
+  return urls.blobUrl;
+}
+
 export async function uploadEventMaterial(input: EventMaterialUploadInput): Promise<void> {
   const urls = await fetchMaterialUploadUrl(input.eventId, input.file);
   await putFileToSasUrl(urls.sasUrl, input.file);

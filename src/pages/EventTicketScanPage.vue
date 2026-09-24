@@ -1,5 +1,5 @@
 <template>
-  <q-page class="scan-page bg-brand-dark text-white">
+  <q-page :class="['scan-page', isOpTheme ? 'op-scope' : 'bg-brand-dark text-white']">
     <header class="scan-header">
       <q-btn
         icon="arrow_back"
@@ -26,7 +26,7 @@
     </div>
 
     <q-dialog v-model="isResultOpen" position="bottom" transition-show="slide-up" transition-hide="slide-down">
-      <q-card v-if="scanResult" class="scan-sheet">
+      <q-card v-if="scanResult" class="scan-sheet" :class="{ 'op-scope': isOpTheme }">
         <div class="w-full flex justify-center pt-3 pb-1">
           <div class="w-12 h-1.5 bg-white/20 rounded-full"></div>
         </div>
@@ -69,6 +69,8 @@ import { normalizeEventUserUid } from 'src/utils/eventUserQr';
 import { eventOrganizerManagePath, isEventUserCheckedInName } from 'src/utils/eventRoleNav';
 import { findEventUserStatusByName } from 'src/utils/eventUserFlow';
 import { setEventUserStatus } from 'src/utils/eventChange';
+import { isOlimpubRouteName } from 'src/modules/olimpub/constants';
+import 'src/modules/olimpub/theme.css';
 
 type ScanKind = 'ok' | 'unknown' | 'wrong_event' | 'invalid';
 
@@ -100,6 +102,7 @@ const scanResult = ref<ScanResult | null>(null);
 const lastRaw = ref('');
 
 const eventId = computed(() => String(route.params.id));
+const isOpTheme = computed(() => isOlimpubRouteName(route.name));
 
 const dbEvent = computed(() => {
   const targetId = eventId.value;

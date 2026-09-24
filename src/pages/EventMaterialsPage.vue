@@ -1,5 +1,6 @@
 <template>
-  <q-page class="bg-brand-dark text-white relative min-h-full overflow-x-hidden">
+  <q-page :class="pageClass">
+    <div v-if="isOpTheme" class="op-glow" aria-hidden="true" />
     <div class="relative z-10 px-5 sm:px-6 pt-6 pb-24 max-w-2xl mx-auto w-full">
       <header class="mat-header">
         <q-btn
@@ -21,7 +22,7 @@
       </header>
 
       <div v-if="loading && !rows.length" class="mat-empty">
-        <q-spinner color="sky-400" size="28px" />
+        <q-spinner :color="isOpTheme ? 'amber-5' : 'sky-400'" size="28px" />
         <p class="mat-empty__hint">Anyagok betöltése…</p>
       </div>
       <div v-else-if="loadError" class="mat-empty">
@@ -57,7 +58,7 @@
             :disabled="downloadingId === item.eventMaterialId"
             @click="downloadItem(item)"
           >
-            <q-spinner v-if="downloadingId === item.eventMaterialId" size="16px" color="sky-300" />
+            <q-spinner v-if="downloadingId === item.eventMaterialId" size="16px" :color="isOpTheme ? 'amber-4' : 'sky-300'" />
             <q-icon v-else name="sym_r_download" size="18px" />
             Letöltés
           </button>
@@ -66,7 +67,7 @@
     </div>
 
     <q-dialog v-model="uploadOpen" position="bottom" transition-show="slide-up" transition-hide="slide-down">
-      <q-card class="mat-sheet">
+      <q-card class="mat-sheet" :class="{ 'op-scope': isOpTheme }">
         <div class="w-full flex justify-center pt-3 pb-1">
           <div class="w-12 h-1.5 bg-white/20 rounded-full" />
         </div>
@@ -171,6 +172,8 @@ import { useQuasar } from 'quasar';
 import { useEventStore } from 'src/stores/event';
 import { useMasterDataStore } from 'src/stores/masterData';
 import { eventOrganizerManagePath } from 'src/utils/eventRoleNav';
+import { isOlimpubRouteName } from 'src/modules/olimpub/constants';
+import 'src/modules/olimpub/theme.css';
 import {
   downloadEventMaterialFile,
   fetchEventMaterials,
@@ -189,6 +192,12 @@ const eventStore = useEventStore();
 const masterDataStore = useMasterDataStore();
 
 const eventId = computed(() => String(route.params.id || ''));
+const isOpTheme = computed(() => isOlimpubRouteName(route.name));
+const pageClass = computed(() =>
+  isOpTheme.value
+    ? 'op-scope relative min-h-full overflow-x-hidden'
+    : 'bg-brand-dark text-white relative min-h-full overflow-x-hidden'
+);
 const numericEventId = computed(() => Number(eventId.value));
 const eventName = computed(() => {
   const rec =

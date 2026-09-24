@@ -1,10 +1,17 @@
 <template>
-  <q-page class="bg-brand-dark text-white relative min-h-full overflow-x-hidden">
-    <div class="absolute -right-24 top-[12%] w-80 h-80 opacity-[0.03] pointer-events-none select-none z-0">
+  <q-page :class="pageClass">
+    <div v-if="isOpTheme" class="op-glow" aria-hidden="true" />
+    <div v-if="isOpTheme" class="op-watermark" aria-hidden="true">
+      <img :src="olimpubMark" alt="" />
+    </div>
+    <div v-else class="absolute -right-24 top-[12%] w-80 h-80 opacity-[0.03] pointer-events-none select-none z-0">
       <img src="~assets/eventjoy_icon.svg" alt="" class="w-full h-full object-contain" />
     </div>
 
-    <div class="relative z-10 px-5 sm:px-6 pt-6 pb-24 max-w-2xl mx-auto w-full">
+    <div
+      class="relative z-10 pt-6 pb-24 max-w-2xl mx-auto w-full"
+      :class="isOpTheme ? 'px-6 sm:px-8' : 'px-5 sm:px-6'"
+    >
       <header class="part-header">
         <q-btn
           icon="arrow_back"
@@ -20,14 +27,6 @@
           <p class="part-header__event">{{ eventName }}</p>
         </div>
         <div class="part-header__actions">
-          <button
-            type="button"
-            class="part-help-btn"
-            aria-label="Súgó: Résztvevők"
-            @click="helpStore.openArticle('participants')"
-          >
-            <q-icon name="help" size="22px" />
-          </button>
           <button
             type="button"
             class="part-add-btn"
@@ -57,18 +56,45 @@
       </header>
 
       <div class="part-kpis">
-        <div class="part-kpi">
+        <button
+          type="button"
+          class="part-kpi part-kpi--action"
+          :class="{ 'is-on': listFilter === 'registered' }"
+          aria-label="Jelentkezettek szűrése"
+          @click="listFilter = 'registered'"
+        >
           <span class="part-kpi__value">{{ kpiRegistered }}</span>
-          <span class="part-kpi__label">Jelentkezett</span>
-        </div>
-        <div class="part-kpi">
+          <span class="part-kpi__label">
+            Jelentkezett
+            <q-icon name="arrow_drop_down" size="18px" />
+          </span>
+        </button>
+        <button
+          type="button"
+          class="part-kpi part-kpi--action"
+          :class="{ 'is-on': listFilter === 'checked' }"
+          aria-label="Belépettek szűrése"
+          @click="listFilter = 'checked'"
+        >
           <span class="part-kpi__value">{{ kpiCheckedIn }}</span>
-          <span class="part-kpi__label">Belépett</span>
-        </div>
-        <div class="part-kpi">
-          <span class="part-kpi__value">{{ kpiCapacity }}</span>
-          <span class="part-kpi__label">Kapacitás</span>
-        </div>
+          <span class="part-kpi__label">
+            Belépett
+            <q-icon name="arrow_drop_down" size="18px" />
+          </span>
+        </button>
+        <button
+          type="button"
+          class="part-kpi part-kpi--action"
+          :class="{ 'is-on': listFilter === 'absent' }"
+          aria-label="Nem belépettek szűrése"
+          @click="listFilter = 'absent'"
+        >
+          <span class="part-kpi__value">{{ kpiNotEntered }}</span>
+          <span class="part-kpi__label">
+            Nem belépett
+            <q-icon name="arrow_drop_down" size="18px" />
+          </span>
+        </button>
       </div>
 
       <div class="part-toolbar" :class="{ 'has-chips': activeFilterChips.length > 0 }">
@@ -167,7 +193,7 @@
     </div>
 
     <q-dialog v-model="isDetailOpen" position="bottom" transition-show="slide-up" transition-hide="slide-down">
-      <q-card v-if="selected" class="part-sheet">
+      <q-card v-if="selected" class="part-sheet" :class="{ 'op-scope': isOpTheme }">
         <div class="w-full flex justify-center pt-3 pb-1">
           <div class="w-12 h-1.5 bg-white/20 rounded-full"></div>
         </div>
@@ -256,7 +282,7 @@
     </q-dialog>
 
     <q-dialog v-model="isFilterSheetOpen" position="bottom" transition-show="slide-up" transition-hide="slide-down">
-      <q-card class="part-sheet">
+      <q-card class="part-sheet" :class="{ 'op-scope': isOpTheme }">
         <div class="w-full flex justify-center pt-3 pb-1">
           <div class="w-12 h-1.5 bg-white/20 rounded-full"></div>
         </div>
@@ -329,7 +355,7 @@
     </q-dialog>
 
     <q-dialog v-model="isStatusSheetOpen" position="bottom" transition-show="slide-up" transition-hide="slide-down">
-      <q-card class="part-sheet">
+      <q-card class="part-sheet" :class="{ 'op-scope': isOpTheme }">
         <div class="w-full flex justify-center pt-3 pb-1">
           <div class="w-12 h-1.5 bg-white/20 rounded-full"></div>
         </div>
@@ -430,15 +456,17 @@ import { useEventStore, type EventUser } from 'src/stores/event';
 import { useMasterDataStore, ORGANIZER_ROLE_TYPE_ID } from 'src/stores/masterData';
 import { nullableNumericId, readAxiosErrorMessage } from 'src/utils/apiPayload';
 import { EVENT_USER_FLOW_TEMPLATE_CODE, type EventUserStatusTransition, withOrganizerDoorCheckInTransition } from 'src/utils/eventUserFlow';
-import { membershipRoleKind } from 'src/utils/eventUserStatus';
+import { participantListRank } from 'src/utils/eventUserStatus';
 import { setEventUserStatus } from 'src/utils/eventChange';
 import InviteExcelImport from 'src/components/event/InviteExcelImport.vue';
 import WalkInRegisterSheet from 'src/components/event/WalkInRegisterSheet.vue';
 import JoinQrSheet from 'src/components/event/JoinQrSheet.vue';
 import ParticipantContactSheet from 'src/components/event/ParticipantContactSheet.vue';
-import { eventReachedCheckIn, isEventUserCheckedInName } from 'src/utils/eventRoleNav';
+import { eventOrganizerManagePath, eventReachedCheckIn, isEventUserCheckedInName } from 'src/utils/eventRoleNav';
 import AppConfirmDialog from 'src/components/ui/AppConfirmDialog.vue';
-import { useHelpStore } from 'src/stores/help';
+import { OLIMPUB_BRAND } from 'src/assets/brand/olimpub';
+import { isOlimpubRouteName } from 'src/modules/olimpub/constants';
+import 'src/modules/olimpub/theme.css';
 
 interface ParticipantRow {
   id: number;
@@ -465,7 +493,6 @@ interface ParticipantRow {
 const route = useRoute();
 const router = useRouter();
 const $q = useQuasar();
-const helpStore = useHelpStore();
 const authStore = useAuthStore();
 const eventStore = useEventStore();
 const masterDataStore = useMasterDataStore();
@@ -475,6 +502,7 @@ const isWalkInOpen = ref(false);
 const isJoinQrOpen = ref(false);
 const isContactEditOpen = ref(false);
 const searchQuery = ref('');
+const listFilter = ref<'registered' | 'checked' | 'absent'>('registered');
 const roleFilterIds = ref<number[]>([]);
 const statusFilterIds = ref<number[]>([]);
 const isDetailOpen = ref(false);
@@ -491,6 +519,13 @@ const confirmIsUndo = ref(false);
 let confirmResolver: ((ok: boolean) => void) | null = null;
 
 const eventId = computed(() => String(route.params.id));
+const isOpTheme = computed(() => isOlimpubRouteName(route.name));
+const olimpubMark = OLIMPUB_BRAND.iconTransparent;
+const pageClass = computed(() =>
+  isOpTheme.value
+    ? 'op-scope op-subpage relative min-h-full overflow-x-hidden'
+    : 'bg-brand-dark text-white relative min-h-full overflow-x-hidden'
+);
 
 const dbEvent = computed(() => {
   const targetId = eventId.value;
@@ -713,26 +748,38 @@ function clearFilterChip(kind: 'role' | 'status', id: number) {
   else statusFilterIds.value = statusFilterIds.value.filter((item) => item !== id);
 }
 
+function participantRank(row: ParticipantRow): number {
+  if (row.masterRoleId == null) return 3;
+  return participantListRank({
+    isOrganizer: masterDataStore.getRoleTypeIdByRoleId(row.masterRoleId) === ORGANIZER_ROLE_TYPE_ID,
+    roleTypeName: masterDataStore.getRoleTypeNameByRoleId(row.masterRoleId),
+    roleName: row.roleName,
+  });
+}
+
 const filteredParticipants = computed(() => {
   const q = searchQuery.value.trim().toLowerCase();
   const roles = roleFilterIds.value;
   const statuses = statusFilterIds.value;
-  return participants.value.filter((row) => {
-    if (roles.length > 0 && (row.masterRoleId == null || !roles.includes(row.masterRoleId))) return false;
-    if (statuses.length > 0 && (row.statusId == null || !statuses.includes(row.statusId))) return false;
-    if (!q) return true;
-    return row.name.toLowerCase().includes(q) || row.email.toLowerCase().includes(q);
-  });
+  return participants.value
+    .filter((row) => {
+      if (listFilter.value === 'checked' && !row.checkedIn) return false;
+      if (listFilter.value === 'absent' && row.checkedIn) return false;
+      if (roles.length > 0 && (row.masterRoleId == null || !roles.includes(row.masterRoleId))) return false;
+      if (statuses.length > 0 && (row.statusId == null || !statuses.includes(row.statusId))) return false;
+      if (!q) return true;
+      return row.name.toLowerCase().includes(q) || row.email.toLowerCase().includes(q);
+    })
+    .sort((a, b) => {
+      const byRole = participantRank(a) - participantRank(b);
+      if (byRole !== 0) return byRole;
+      return a.name.localeCompare(b.name, 'hu', { sensitivity: 'base' });
+    });
 });
 
 const kpiRegistered = computed(() => String(participants.value.length));
 const kpiCheckedIn = computed(() => String(participants.value.filter((row) => row.checkedIn).length));
-const kpiCapacity = computed(() => {
-  const cap = dbEvent.value?.Capacity ?? dbEvent.value?.capacity;
-  if (cap == null || cap === '' || Number(cap) === 0) return '∞';
-  const n = Number(cap);
-  return Number.isFinite(n) ? String(n) : '∞';
-});
+const kpiNotEntered = computed(() => String(participants.value.filter((row) => !row.checkedIn).length));
 
 function openDetail(row: ParticipantRow) {
   selected.value = row;
@@ -899,7 +946,7 @@ async function onSelectTransition(item: EventUserStatusTransition) {
 }
 
 function goBack() {
-  router.push({ path: `/event/${eventId.value}/manage`, query: route.query });
+  router.push({ path: eventOrganizerManagePath(eventId.value), query: route.query });
 }
 
 async function loadDataSheet() {
@@ -993,7 +1040,6 @@ function comingSoon(label: string) {
   margin-right: 10px;
 }
 
-.part-help-btn,
 .part-add-btn,
 .part-qr-btn,
 .part-excel-btn {
@@ -1005,12 +1051,6 @@ function comingSoon(label: string) {
   flex-shrink: 0;
   border-radius: 16px;
   cursor: pointer;
-}
-
-.part-help-btn {
-  border: 1px solid rgba(56, 189, 248, 0.55);
-  background: rgba(14, 165, 233, 0.22);
-  color: #7dd3fc;
 }
 
 .part-add-btn {
@@ -1026,7 +1066,6 @@ function comingSoon(label: string) {
   color: #38bdf8;
 }
 
-.part-help-btn:active,
 .part-add-btn:active,
 .part-qr-btn:active,
 .part-excel-btn:active {
@@ -1057,7 +1096,27 @@ function comingSoon(label: string) {
   color: #f8fafc;
 }
 
+.part-kpi--action {
+  width: 100%;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+
+.part-kpi--action.is-on {
+  border-color: rgba(251, 146, 60, 0.55);
+  background: rgba(251, 146, 60, 0.14);
+}
+
+.part-kpi--action.is-on .part-kpi__label {
+  color: #fdba74;
+}
+
 .part-kpi__label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.06em;

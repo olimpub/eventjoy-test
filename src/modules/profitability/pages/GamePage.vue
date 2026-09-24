@@ -220,7 +220,7 @@
               <span class="game-seat__dot" :style="{ background: seat.color }" />
               <span class="game-seat__name" :style="{ color: seat.color }">{{ seat.name }}</span>
               <span v-if="table.isClosed || tableHasScores(table)" class="game-seat__points">
-                {{ seat.resultPoint == null ? '—' : seat.resultPoint + ' e' }}
+                {{ seat.resultPoint == null ? '—' : seat.resultPoint }}
               </span>
             </div>
             <div v-if="photoMandatory" class="game-table__photo">
@@ -318,9 +318,9 @@
           />
         </q-card-section>
         <q-card-section class="q-pt-sm q-px-md pb-6">
-          <div v-if="selectedTable.photoUrl" class="game-photo game-photo--preview">
-            <button type="button" class="game-photo__thumb" @click="isPhotoPreviewOpen = true">
-              <img :src="selectedTable.photoUrl" alt="Asztal fotó" class="game-photo__img" />
+          <div v-if="shownPhotoUrl" class="game-photo game-photo--preview">
+            <button type="button" class="game-photo__thumb" :disabled="photoUploading" @click="isPhotoPreviewOpen = true">
+              <img :src="shownPhotoUrl" alt="Asztal fotó" class="game-photo__img" />
               <span class="game-photo__view">
                 <q-icon name="zoom_in" size="18px" />
                 Megtekintés
@@ -330,6 +330,7 @@
               v-if="!deskLocked"
               type="button"
               class="game-photo__retake"
+              :disabled="photoUploading"
               @click="openCamera"
             >
               <q-icon name="photo_camera" size="18px" />
@@ -339,23 +340,23 @@
             v-else
             type="button"
             class="game-photo"
-            :disabled="deskLocked"
+            :disabled="deskLocked || photoUploading"
             @click="openCamera"
           >
             <span class="game-photo__empty">
               <q-icon name="photo_camera" size="22px" />
-              <span>{{ photoMandatory ? 'Kamera (kötelező)' : 'Kamera' }}</span>
+              <span>{{ photoUploading ? 'Feltöltés…' : photoMandatory ? 'Kamera (kötelező)' : 'Kamera' }}</span>
             </span>
           </button>
           <p v-if="resultsEntryHint" class="game-desk__tie">
             {{ resultsEntryHint }}
           </p>
-          <p v-else-if="deskHasTie && !selectedTable.manualOrder" class="game-desk__tie">
-            Holtverseny — húzd a sorokat a végső sorrendhez.
+          <p v-else-if="showTieHint" class="game-desk__tie">
+            Holtverseny van. Ha szükséges, a nyilakkal állítsd a sorrendet.
           </p>
           <div class="game-rank" :class="{ 'is-locked': deskLocked }">
             <div class="game-rank__cols" aria-hidden="true">
-              <span class="game-rank__grip" />
+              <span v-if="showTieHint" class="game-rank__move" />
               <span class="game-rank__place" />
               <span class="game-rank__name" />
               <img :src="scoreIcon" alt="Összeg" class="pta-icon pta-icon--col game-rank__col-score" />
@@ -368,12 +369,25 @@
               class="game-rank__row"
               :style="playerColorStyle(seat.color)"
             >
-              <span
-                class="game-rank__grip"
-                aria-hidden="true"
-                @pointerdown.stop="onRankPointerDown(index, $event)"
-              >
-                <q-icon name="drag_indicator" size="18px" />
+              <span v-if="showTieHint" class="game-rank__move">
+                <button
+                  v-if="tieArrow(index).up"
+                  type="button"
+                  class="game-rank__nudge"
+                  aria-label="Feljebb"
+                  @click="nudgeTiedSeat(index, -1)"
+                >
+                  <q-icon name="keyboard_arrow_up" size="28px" />
+                </button>
+                <button
+                  v-if="tieArrow(index).down"
+                  type="button"
+                  class="game-rank__nudge"
+                  aria-label="Lejjebb"
+                  @click="nudgeTiedSeat(index, 1)"
+                >
+                  <q-icon name="keyboard_arrow_down" size="28px" />
+                </button>
               </span>
               <span class="game-rank__place">{{ seat.place ?? '—' }}</span>
               <span class="game-rank__name" :style="{ color: seat.color }">{{ seat.name }}</span>
@@ -408,7 +422,7 @@
                 @keydown.enter.prevent="onTruckEnter(index, $event)"
               />
               <span class="game-rank__points">
-                {{ seat.resultPoint == null ? '—' : seat.resultPoint + ' e' }}
+                {{ seat.resultPoint == null ? '—' : seat.resultPoint }}
               </span>
             </div>
           </div>
@@ -417,7 +431,7 @@
             v-if="canEnterResults && !selectedTable.isClosed"
             type="button"
             class="game-close-desk"
-            :disabled="deskSaving"
+            :disabled="deskSaving || photoUploading"
             @click="closeDesk"
           >
             {{ deskSaving ? 'Mentés…' : 'Asztal lezárása' }}
@@ -456,7 +470,7 @@
       </q-card>
     </q-dialog>
     <q-dialog v-model="isPhotoPreviewOpen">
-      <q-card v-if="selectedTable?.photoUrl" class="game-photo-preview">
+      <q-card v-if="shownPhotoUrl" class="game-photo-preview">
         <q-btn
           icon="close"
           flat
@@ -465,7 +479,7 @@
           v-close-popup
           class="game-photo-preview__close"
         />
-        <img :src="selectedTable.photoUrl" alt="Asztal fotó" class="game-photo-preview__img" />
+        <img :src="shownPhotoUrl" alt="Asztal fotó" class="game-photo-preview__img" />
       </q-card>
     </q-dialog>
     <input
@@ -507,6 +521,7 @@ import { useQuasar } from 'quasar';
 import { eventDatasheetKind, eventRolePath, eventRoleQuery } from 'src/utils/eventRoleNav';
 import { nullableNumericId, readAxiosErrorMessage, readAxiosHttpStatus } from 'src/utils/apiPayload';
 import { claimPtaDesk, closePtaRound, patchPtaDesk, publishPtaRound, replacePtaDraw, setPtaDeskResults, setPtaRoundStatus } from 'src/utils/eventChange';
+import { uploadPtaDeskPhoto } from 'src/utils/eventMaterials';
 import { pingPtaLiveRoundDisplay } from 'src/modules/profitability/ptaDisplayApi';
 import {
   fetchPtaRoundAvailableStatuses,
@@ -537,6 +552,7 @@ import {
   AMOUNT_MIN,
   rankDeskSeats,
   scoreNumber,
+  tieNudge,
   TRUCK_MAX,
   TRUCK_MIN,
 } from 'src/modules/profitability/scoreTable';
@@ -613,9 +629,9 @@ const roundStatusConfirmVariant = ref<'default' | 'undo' | 'danger'>('default');
 let roundStatusConfirmResolver: ((ok: boolean) => void) | null = null;
 const isTableSheetOpen = ref(false);
 const isPhotoPreviewOpen = ref(false);
+const photoUploading = ref(false);
+const pendingPhotoUrl = ref('');
 const cameraInput = ref<HTMLInputElement | null>(null);
-const dragFromIndex = ref<number | null>(null);
-let rankDragMoved = false;
 const sheetSeats = ref<GameSeatRow[]>([]);
 const sheetManualOrder = ref(false);
 const amountDrafts = ref<Record<number, string>>({});
@@ -817,9 +833,12 @@ const reserveCount = computed(
   () => eventStore.getPtaPlayersForEvent(eventId.value).filter((row) => row.ReserveFlg === true || row.ReserveFlg === 1).length
 );
 
+const roundsKey = computed(() => rounds.value.map((round) => `${round.id}:${round.status}`).join('|'));
+
 watch(
-  rounds,
-  (list) => {
+  roundsKey,
+  () => {
+    const list = rounds.value;
     if (selectedRoundId.value != null && list.some((round) => round.id === selectedRoundId.value)) return;
     selectedRoundId.value = pickOpenRoundId(list);
   },
@@ -930,6 +949,7 @@ const ptaSettings = computed(() => eventStore.getPtaSettingsForEvent(eventId.val
 const photoMandatory = computed(() => !!ptaSettings.value?.PhotoUploadMadatoryFlg);
 
 const selectedTable = computed(() => currentTables.value.find((table) => table.id === selectedTableId.value) || null);
+const shownPhotoUrl = computed(() => pendingPhotoUrl.value || selectedTable.value?.photoUrl || '');
 
 function clearScoreDrafts() {
   amountDrafts.value = {};
@@ -976,11 +996,18 @@ const deskHasTie = computed(() => {
   return rankDeskSeats(seats, ptaSettings.value, manual).hasTie;
 });
 
+const showTieHint = computed(() => {
+  if (!deskHasTie.value || deskLocked.value) return false;
+  const seats = rankedSeats.value;
+  return seats.length > 0 && seats.every((seat) => seat.amount != null);
+});
+
 watch(
   () => [isTableSheetOpen.value, selectedTableId.value] as const,
   ([open]) => {
     if (!open) {
       isPhotoPreviewOpen.value = false;
+      if (!photoUploading.value) clearPendingPhoto();
       sheetSeats.value = [];
       sheetManualOrder.value = false;
       clearScoreDrafts();
@@ -1301,22 +1328,27 @@ async function ensureRoundInProgress() {
   }
 }
 
+let persistingDesk = false;
+
 function persistDeskRanking(seats: GameSeatRow[], manualOrder: boolean) {
-  if (!canEnterResults.value) return;
+  if (!canEnterResults.value || persistingDesk) return;
   const table = selectedTable.value;
   if (!table) return;
+  persistingDesk = true;
+  try {
   const ranked = rankDeskSeats(seats, ptaSettings.value, manualOrder);
   sheetSeats.value = ranked.seats.map((seat) => ({ ...seat }));
-  if (manualOrder) sheetManualOrder.value = true;
+  sheetManualOrder.value = manualOrder;
   eventStore.applyDeskSeatResults(eventId.value, table.id, deskResultPayload(ranked.seats));
-  if (manualOrder) {
-    eventStore.applyEventRoundDeskPatch(eventId.value, table.id, { ManualOrderFlg: true });
-  }
+  eventStore.applyEventRoundDeskPatch(eventId.value, table.id, { ManualOrderFlg: manualOrder });
   if (ranked.seats.some((seat) => seat.amount != null)) {
     if (scoreInputFocused()) pendingRoundPromote = true;
     else void ensureRoundInProgress();
   }
   return ranked.seats;
+  } finally {
+    persistingDesk = false;
+  }
 }
 
 function scoreInputFocused() {
@@ -1475,49 +1507,33 @@ function onTruckEnter(index: number, event: Event) {
   if (next) focusAmount(next.playerId);
 }
 
-function onRankPointerDown(index: number, event: PointerEvent) {
-  if (deskLocked.value) return;
-  dragFromIndex.value = index;
-  rankDragMoved = false;
-  const rankRoot = (event.currentTarget as HTMLElement).closest('.game-rank');
-  const onMove = (move: PointerEvent) => {
-    const from = dragFromIndex.value;
-    if (from == null) return;
-    const rows = rankRoot?.querySelectorAll('.game-rank__row');
-    if (!rows?.length) return;
-    rows.forEach((row, to) => {
-      const box = row.getBoundingClientRect();
-      if (move.clientY >= box.top && move.clientY <= box.bottom && to !== from) {
-        rankDragMoved = true;
-        reorderSeats(from, to);
-        dragFromIndex.value = to;
-      }
-    });
-  };
-  const onUp = () => {
-    dragFromIndex.value = null;
-    window.removeEventListener('pointermove', onMove);
-    window.removeEventListener('pointerup', onUp);
-    window.setTimeout(() => {
-      rankDragMoved = false;
-    }, 0);
-  };
-  window.addEventListener('pointermove', onMove);
-  window.addEventListener('pointerup', onUp);
+function tieArrow(index: number) {
+  if (deskLocked.value) return { up: false, down: false };
+  const seats = rankedSeats.value;
+  if (!seats.length || seats.some((seat) => seat.amount == null)) return { up: false, down: false };
+  return tieNudge(seats, index);
 }
 
-function reorderSeats(from: number, to: number) {
-  if (deskLocked.value || from === to) return;
-  const next = (sheetSeats.value.length ? sheetSeats.value : rankedSeats.value).map((seat) => ({ ...seat }));
-  const [moved] = next.splice(from, 1);
+function nudgeTiedSeat(index: number, delta: -1 | 1) {
+  if (deskLocked.value) return;
+  const arrow = tieNudge(rankedSeats.value, index);
+  if (delta < 0 && !arrow.up) return;
+  if (delta > 0 && !arrow.down) return;
+  const next = rankedSeats.value.map((seat) => ({ ...seat, position: null }));
+  const [moved] = next.splice(index, 1);
   if (!moved) return;
-  next.splice(to, 0, moved);
+  next.splice(index + delta, 0, moved);
   persistDeskRanking(next, true);
 }
 
 function openCamera() {
-  if (deskLocked.value) return;
+  if (deskLocked.value || photoUploading.value) return;
   cameraInput.value?.click();
+}
+
+function clearPendingPhoto() {
+  if (pendingPhotoUrl.value.startsWith('blob:')) URL.revokeObjectURL(pendingPhotoUrl.value);
+  pendingPhotoUrl.value = '';
 }
 
 async function onPhotoPicked(event: Event) {
@@ -1525,32 +1541,68 @@ async function onPhotoPicked(event: Event) {
   const file = input.files?.[0];
   input.value = '';
   const table = selectedTable.value;
-  if (!file || !table) return;
-  const dataUrl = await compressPhoto(file);
-  eventStore.applyEventRoundDeskPatch(eventId.value, table.id, { PhotoUrl: dataUrl });
+  const id = nullableNumericId(eventId.value);
+  if (!file || !table || id == null || photoUploading.value) return;
+  photoUploading.value = true;
+  clearPendingPhoto();
+  try {
+    const jpeg = await compressPhoto(file, table.id);
+    pendingPhotoUrl.value = URL.createObjectURL(jpeg);
+    const blobUrl = await uploadPtaDeskPhoto(id, table.id, jpeg);
+    await patchPtaDesk({
+      eventId: id,
+      eventRoundDeskId: table.id,
+      photoUrl: blobUrl,
+    });
+    eventStore.applyEventRoundDeskPatch(eventId.value, table.id, {
+      PhotoUrl: blobUrl,
+      AzurePhotoUrl: blobUrl,
+    });
+    clearPendingPhoto();
+  } catch (error) {
+    clearPendingPhoto();
+    $q.notify({
+      message: readAxiosErrorMessage(error, 'A fotó feltöltése sikertelen.'),
+      color: 'dark',
+      textColor: 'red-4',
+      position: 'top',
+    });
+  } finally {
+    photoUploading.value = false;
+  }
 }
 
-function compressPhoto(file: File): Promise<string> {
+function compressPhoto(file: File, roundDeskId: number): Promise<File> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onerror = () => reject(new Error('Fotó olvasása sikertelen'));
+    reader.onerror = () => reject(new Error('Fotó olvasása sikertelen.'));
     reader.onload = () => {
       const img = new Image();
       img.onload = () => {
         const max = 1280;
         const scale = Math.min(1, max / Math.max(img.width, img.height));
         const canvas = document.createElement('canvas');
-        canvas.width = Math.round(img.width * scale);
-        canvas.height = Math.round(img.height * scale);
+        canvas.width = Math.max(1, Math.round(img.width * scale));
+        canvas.height = Math.max(1, Math.round(img.height * scale));
         const ctx = canvas.getContext('2d');
         if (!ctx) {
-          resolve(String(reader.result || ''));
+          reject(new Error('Fotó tömörítése sikertelen.'));
           return;
         }
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL('image/jpeg', 0.72));
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) {
+              reject(new Error('Fotó tömörítése sikertelen.'));
+              return;
+            }
+            resolve(new File([blob], `desk-${roundDeskId}.jpg`, { type: 'image/jpeg' }));
+          },
+          'image/jpeg',
+          0.72
+        );
       };
-      img.onerror = () => resolve(String(reader.result || ''));
+      img.onerror = () => reject(new Error('Fotó olvasása sikertelen.'));
       img.src = String(reader.result || '');
     };
     reader.readAsDataURL(file);
@@ -1580,15 +1632,6 @@ async function closeDesk() {
     $q.notify({ message: 'Mind a négy összeg kell a lezáráshoz.', color: 'dark', textColor: 'red-4', position: 'top' });
     return;
   }
-  if (ranked.hasTie && !(sheetManualOrder.value || table.manualOrder)) {
-    $q.notify({
-      message: 'Holtverseny van — húzd a sorrendet a helyezéshez.',
-      color: 'dark',
-      textColor: 'orange-4',
-      position: 'top',
-    });
-    return;
-  }
   if (ranked.seats.some((seat) => seat.position == null || seat.resultPoint == null)) {
     $q.notify({
       message: 'Mind a négy helyezés és pontszám kell a lezáráshoz.',
@@ -1607,7 +1650,7 @@ async function closeDesk() {
     });
     return;
   }
-  persistDeskRanking(ranked.seats, sheetManualOrder.value || table.manualOrder || ranked.hasTie);
+  persistDeskRanking(ranked.seats, sheetManualOrder.value || table.manualOrder);
   const prevStatus = table.deskStatus;
   eventStore.applyEventRoundDeskPatch(eventId.value, table.id, { SName: 'Lezárt' });
   const id = nullableNumericId(eventId.value);
@@ -2468,8 +2511,8 @@ async function onFinalizeDraw() {
   padding: 0 10px 4px 14px;
 }
 
-.game-rank__cols .game-rank__grip {
-  width: 18px;
+.game-rank__cols .game-rank__move {
+  width: 44px;
   height: 18px;
 }
 
@@ -2539,15 +2582,35 @@ async function onFinalizeDraw() {
   text-align: center;
 }
 
-.game-rank.is-locked .game-rank__grip {
-  visibility: hidden;
-  pointer-events: none;
+.game-rank.is-locked .game-rank__move {
+  display: none;
 }
 
-.game-rank__grip {
+.game-rank__move {
+  width: 44px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+
+.game-rank__nudge {
+  width: 44px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: rgba(246, 139, 41, 0.22);
+  color: #fdba74;
   display: inline-flex;
-  color: #64748b;
-  touch-action: none;
+  align-items: center;
+  justify-content: center;
+}
+
+.game-rank__nudge:active {
+  background: rgba(246, 139, 41, 0.4);
 }
 
 .game-rank__body {

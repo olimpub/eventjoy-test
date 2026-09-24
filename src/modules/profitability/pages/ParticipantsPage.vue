@@ -20,14 +20,6 @@
           <p class="part-header__event">{{ eventName }}</p>
         </div>
         <div class="part-header__actions">
-          <button
-            type="button"
-            class="part-help-btn"
-            aria-label="Súgó: Résztvevők"
-            @click="helpStore.openArticle('participants')"
-          >
-            <q-icon name="help" size="22px" />
-          </button>
           <template v-if="!isReadOnly">
           <button
             type="button"
@@ -59,18 +51,45 @@
       </header>
 
       <div class="part-kpis">
-        <div class="part-kpi">
+        <button
+          type="button"
+          class="part-kpi part-kpi--action"
+          :class="{ 'is-on': listFilter === 'registered' }"
+          aria-label="Jelentkezettek szűrése"
+          @click="listFilter = 'registered'"
+        >
           <span class="part-kpi__value">{{ kpiRegistered }}</span>
-          <span class="part-kpi__label">Jelentkezett</span>
-        </div>
-        <div class="part-kpi">
+          <span class="part-kpi__label">
+            Jelentkezett
+            <q-icon name="arrow_drop_down" size="18px" />
+          </span>
+        </button>
+        <button
+          type="button"
+          class="part-kpi part-kpi--action"
+          :class="{ 'is-on': listFilter === 'checked' }"
+          aria-label="Belépettek szűrése"
+          @click="listFilter = 'checked'"
+        >
           <span class="part-kpi__value">{{ kpiCheckedIn }}</span>
-          <span class="part-kpi__label">Belépett</span>
-        </div>
-        <div class="part-kpi">
-          <span class="part-kpi__value">{{ kpiCapacity }}</span>
-          <span class="part-kpi__label">Kapacitás</span>
-        </div>
+          <span class="part-kpi__label">
+            Belépett
+            <q-icon name="arrow_drop_down" size="18px" />
+          </span>
+        </button>
+        <button
+          type="button"
+          class="part-kpi part-kpi--action"
+          :class="{ 'is-on': listFilter === 'absent' }"
+          aria-label="Nem belépettek szűrése"
+          @click="listFilter = 'absent'"
+        >
+          <span class="part-kpi__value">{{ kpiNotEntered }}</span>
+          <span class="part-kpi__label">
+            Nem belépett
+            <q-icon name="arrow_drop_down" size="18px" />
+          </span>
+        </button>
       </div>
 
       <div class="part-toolbar" :class="{ 'has-chips': activeFilterChips.length > 0 }">
@@ -460,10 +479,9 @@ import { useEventStore, type EventUser } from 'src/stores/event';
 import { useMasterDataStore, ORGANIZER_ROLE_TYPE_ID } from 'src/stores/masterData';
 import { nullableNumericId, readAxiosErrorMessage } from 'src/utils/apiPayload';
 import { EVENT_USER_FLOW_TEMPLATE_CODE, type EventUserStatusTransition, withOrganizerDoorCheckInTransition } from 'src/utils/eventUserFlow';
-import { membershipRoleKind } from 'src/utils/eventUserStatus';
+import { participantListRank } from 'src/utils/eventUserStatus';
 import { setEventUserStatus } from 'src/utils/eventChange';
 import AppConfirmDialog from 'src/components/ui/AppConfirmDialog.vue';
-import { useHelpStore } from 'src/stores/help';
 import {
   findPtaPlayerForEventUser,
   listEnabledGroupingAttrs,
@@ -505,7 +523,6 @@ interface ParticipantRow {
 const route = useRoute();
 const router = useRouter();
 const $q = useQuasar();
-const helpStore = useHelpStore();
 const authStore = useAuthStore();
 const eventStore = useEventStore();
 const masterDataStore = useMasterDataStore();
@@ -515,6 +532,7 @@ const isWalkInOpen = ref(false);
 const isJoinQrOpen = ref(false);
 const isContactEditOpen = ref(false);
 const searchQuery = ref('');
+const listFilter = ref<'registered' | 'checked' | 'absent'>('registered');
 const roleFilterIds = ref<number[]>([]);
 const statusFilterIds = ref<number[]>([]);
 const isDetailOpen = ref(false);
@@ -819,26 +837,38 @@ function clearFilterChip(kind: 'role' | 'status', id: number) {
   else statusFilterIds.value = statusFilterIds.value.filter((item) => item !== id);
 }
 
+function participantRank(row: ParticipantRow): number {
+  if (row.masterRoleId == null) return 3;
+  return participantListRank({
+    isOrganizer: masterDataStore.getRoleTypeIdByRoleId(row.masterRoleId) === ORGANIZER_ROLE_TYPE_ID,
+    roleTypeName: masterDataStore.getRoleTypeNameByRoleId(row.masterRoleId),
+    roleName: row.roleName,
+  });
+}
+
 const filteredParticipants = computed(() => {
   const q = searchQuery.value.trim().toLowerCase();
   const roles = roleFilterIds.value;
   const statuses = statusFilterIds.value;
-  return participants.value.filter((row) => {
-    if (roles.length > 0 && (row.masterRoleId == null || !roles.includes(row.masterRoleId))) return false;
-    if (statuses.length > 0 && (row.statusId == null || !statuses.includes(row.statusId))) return false;
-    if (!q) return true;
-    return row.name.toLowerCase().includes(q) || row.email.toLowerCase().includes(q);
-  });
+  return participants.value
+    .filter((row) => {
+      if (listFilter.value === 'checked' && !row.checkedIn) return false;
+      if (listFilter.value === 'absent' && row.checkedIn) return false;
+      if (roles.length > 0 && (row.masterRoleId == null || !roles.includes(row.masterRoleId))) return false;
+      if (statuses.length > 0 && (row.statusId == null || !statuses.includes(row.statusId))) return false;
+      if (!q) return true;
+      return row.name.toLowerCase().includes(q) || row.email.toLowerCase().includes(q);
+    })
+    .sort((a, b) => {
+      const byRole = participantRank(a) - participantRank(b);
+      if (byRole !== 0) return byRole;
+      return a.name.localeCompare(b.name, 'hu', { sensitivity: 'base' });
+    });
 });
 
 const kpiRegistered = computed(() => String(participants.value.length));
 const kpiCheckedIn = computed(() => String(participants.value.filter((row) => row.checkedIn).length));
-const kpiCapacity = computed(() => {
-  const cap = dbEvent.value?.Capacity ?? dbEvent.value?.capacity;
-  if (cap == null || cap === '' || Number(cap) === 0) return '∞';
-  const n = Number(cap);
-  return Number.isFinite(n) ? String(n) : '∞';
-});
+const kpiNotEntered = computed(() => String(participants.value.filter((row) => !row.checkedIn).length));
 
 function openDetail(row: ParticipantRow) {
   selected.value = row;
@@ -1105,7 +1135,6 @@ function comingSoon(label: string, icon = 'sym_r_schedule') {
   min-height: 48px;
 }
 
-.part-help-btn,
 .part-add-btn,
 .part-qr-btn,
 .part-excel-btn {
@@ -1117,12 +1146,6 @@ function comingSoon(label: string, icon = 'sym_r_schedule') {
   flex-shrink: 0;
   border-radius: 16px;
   cursor: pointer;
-}
-
-.part-help-btn {
-  border: 1px solid rgba(56, 189, 248, 0.55);
-  background: rgba(14, 165, 233, 0.22);
-  color: #7dd3fc;
 }
 
 .part-add-btn {
@@ -1138,7 +1161,6 @@ function comingSoon(label: string, icon = 'sym_r_schedule') {
   color: #f68b29;
 }
 
-.part-help-btn:active,
 .part-add-btn:active,
 .part-qr-btn:active,
 .part-excel-btn:active {
@@ -1169,7 +1191,27 @@ function comingSoon(label: string, icon = 'sym_r_schedule') {
   color: #f1f5f9;
 }
 
+.part-kpi--action {
+  width: 100%;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+
+.part-kpi--action.is-on {
+  border-color: rgba(246, 139, 41, 0.55);
+  background: rgba(246, 139, 41, 0.14);
+}
+
+.part-kpi--action.is-on .part-kpi__label {
+  color: #fdba74;
+}
+
 .part-kpi__label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.06em;

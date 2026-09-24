@@ -1,6 +1,6 @@
 # Olimpub kvíz (OP modul) — termék spec
 
-**Backend szerződés (tábla, JSON, hibák, Outbox):** [`olimpub-backend.md`](./olimpub-backend.md). Ha eltérés van, a backend fájl a gazda.
+**Élő API:** [`olimpub-backend.md`](./olimpub-backend.md) tetején a 2026-09 blokk. Change URL: `POST /op/game/change`. Kör: `POST /op/round/generate`. Master: `GET /op/master`.
 
 EventType **43**. Flag: `EventTypes.OPFlg` (ugyanaz a minta, mint a PTA `PTAFlg` a 46-on). A PTA motor, asztal-sorsolás, `Pta.*` actionök **nem** keverednek ide.
 
@@ -243,10 +243,12 @@ Csak szervező. 403 kvízmesternek.
 
 ## 6. Média (Azure + helyi cache)
 
-1. Szervező a **Quiz** nézetben tölti az Azure Blobra (kérdés / extra játék / zene). Excelből **nem**.
-2. **Egy kattintás: Letöltés az eszközre** — kvízmester és szervező gépén (ők játsszák a hangot: Bluetooth / kábel a PA-ra).
-3. Lejátszás **először helyi** fájl, ha nincs meg → Blob. Lefedettség ne öljön zenét/képet.
-4. v1: **játékos kliensen nincs média**. Display kaphat képet (kérdés / mozaik állókép), hangot a kvízmester/szervező eszköze viszi.
+Szerződés: [`olimpub-media.md`](./olimpub-media.md). Két slot: **kép** (játékos + display) és **MP3** (csak QM/szerv gép).
+
+1. Szervező a **Quiz** nézetben tölti az Azure Blobra (SAS, nem Excel).
+2. **Egy kattintás: Letöltés az eszközre** — az estéhez tartozó összes média `OP/{EventID}/media/{MediaKey}` alá (hash). QM és szervező.
+3. Lejátszás **először helyi** fájl, ha nincs meg / más a hash → Blob, aztán cache. Lefedettség ne öljön zenét/képet.
+4. Játékos: **csak kérdéskép** (logó helyett). Hang a telefonon nincs. Display: kép igen, MP3 nem.
 
 Helyi tároló:
 

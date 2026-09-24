@@ -253,7 +253,7 @@ export async function patchPtaDesk(args: {
   const sName = String(args.sName || '').trim();
   if (sName) payload.SName = sName;
   const photoUrl = String(args.photoUrl || '').trim();
-  if (photoUrl && !photoUrl.startsWith('data:')) payload.PhotoUrl = photoUrl;
+  if (photoUrl) payload.PhotoUrl = photoUrl;
   await changeEvent({
     EventID: args.eventId,
     Action: 'Pta.PatchDesk',
@@ -320,6 +320,14 @@ export const SIGNALR_LIVE_ACTIONS = [
   'Pta.PatchDesk',
   'Pta.Reset',
   'Pta.ShowDisplay',
+  'Op.StartQuestion',
+  'Op.StopQuestion',
+  'Op.NextQuestion',
+  'Op.CloseRound',
+  'Op.PublishRound',
+  'Op.ShowLeaderboard',
+  'Op.SubmitAnswer',
+  'Op.Penalty',
 ] as const;
 
 export interface LiveChangeContext {
@@ -804,6 +812,18 @@ export function applyLiveChange(
       );
     });
     inbound(true, `display ${String(msg.Payload.State ?? '')}`);
+    return;
+  }
+
+  if (String(msg.Action || '').startsWith('Op.')) {
+    if (eventId == null) {
+      inbound(false, 'skip missing EventID');
+      return;
+    }
+    void import('src/stores/olimpub').then((mod) => {
+      mod.useOlimpubStore().notePing(eventId, msg.Action);
+    });
+    inbound(true, `op ping ${msg.Action}`);
     return;
   }
 

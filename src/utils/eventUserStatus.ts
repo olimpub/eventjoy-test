@@ -30,6 +30,18 @@ export function membershipRoleKind(role: {
   return 'contributor';
 }
 
+/** Lista: szervező, játékmester (közreműködő), játékos. */
+export function participantListRank(role: {
+  isOrganizer?: boolean;
+  roleTypeName?: string | null;
+  roleName?: string | null;
+}): number {
+  const kind = membershipRoleKind(role);
+  if (kind === 'organizer') return 0;
+  if (kind === 'contributor') return 1;
+  return 2;
+}
+
 /**
  * Lista-státusz: résztvevő előnyt élvez a közreműködővel szemben.
  * Csak szervezői szerepkörnél nincs megjeleníthető státusz.

@@ -5,6 +5,7 @@ import { nullableNumericId } from 'src/utils/apiPayload';
 import { applyLiveChange, SIGNALR_LIVE_ACTIONS } from 'src/utils/eventChange';
 import type { SignalRLiveRole } from 'src/utils/eventRoleNav';
 import { isSignalRDebug, logSignalR, recordSignalRInbound } from 'src/utils/signalrDebug';
+import { isAxiosNetworkError, markNetworkFailure } from 'src/utils/networkStatus';
 
 const LIVE_EVENT_ROUTE_NAMES = new Set([
   'event_manage',
@@ -19,6 +20,15 @@ const LIVE_EVENT_ROUTE_NAMES = new Set([
   'profitability-vetites',
   'profitability-display',
   'profitability-event-detail',
+  'olimpub-organizer',
+  'olimpub-quizmaster',
+  'olimpub-participants',
+  'olimpub-quiz',
+  'olimpub-results',
+  'olimpub-display',
+  'olimpub-player',
+  'olimpub-scan',
+  'olimpub-materials',
 ]);
 
 export function isEventLiveRoute(name: unknown): boolean {
@@ -149,7 +159,8 @@ const KNOWN_HUB_METHODS = new Set([...SIGNALR_LIVE_ACTIONS, ...EXTRA_HUB_METHODS
 const KEEP_ALIVE_MS = 15_000;
 const SERVER_TIMEOUT_MS = 60_000;
 const STALE_CHECK_MS = 20_000;
-const REJOIN_WHILE_CONNECTED_MS = 60_000;
+const REJOIN_WHILE_CONNECTED_MS = 120_000;
+const JOIN_RETRY_ATTEMPTS = 4;
 const CONNECT_WAIT_MS = 15_000;
 
 /** Soha nem adja fel: 0, 2, 5, 10, 15, aztán 30 mp-enként. */
@@ -217,6 +228,7 @@ class EventLiveService {
   private desiredJoin: EventLiveJoin | null = null;
   private listenersBound = false;
   private connectInFlight: Promise<void> | null = null;
+  private stopInFlight: Promise<void> | null = null;
   private stopRequested = false;
   private lastJoinAt = 0;
 
@@ -241,10 +253,12 @@ class EventLiveService {
     const id = nullableNumericId(join.eventId);
     if (id == null) return;
     const next: EventLiveJoin = { ...join, eventId: id };
+    if (this.stopInFlight) await this.stopInFlight;
     this.stopRequested = false;
     this.desiredJoin = next;
 
     if (this.connectInFlight) await this.connectInFlight;
+    if (this.stopRequested) return;
 
     this.connectInFlight = this.connectToEventInner(next, options?.forceJoin === true);
     try {
@@ -255,15 +269,30 @@ class EventLiveService {
   }
 
   private async connectToEventInner(join: EventLiveJoin, forceJoin: boolean): Promise<void> {
-    await this.ensureConnection();
+    let lastError: unknown = new Error('SignalR kapcsolat nem jött létre.');
+    for (let attempt = 0; attempt < JOIN_RETRY_ATTEMPTS; attempt += 1) {
+      if (this.stopRequested) return;
+      try {
+        await this.ensureConnection();
+        if (this.connection?.state === signalR.HubConnectionState.Connected) {
+          lastError = null;
+          break;
+        }
+      } catch (err) {
+        lastError = err;
+        if (isAxiosNetworkError(err)) markNetworkFailure();
+      }
+      await delay(400 * (attempt + 1));
+    }
     if (!this.connection || this.connection.state !== signalR.HubConnectionState.Connected) {
-      throw new Error('SignalR kapcsolat nem jött létre.');
+      throw lastError instanceof Error ? lastError : new Error('SignalR kapcsolat nem jött létre.');
     }
     const alreadyJoined =
       this.joinedEventId === join.eventId &&
       this.desiredJoin != null &&
       joinKey(this.desiredJoin) === joinKey(join);
     if (!forceJoin && alreadyJoined) return;
+    if (this.stopRequested) return;
     await this.joinGroups(join);
   }
 
@@ -272,6 +301,10 @@ class EventLiveService {
   }
 
   public stopConnection() {
+    void this.stopConnectionAsync();
+  }
+
+  public async stopConnectionAsync(): Promise<void> {
     this.stopRequested = true;
     this.desiredJoin = null;
     this.setJoined(null);
@@ -279,7 +312,14 @@ class EventLiveService {
     this.connection = null;
     this.listenersBound = false;
     if (!connection || connection.state === signalR.HubConnectionState.Disconnected) return;
-    connection.stop().catch(() => undefined);
+    logSignalR('stop', { connectionId: connection.connectionId });
+    const stopping = connection.stop().catch(() => undefined);
+    this.stopInFlight = stopping;
+    try {
+      await stopping;
+    } finally {
+      if (this.stopInFlight === stopping) this.stopInFlight = null;
+    }
   }
 
   /** Előtér / online: reconnect + csoport-join, akkor is ha a socket „élőnek” látszik. */
@@ -305,7 +345,7 @@ class EventLiveService {
       state === signalR.HubConnectionState.Connected &&
       !staleJoin &&
       this.lastJoinAt > 0 &&
-      Date.now() - this.lastJoinAt >= REJOIN_WHILE_CONNECTED_MS;
+      Date.now() - this.lastJoinAt >= REJOIN_WHILE_CONNECTED_MS + Math.floor(Math.random() * 20_000);
     if (!staleSocket && !staleJoin && !dueRejoin) {
       this.refreshHubState();
       return;
@@ -320,6 +360,9 @@ class EventLiveService {
   }
 
   private async ensureConnection(): Promise<void> {
+    if (this.stopRequested) {
+      throw new Error('SignalR leállítva.');
+    }
     if (!this.connection) {
       this.connection = new signalR.HubConnectionBuilder()
         .withUrl(apiRootUrl(), {
@@ -328,6 +371,10 @@ class EventLiveService {
           // defaults to withCredentials: true and the browser then fails negotiate
           // with TypeError: Failed to fetch. Token goes in Authorization instead.
           withCredentials: false,
+          transport:
+            signalR.HttpTransportType.WebSockets |
+            signalR.HttpTransportType.ServerSentEvents |
+            signalR.HttpTransportType.LongPolling,
         })
         .withHubProtocol(
           createDebugHubProtocol((target, args) => {
@@ -426,9 +473,15 @@ class EventLiveService {
     });
   }
 
+  private connectionStillHolds(connectionId: string): boolean {
+    return (
+      this.connection != null &&
+      this.connection.state === signalR.HubConnectionState.Connected &&
+      this.connection.connectionId === connectionId
+    );
+  }
+
   private async joinGroups(join: EventLiveJoin): Promise<void> {
-    const connectionId = this.connection?.connectionId;
-    if (!connectionId) throw new Error('Nincs SignalR connectionId.');
     const groupNames = eventLiveGroupNames(join);
     if (!join.displayOnly && (join.eventUserId == null || groupNames.length < 3)) {
       throw new Error('SignalR join: hiányzik a szerepkör, a gamer vagy a privát csoport (eventUserId).');
@@ -436,21 +489,55 @@ class EventLiveService {
     if (join.displayOnly && groupNames.length !== 1) {
       throw new Error('SignalR join: a TV csak a display csoportot kérheti.');
     }
-    const body = { connectionId, groupNames };
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (join.displayToken) {
-      headers['X-Pta-Display-Token'] = join.displayToken;
+
+    let lastError: unknown = new Error('Nincs SignalR connectionId.');
+    for (let attempt = 0; attempt < JOIN_RETRY_ATTEMPTS; attempt += 1) {
+      if (this.stopRequested) return;
+      try {
+        await this.ensureConnection();
+      } catch (err) {
+        lastError = err;
+        if (isAxiosNetworkError(err)) markNetworkFailure();
+        await delay(400 * (attempt + 1));
+        continue;
+      }
+      const connectionId = this.connection?.connectionId;
+      if (!connectionId || !this.connectionStillHolds(connectionId)) {
+        lastError = new Error('SignalR kapcsolat nem él a join előtt.');
+        await delay(400 * (attempt + 1));
+        continue;
+      }
+      const body = { connectionId, groupNames };
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (join.displayToken) {
+        headers['X-Pta-Display-Token'] = join.displayToken;
+      }
+      logSignalR('join POST', { ...body, attempt });
+      try {
+        const response = await api.post('/signalr/join', body, { headers });
+        logSignalR('join response', {
+          status: response.status,
+          data: response.data ?? null,
+        });
+        if (isJoinRejected(response.data)) {
+          throw new Error('SignalR joinGroup elutasítva (invalid payload).');
+        }
+        if (!this.connectionStillHolds(connectionId)) {
+          lastError = new Error('SignalR kapcsolat megszakadt a join közben.');
+          this.setJoined(null);
+          await delay(400 * (attempt + 1));
+          continue;
+        }
+        this.setJoined(join);
+        return;
+      } catch (err) {
+        lastError = err;
+        if (isAxiosNetworkError(err)) markNetworkFailure();
+        this.setJoined(null);
+        await delay(500 * (attempt + 1));
+      }
     }
-    logSignalR('join POST', body);
-    const response = await api.post('/signalr/join', body, { headers });
-    logSignalR('join response', {
-      status: response.status,
-      data: response.data ?? null,
-    });
-    if (isJoinRejected(response.data)) {
-      throw new Error('SignalR joinGroup elutasítva (invalid payload).');
-    }
-    this.setJoined(join);
+    throw lastError;
   }
 }
 
@@ -470,11 +557,17 @@ function installEventLiveResume() {
     if (document.visibilityState === 'hidden') return;
     void signalRService.resumeFromForeground();
   };
+  const onLeavePage = (event?: PageTransitionEvent) => {
+    if (event?.persisted) return;
+    signalRService.stopConnection();
+  };
   document.addEventListener('visibilitychange', onForeground);
   document.addEventListener('resume', onForeground);
   window.addEventListener('pageshow', onForeground);
   window.addEventListener('focus', onForeground);
   window.addEventListener('online', onForeground);
+  window.addEventListener('pagehide', onLeavePage);
+  window.addEventListener('beforeunload', () => onLeavePage());
   window.setInterval(() => {
     void signalRService.resumeIfNeeded();
   }, STALE_CHECK_MS);

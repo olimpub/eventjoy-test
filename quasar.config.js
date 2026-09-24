@@ -5,6 +5,7 @@ module.exports = configure(function (/* ctx */) {
     boot: [
       'axios',
       'error-log',
+      'network-status',
       'google-auth',
       'facebook-auth',
       'notify'

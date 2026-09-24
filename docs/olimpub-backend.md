@@ -1,10 +1,40 @@
 # Olimpub — backend szerződés
 
-A termék összefoglaló: [`olimpub.md`](./olimpub.md). **Implementálandó API / SQL:** [`olimpub-backend.md`](./olimpub-backend.md). A FE route-ok oda nem tartoznak.
+A termék összefoglaló: [`olimpub.md`](./olimpub.md). **Élő API (gazda):** a kész backend + a FE integrációs spec. A lenti régebbi `/op/change` / `Kind` példák **elavultak**, ha ütköznek ezzel a blokkal.
 
-EventType **43**. `EventTypes.OPFlg` (bit, mint `PTAFlg`). `Pta.*` és PTA táblák **tiltva**. Séma: **`OP`**. Közös EventJoy (`tblEvent`, `tblEventUser`, `tblUser`, Outbox) marad `dbo`.
+EventType **43**. `EventTypes.OPFlg` (bit, mint `PTAFlg`). `Pta.*` és PTA táblák **tiltva**. Séma: **`OP`**.
 
-Siker `/op/change`-en: **`ReturnValue = 1`**, mint `/event/change`. Hiba: `ReturnValue < 0`, `ReturnDescription` a toastba. Import: lásd §7 (invite-szerű sorhibák).
+## Élő HTTP (2026-09)
+
+| Method | Path | Megjegyzés |
+|---|---|---|
+| POST | `/event/save` | `OpSettings` ha `OPFlg` |
+| GET | `/op/master` | JWT: `OpKabalas`, `OpTopics` (nem `/user/data`) |
+| GET | `/op/event/:id` | JWT vagy `X-Pta-Display-Token`. `OpEventQuestions` lapos `Answer1…8` / `Match1…8` / `IsCorrect1…8` — nincs `Options`/`Correct` tömb. [`olimpub-question-get.md`](./olimpub-question-get.md) |
+| POST | `/op/game/change` | `{ EventID, Action, Payload }` — payload PascalCase `ID` (`EventQuestionID`, `RoundID`, `TeamID`) |
+| POST | `/op/round/generate` | `{ EventID, TopicID, Mode: "mixed", RoundSortIndex }` — kör + 8 kérdés egy lépésben |
+| POST | `/op/questions/import` | angol lapos séma; kör + EventQuestion + TopicIds egyben. 200: `RoundID` / `RoundIDs`. Nincs generate utána. |
+| POST | `/op/question/save` | szervező; lapos GET-sor; csak `pending`. [`olimpub-question-save.md`](./olimpub-question-save.md) |
+| GET | `/op/media/upload-url` | szervező; write SAS. [`olimpub-media.md`](./olimpub-media.md) |
+| POST | `/op/media` | szervező; regisztrálás PUT után + opcionális kötés |
+| GET | `/op/media/manifest/:eventId` | szerv+QM; read SAS + hash. Játékos 403 |
+| POST | `/op/media/delete` | szervező; kötött kulcs 400 |
+| GET | `/op/leaderboard/:id?board=` | v1: `main`, `quiz`, `shadow` (`raw` 403 játékosnak; `games` üres) |
+| POST | `/auth/device-join` | vendég |
+| POST | `/event/join` | JWT csapat: `{ EventID, TeamId }` |
+| POST | `/pta/display-token` | OP TV is; header `X-Pta-Display-Token` |
+
+`/op/game/change` hibánál **HTTP 400/403** + `{ ReturnValue: -1, ReturnDescription }`. Siker: `ReturnValue = 1`.
+
+**Game actionök:** `Op.StartQuestion` / `StopQuestion` `{ EventQuestionID }`, `Op.NextQuestion` `{ RoundID }` (400 ha a kérdés még fut — nincs implicit stop), `Op.CloseRound` / `Op.PublishRound` `{ RoundID }`, `Op.ShowLeaderboard` `{ Board }`, `Op.SubmitAnswer` `{ EventQuestionID, Items }`, `Op.Penalty` `{ TeamID, Points }` (v1 nincs `UndoOfID`). Nincs `Op.SetRoundTopic` — generate hozza létre a kört.
+
+**SignalR:** ping `event_{id}_gamer` / `_display` / `_organizer` / `_contributor`. A kliens GET `/op/event/:id`. Játékos CorrectJson csak `active` kérdésen; display soha.
+
+**V1 nincs:** extra futamok, implicit NextQuestion stop. Média: [`olimpub-media.md`](./olimpub-media.md) — két slot (`ImageKey` / `AudioKey`), SAS, manifest.
+
+---
+
+Ne hardkódold a státusz / Role / identifier **id**-t. Névtöredék + flag (`OPFlg`, RoleType, EventStatus „jatek” / „bejelentkez”).
 
 Ne hardkódold a státusz / Role / identifier **id**-t. Névtöredék + flag (`OPFlg`, RoleType, EventStatus „jatek” / „bejelentkez”).
 
@@ -46,9 +76,9 @@ Ha `OPFlg` hamis → `OpSettings: null`. Ha igaz → objektum, különben 400.
 | `ShadowAwardFlg` | bit | default 1. Shadow **mindig** számolódik |
 | `TopicIds` | int[] | létező `OP.Topic`, ActiveFlg=1. Üres tilos 400 `Válassz témakört.` |
 | `ExtraGameIds` | string[] | csak `EG1`…`EG8`. Ismeretlen → 400. Üres = nincs extra az estén |
-| `KabalaIds` | int[] | `OP.Kabala` Active. Duplikátum → 400. Létrehozza / szinkronizálja `OP.Team`-et |
+| `KabalaIds` | int[] | `OP.Kabala` Active. Duplikátum → 400. Létrehozza / szinkronizálja `OP.tblTeam`-et |
 
-**Team szinkron save-kor:** `KabalaIds`-ben lévő → `OP.Team` ActiveFlg=1 (insert ha nincs). Amit kivesztek és **nincs** `TeamMember` → ActiveFlg=0. Van tag → 400 `A csapatnak van játékosa.` (ne töröld).
+**Team szinkron save-kor:** `KabalaIds`-ben lévő → `OP.tblTeam` ActiveFlg=1 (insert ha nincs). Amit kivesztek és **nincs** `TeamMember` → ActiveFlg=0. Van tag → 400 `A csapatnak van játékosa.` (ne töröld).
 
 GET userdata / GET `/op/event/:id` dataset: `OpSettings` (1 sor, TopicIds/ExtraGameIds/KabalaIds JSON vagy child dataset `OpSettingTopics` stb. — ha child, a FE mindkettőt tudja; **preferált:** egy sor + JSON oszlopok `nvarchar(max)`).
 
@@ -78,7 +108,7 @@ CREATE TABLE OP.Topic (
 );
 CREATE UNIQUE INDEX UX_OP_Topic_Name ON OP.Topic (Name) WHERE ActiveFlg = 1;
 
-CREATE TABLE OP.Question (
+CREATE TABLE OP.tblQuestion (
   id int IDENTITY PRIMARY KEY,
   TopicID int NOT NULL REFERENCES OP.Topic(id),
   TypeCode nvarchar(16) NOT NULL, -- single|multi|order|match|category|freetext
@@ -91,7 +121,7 @@ CREATE TABLE OP.Question (
   CreatedAtUtc datetimeoffset NOT NULL DEFAULT SYSDATETIMEOFFSET()
 );
 
-CREATE TABLE OP.EventSettings (
+CREATE TABLE OP.tblEventSettings (
   id int IDENTITY PRIMARY KEY,
   EventID int NOT NULL UNIQUE, -- dbo.tblEvent.id
   DeskCountHint int NULL,
@@ -103,23 +133,23 @@ CREATE TABLE OP.EventSettings (
   KabalaIdsJson nvarchar(max) NOT NULL
 );
 
-CREATE TABLE OP.Team (
+CREATE TABLE OP.tblTeam (
   id int IDENTITY PRIMARY KEY,           -- ez a TeamId a JSON-ban
   EventID int NOT NULL,
   KabalaID int NOT NULL REFERENCES OP.Kabala(id),
   ActiveFlg bit NOT NULL DEFAULT 1
 );
-CREATE UNIQUE INDEX UX_OP_Team_EventKabala ON OP.Team (EventID, KabalaID) WHERE ActiveFlg = 1;
+CREATE UNIQUE INDEX UX_OP_Team_EventKabala ON OP.tblTeam (EventID, KabalaID) WHERE ActiveFlg = 1;
 
-CREATE TABLE OP.TeamMember (
+CREATE TABLE OP.tblTeamMember (
   id int IDENTITY PRIMARY KEY,
-  TeamID int NOT NULL REFERENCES OP.Team(id),
+  TeamID int NOT NULL REFERENCES OP.tblTeam(id),
   EventUserID int NOT NULL, -- dbo.tblEventUser.id
   ActiveFlg bit NOT NULL DEFAULT 1
 );
-CREATE UNIQUE INDEX UX_OP_TeamMember ON OP.TeamMember (TeamID, EventUserID) WHERE ActiveFlg = 1;
+CREATE UNIQUE INDEX UX_OP_TeamMember ON OP.tblTeamMember (TeamID, EventUserID) WHERE ActiveFlg = 1;
 
-CREATE TABLE OP.Round (
+CREATE TABLE OP.tblRound (
   id int IDENTITY PRIMARY KEY,
   EventID int NOT NULL,
   TopicID int NULL REFERENCES OP.Topic(id),
@@ -130,11 +160,11 @@ CREATE TABLE OP.Round (
   ActiveFlg bit NOT NULL DEFAULT 1
 );
 
-CREATE TABLE OP.EventQuestion (
+CREATE TABLE OP.tblEventQuestion (
   id int IDENTITY PRIMARY KEY,
   EventID int NOT NULL,
-  RoundID int NOT NULL REFERENCES OP.Round(id),
-  QuestionID int NOT NULL REFERENCES OP.Question(id),
+  RoundID int NOT NULL REFERENCES OP.tblRound(id),
+  QuestionID int NOT NULL REFERENCES OP.tblQuestion(id),
   SortIndex tinyint NOT NULL, -- 1..8
   StatusCode nvarchar(16) NOT NULL, -- pending|active|stopped
   StartedAtUtc datetimeoffset NULL,
@@ -142,19 +172,19 @@ CREATE TABLE OP.EventQuestion (
   TimeSec int NOT NULL, -- másolat, a kérdésé vagy override
   ActiveFlg bit NOT NULL DEFAULT 1
 );
-CREATE UNIQUE INDEX UX_OP_EQ_RoundSort ON OP.EventQuestion (RoundID, SortIndex) WHERE ActiveFlg = 1;
+CREATE UNIQUE INDEX UX_OP_EQ_RoundSort ON OP.tblEventQuestion (RoundID, SortIndex) WHERE ActiveFlg = 1;
 
-CREATE TABLE OP.Answer (
+CREATE TABLE OP.tblAnswer (
   id int IDENTITY PRIMARY KEY,
-  EventQuestionID int NOT NULL REFERENCES OP.EventQuestion(id),
+  EventQuestionID int NOT NULL REFERENCES OP.tblEventQuestion(id),
   EventUserID int NOT NULL,
   AnswerJson nvarchar(max) NOT NULL,
   ReceivedAtUtc datetimeoffset NOT NULL,
   ActiveFlg bit NOT NULL DEFAULT 1
 );
-CREATE UNIQUE INDEX UX_OP_Answer ON OP.Answer (EventQuestionID, EventUserID) WHERE ActiveFlg = 1;
+CREATE UNIQUE INDEX UX_OP_Answer ON OP.tblAnswer (EventQuestionID, EventUserID) WHERE ActiveFlg = 1;
 
-CREATE TABLE OP.QuestionScore (
+CREATE TABLE OP.tblQuestionScore (
   EventQuestionID int NOT NULL,
   TeamID int NOT NULL,
   RawS decimal(12,4) NOT NULL,
@@ -171,7 +201,7 @@ CREATE TABLE OP.ShadowScore (
   PRIMARY KEY (EventQuestionID, EventUserID)
 );
 
-CREATE TABLE OP.RoundScore (
+CREATE TABLE OP.tblRoundScore (
   RoundID int NOT NULL,
   TeamID int NOT NULL,
   RawSSum decimal(12,4) NOT NULL,
@@ -318,7 +348,7 @@ Bővítés:
 { "EventUID": "…", "TeamId": 12 }
 ```
 
-`TeamId` opcionális. Ha van: `OP.Team` az Eventen, Active, létszám `< MaxTeamSize` → `OP.TeamMember` insert. Ha tele → 409 `A csapat betelt.` Ha nincs TeamId: EventUser létrejön **csapat nélkül**. A kliens `Op.JoinTeam`-et hív.
+`TeamId` opcionális. Ha van: `OP.tblTeam` az Eventen, Active, létszám `< MaxTeamSize` → `OP.tblTeamMember` insert. Ha tele → 409 `A csapat betelt.` Ha nincs TeamId: EventUser létrejön **csapat nélkül**. A kliens `Op.JoinTeam`-et hív.
 
 Minden más join-szabály marad (Bejelentkezés+, Játékos, Belépett, nincs mail).
 
@@ -410,7 +440,7 @@ Event nem 43 / nincs OP settings → 400 `Nem Olimpub esemény.` Élő kvíz act
 | `pick` | `Picker`: `first` \| `last` | TopicId **tiltva**. A Fő Tabella (ha üres: TeamId ASC) első/utolsó csapata a kliensen választ; a FE utána `fixed`+TopicId-t hív **vagy** második hívás `TopicId` + Mode fixed. **Lock:** `pick` csak megjegyzi a Pickert, Status `pending`. Következő hívás `Op.SetRoundTopic` Mode=`fixed`+TopicId a választott. |
 | `wheel` | — | display `draw_animation`. A FE a kerék után `fixed`+TopicId |
 
-Új `OP.Round` SortIndex = max+1, Status `pending`, TopicID null amíg fixed be nem jön.
+Új `OP.tblRound` SortIndex = max+1, Status `pending`, TopicID null amíg fixed be nem jön.
 
 400 ha a topic már volt az estén vagy nincs az engedélyezett listán: `Ez a témakör nem választható.`
 
@@ -422,7 +452,7 @@ Event nem 43 / nincs OP settings → 400 `Nem Olimpub esemény.` Élő kvíz act
 
 Round pending, TopicID **kitöltve**. Ha EventQuestion már van a Roundon → 400 `A kérdéskör már megvan.`
 
-**Algoritmus** a repository `OP.Question` (TopicID, ActiveFlg=1), még **nincs** Active EventQuestion ugyanazon az EventID-n erre a QuestionID-re (ne ismételd az estén):
+**Algoritmus** a repository `OP.tblQuestion` (TopicID, ActiveFlg=1), még **nincs** Active EventQuestion ugyanazon az EventID-n erre a QuestionID-re (ne ismételd az estén):
 
 - SortIndex 1,3,5,7: `TypeCode=single` — 4 db, random
 - 2,4,6,8: a `{multi,order,match,category,freetext}`-ből **4 különböző** típus, egy-egy kérdés, random melyik típus marad ki
@@ -437,7 +467,7 @@ Típus default TimeSec ha Question.TimeSec ≤ 0: single 20, multi 25, order/mat
 "Payload": { "RoundId": 5, "QuestionId": 88 }
 ```
 
-`QuestionId` = `OP.EventQuestion.id`. Round active. Előző SortIndex a körben `stopped` (vagy SortIndex=1). Cél `pending`. → `active`, `StartedAtUtc=now`.
+`QuestionId` = `OP.tblEventQuestion.id`. Round active. Előző SortIndex a körben `stopped` (vagy SortIndex=1). Cél `pending`. → `active`, `StartedAtUtc=now`.
 
 Idempotens: már active ugyanez → 200, ne másold az órát.
 
@@ -456,7 +486,7 @@ Idempotens: már active ugyanez → 200, ne másold az órát.
 - Játékos Belépett, csapat **kell** (TeamMember). Nincs csapat → 400 `Válassz csapatot.`
 - Kérdés `active`. Különben 400 `A kérdés lezárult.`
 - AnswerJson valid a TypeCode-ra.
-- UPSERT `OP.Answer` / `ExtraAnswer`. **Utolsó POST nyer**, amíg active.
+- UPSERT `OP.tblAnswer` / `ExtraAnswer`. **Utolsó POST nyer**, amíg active.
 - **Ne** számolj S-t itt. 200 `{ ReturnValue:1, ReceivedAtUtc }`
 
 Device JWT: EventUserID a tokenből, ne a body-ból.
@@ -487,7 +517,7 @@ különben
 
 Részleges csapattag: a csapat RawS-be a fenti C/W megy (rész nem C/W). **Nincs** külön rész-S a csapatnak a v1 lockban a képletben — a csapat S csak C≥1 tökéletesekből él. (A shadow arányos, lent.)
 
-Írd `OP.QuestionScore`.
+Írd `OP.tblQuestionScore`.
 
 **Shadow** minden Answerre: `S = P * ratio * M_gyors_own` ahol `M_gyors_own` a saját `t`-je (nincs válasz → nincs shadow sor). `ratio` §2.
 
@@ -520,7 +550,7 @@ N=1 → F = P_max
 F = ROUND(P_min + (P_max - P_min) * ((N - Place) / (N - 1)), 0)
 ```
 
-`ROUND` matematikai (0.5 fel). Írd `OP.RoundScore`. Round Status `closed`.
+`ROUND` matematikai (0.5 fel). Írd `OP.tblRoundScore`. Round Status `closed`.
 
 ### 6.8 `Op.PublishRound`
 
@@ -591,7 +621,11 @@ Nincs elég kérdés → 400.
 
 ## 7. Kérdésimport
 
-`POST /op/questions/import`  Auth: **szervező**. A FE parse-olja az xlsx-et (mint invite). Nincs xlsx a procban.
+`POST /op/questions/import`  Auth: **szervező**. Egy hívás: Topic upsert + `tblQuestion` + `tblRound` témakörönként + `tblEventQuestion` + EventSettings `TopicIds`. **Nincs** `POST /op/round/generate` utána.
+
+A FE angol lapos sémát küld (`Topic`, `Type`/`TypeCode`, `Prompt`, `Answer1…8`, `Match1…8`, `IsCorrect1…8` boolean, `TimeSec`, `SortIndex`, `MediaUrl`). A BE a magyar Excel-fejléceket is eszi (`Válasz1`, `Helyes`, `Témakör`); a FE attól még angolra mapel.
+
+**Freetext:** ne `Correct.Synonyms`. `Answer1`: `"8|nyolc"`.
 
 ```json
 {
@@ -599,31 +633,23 @@ Nincs elég kérdés → 400.
   "Questions": [
     {
       "Topic": "90-es évek",
+      "TypeCode": "single",
       "Type": "single",
       "Prompt": "Ki énekelte?",
-      "Options": ["A", "B", "C", "D"],
-      "Correct": { "Index": 1 },
-      "TimeSec": null,
-      "MediaKey": null
+      "Answer1": "A-ha",
+      "Answer2": "Queen",
+      "IsCorrect1": true,
+      "IsCorrect2": false,
+      "TimeSec": 20,
+      "SortIndex": 1
     }
   ]
 }
 ```
 
-HU `Type` alias: Egyválasztós→single, Többválasztós→multi, Sorrendezés→order, Párosítás→match, Kategorizálás→category, Szabad szöveg→freetext.
+400 soronként, mint invite: `{ Rows: [{ Index, ResultMsg }] }` ha bármelyik rossz, **ne** commitolj.
 
-Minden sor:
-
-1. Topic upsert Name.
-2. TypeCode valid.
-3. CorrectJson a típus shape-je. Freetext: Correct.Synonyms a `Helyes` `|` split ha a FE még stringet küld — **fogadd el** `Correct: "a|b"` stringnek is, vedd szét.
-4. INSERT `OP.Question` (repository).
-5. TimeSec null → típus default.
-6. Az eseményhez **nem** kell EventQuestion (az GenerateRound). A repository globális.
-
-400 soronként, mint invite: `{ Rows: [{ Index, ResultMsg }] }` ha bármelyik rossz, **ne** commitolj (egy tranzakció).
-
-200: `{ ReturnValue: 1, Inserted: 12 }`.
+200: `{ ReturnValue: 1, Inserted: 12, RoundID: 15 }` — vagy `RoundIDs` ha több témakör. A FE ezután GET `/op/event/:id`.
 
 ---
 
@@ -635,7 +661,7 @@ Azure Blob (meglévő storage). Hash SHA256. UPSERT `OP.Media`. 200: `{ MediaKey
 
 `GET /op/media/manifest/:eventId` szervező+QM: `[{ MediaKey, BlobUrl, ContentHash, Mime }]`. A helyi cache FE ügy.
 
-Kérdés MediaKey kötés: `POST /op/change` `Op.BindMedia` `{ "QuestionId": 1, "MediaKey": "intro.mp3", "Kind": "repo" }` — `OP.Question.id` (repository). 403 játékos.
+Kérdés MediaKey kötés: `POST /op/change` `Op.BindMedia` `{ "QuestionId": 1, "MediaKey": "intro.mp3", "Kind": "repo" }` — `OP.tblQuestion.id` (repository). 403 játékos.
 
 ---
 
@@ -653,7 +679,7 @@ Dataset nevek (Result set alias, mint userdata):
 | `OpTeams` | id, EventID, KabalaID, Name (=Kabala.Name), MemberCount |
 | `OpTeamMembers` | TeamID, EventUserID — játékos csak **saját** csapatát |
 | `OpRounds` | |
-| `OpEventQuestions` | QM/szerv: a kör összes + **CorrectJson**. Játékos/device: csak `StatusCode=active` + CorrectJson. Display token: active **CorrectJson nélkül** (Options+Prompt igen) |
+| `OpEventQuestions` | QM/szerv: kör összes, **lapos** `Answer1…8` / `Match1…8` / `IsCorrect1…8`. Nincs `Options` / `Correct` tömb. Részlet: `docs/olimpub-question-get.md`. Játékos/device: csak `StatusCode=active`. Display: active, helyes válasz nélkül |
 | `OpLive` | 1 sor: DisplayState, ActiveRoundID, ActiveEventQuestionID, ActiveExtraRunID, ActiveExtraQuestionID |
 | `OpExtra` | active run + questions ugyanaz a Correct szabály |
 | `OpPenalties` | Active, QM/szerv/display; játékosnak elég a leaderboard |
@@ -712,6 +738,7 @@ Ha a participant payload túl nagy: participant=`user_{EventUserID}` kérdésenk
 | POST | `/auth/device-join` | nincs JWT |
 | POST | `/op/change` | JWT / device |
 | POST | `/op/questions/import` | szervező |
+| POST | `/op/question/save` | szervező, csak pending |
 | POST | `/op/media` | szervező |
 | GET | `/op/media/manifest/:eventId` | szerv+QM |
 | GET | `/op/event/:id` | §3 |
@@ -727,6 +754,8 @@ Hibák (change / join):
 | 403 | szerep / device scope |
 | 404 | EventUID / id |
 | 409 | csapat tele, már tag, duplikált kabala save |
+
+`Cannot read properties of undefined (reading 'M_ID')` a kliens konzolon: Urban VPN Proxy Chrome-kiegészítő, nem FE bug.
 
 ---
 

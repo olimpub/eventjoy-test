@@ -20,11 +20,20 @@ function routeNameToKind(name: unknown): EventDatasheetKind | null {
     case 'profitability-results':
     case 'profitability-vetites':
     case 'profitability-display':
+    case 'olimpub-organizer':
+    case 'olimpub-participants':
+    case 'olimpub-quiz':
+    case 'olimpub-results':
+    case 'olimpub-display':
+    case 'olimpub-scan':
+    case 'olimpub-materials':
       return 'organizer';
     case 'event_contribute':
     case 'profitability-gamemaster':
+    case 'olimpub-quizmaster':
       return 'gamemaster';
     case 'profitability-event-detail':
+    case 'olimpub-player':
       return 'player';
     default:
       return null;

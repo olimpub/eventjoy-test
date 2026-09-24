@@ -287,6 +287,9 @@
                 <SocialProviderIcon provider="Apple" :size="28" />
               </button>
             </div>
+            <p v-if="googleBlocked" class="login-google-hint">
+              A Google belépés nem töltődött be (Adblocker / VPN). Kapcsold ki a blokkolót, vagy kérj belépési kódot e-mailre.
+            </p>
           </div>
 
         </div>
@@ -304,6 +307,7 @@ import { useAuthStore } from 'src/stores/auth'
 import { api } from 'src/boot/axios'
 import { AsYouType, isValidPhoneNumber } from 'libphonenumber-js'
 import { fetchSocialProfile, socialApiErrorMessage, SocialAuthError } from 'src/utils/socialAuth'
+import { googleAuthBlocked } from 'src/utils/googleAuthStatus'
 import { EVENTJOY_BRAND } from 'src/assets/brand/eventjoy'
 import { pathAfterLogin } from 'src/utils/eventJoin'
 import PtaBusyOverlay from 'src/modules/profitability/components/PtaBusyOverlay.vue'
@@ -315,6 +319,7 @@ const $q = useQuasar()
 const authStore = useAuthStore()
 const workBusy = ref(false)
 const workLabel = ref('Bejelentkezés…')
+const googleBlocked = googleAuthBlocked
 
 function goAfterLogin() {
   void router.replace(pathAfterLogin(authStore.isSysadmin, route.query.next))
@@ -682,6 +687,16 @@ function hideLoading() {
   font-weight: 700;
   color: #38bdf8;
   letter-spacing: 0.04em;
+}
+
+.login-google-hint {
+  margin: 0.25rem auto 0;
+  max-width: 340px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: #fdba74;
 }
 
 .login-title {

@@ -98,7 +98,7 @@
 
           <section v-else-if="wallState === 'ceremony'" class="pta-wall__ceremony">
             <div v-if="!ceremonyRow" class="pta-wall__idle">
-              <p class="pta-wall__idle-title">Még nincs publikált eredmény.</p>
+              <p class="pta-wall__idle-title">Még nincs lezárt eredmény.</p>
             </div>
             <Transition v-else name="pta-ceremony" mode="out-in">
               <article
@@ -124,7 +124,7 @@
                     <img :src="scoreTruckIcon" alt="" />
                     {{ ceremonyRow.onTrack }}
                   </span>
-                  <span class="pta-ceremony__points">{{ ceremonyRow.resultPoint }} e</span>
+                  <span class="pta-ceremony__points">{{ ceremonyRow.resultPoint }}</span>
                 </div>
               </article>
             </Transition>
@@ -165,7 +165,7 @@
 
           <section v-else-if="isIdle" class="pta-wall__idle">
             <q-icon name="emoji_events" class="pta-wall__idle-icon" />
-            <p class="pta-wall__idle-title">Még nincs publikált eredmény.</p>
+            <p class="pta-wall__idle-title">Még nincs lezárt eredmény.</p>
           </section>
 
           <section v-else ref="boardRef" class="pta-wall__board">
@@ -199,7 +199,7 @@
                     </span>
                     <span class="pta-wall__score">{{ row.amount }}</span>
                     <span class="pta-wall__truck">{{ row.onTrack }}</span>
-                    <span class="pta-wall__points">{{ row.resultPoint }} e</span>
+                    <span class="pta-wall__points">{{ row.resultPoint }}</span>
                   </div>
                 </div>
               </div>
@@ -227,7 +227,12 @@ import { eventRoleQuery } from 'src/utils/eventRoleNav';
 import { useEventStore } from 'src/stores/event';
 import { useAuthStore } from 'src/stores/auth';
 import { readAxiosErrorMessage, nullableNumericId } from 'src/utils/apiPayload';
-import { connectToEventLive, disconnectEventLive, setSignalRDisplayToken } from 'src/services/signalrService';
+import {
+  connectToEventLive,
+  disconnectEventLive,
+  isEventLiveJoinRoute,
+  setSignalRDisplayToken,
+} from 'src/services/signalrService';
 import {
   fetchPtaDisplay,
   hasDisplaySession,
@@ -258,7 +263,7 @@ import {
   parseResultsScope,
   usePtaStandings,
 } from 'src/modules/profitability/usePtaStandings';
-import { pickLatestReleasedRoundId, pickOpenRoundId, deskHasRecordedResults } from 'src/modules/profitability/standings';
+import { pickLatestSettledRoundId, pickOpenRoundId, deskHasRecordedResults } from 'src/modules/profitability/standings';
 import '../theme.css';
 import scoreIcon from '../assets/Score.png';
 import scoreTruckIcon from '../assets/ScoreTruck.png';
@@ -612,7 +617,7 @@ watch(
   (list) => {
     if (kioskMode.value || followRemote.value) return;
     if (selectedRoundId.value != null && list.some((round) => round.id === selectedRoundId.value)) return;
-    selectedRoundId.value = pickLatestReleasedRoundId(list);
+    selectedRoundId.value = pickLatestSettledRoundId(list);
   },
   { immediate: true }
 );
@@ -811,7 +816,7 @@ function applyRemoteDisplayState(remote: PtaDisplayRemoteState | null, fromGet =
     wallState.value = 'leaderboard';
     if (!scope.value) scope.value = 'total';
     if (selectedRoundId.value == null) {
-      selectedRoundId.value = pickLatestReleasedRoundId(visibleRounds.value);
+      selectedRoundId.value = pickLatestSettledRoundId(visibleRounds.value);
     }
     groupKey.value = null;
     carouselKey.value = null;
@@ -1161,7 +1166,8 @@ onUnmounted(() => {
   stopStoredCommand?.();
   stopDeskDirty?.();
   eventStore.clearPtaDisplayFeed();
-  if (kioskMode.value) {
+  const stayOnLive = isEventLiveJoinRoute(router.currentRoute.value.name);
+  if (kioskMode.value || !stayOnLive) {
     setSignalRDisplayToken(null);
     disconnectEventLive();
   }

@@ -121,11 +121,11 @@ export function pickOpenRoundId(
   return (open ?? sorted[0])?.id ?? null;
 }
 
-/** Legmagasabb sorszámú publikált forduló — Display / fal alapértelmezett RoundId. */
-export function pickLatestReleasedRoundId(
-  rounds: Array<{ id: number; status: string; order?: number }>
+function pickLatestMatchingRoundId(
+  rounds: Array<{ id: number; status: string; order?: number }>,
+  include: (status: string) => boolean
 ): number | null {
-  const released = rounds.filter((round) => roundResultsReleased(round.status));
+  const released = rounds.filter((round) => include(round.status));
   if (!released.length) return null;
   released.sort((a, b) => {
     const byOrder = Number(b.order ?? 0) - Number(a.order ?? 0);
@@ -133,6 +133,20 @@ export function pickLatestReleasedRoundId(
     return b.id - a.id;
   });
   return released[0]?.id ?? null;
+}
+
+/** Legmagasabb sorszámú publikált forduló — játékos eredmény. */
+export function pickLatestReleasedRoundId(
+  rounds: Array<{ id: number; status: string; order?: number }>
+): number | null {
+  return pickLatestMatchingRoundId(rounds, roundResultsReleased);
+}
+
+/** Kivetítés: lezárt vagy publikált, a legmagasabb sorszám. */
+export function pickLatestSettledRoundId(
+  rounds: Array<{ id: number; status: string; order?: number }>
+): number | null {
+  return pickLatestMatchingRoundId(rounds, isSettledRoundStatus);
 }
 
 export function catalogHasPublishedStatus(
