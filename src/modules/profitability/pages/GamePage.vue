@@ -871,17 +871,16 @@ const canEnterResults = computed(
   () => playPhase.value === 'game' && canEnterRoundResults(currentRound.value?.status || '')
 );
 
-function canScoreDesk(table: { isMine: boolean } | null | undefined): boolean {
+function canScoreDesk(table: unknown): boolean {
   if (!table || !canEnterResults.value) return false;
-  if (isOrganizerView.value) return true;
-  return isGameMasterView.value && table.isMine;
+  return isOrganizerView.value || isGameMasterView.value;
 }
 
 const canScoreSelected = computed(() => canScoreDesk(selectedTable.value));
 
 const resultsEntryHint = computed(() => {
   if (canEnterResults.value && selectedTable.value && !canScoreSelected.value) {
-    return 'Ezt az asztalt csak a játékmestere vagy a szervező pontozhatja.';
+    return 'Eredményt csak játékmester vagy szervező vihet fel.';
   }
   if (canEnterResults.value) return '';
   if (playPhase.value !== 'game') {
