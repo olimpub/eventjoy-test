@@ -501,6 +501,7 @@ import { useMasterDataStore, ORGANIZER_ROLE_TYPE_ID } from 'src/stores/masterDat
 import { nullableNumericId, readAxiosErrorMessage } from 'src/utils/apiPayload';
 import { EVENT_USER_FLOW_TEMPLATE_CODE, type EventUserStatusTransition, withOrganizerDoorCheckInTransition } from 'src/utils/eventUserFlow';
 import { participantListRank } from 'src/utils/eventUserStatus';
+import { setEventUserStatus } from 'src/utils/eventChange';
 import { downloadExcelSheet, excelFileBase } from 'src/utils/excelExport';
 import AppConfirmDialog from 'src/components/ui/AppConfirmDialog.vue';
 import {
