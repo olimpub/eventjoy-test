@@ -40,7 +40,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 function readString(...values: unknown[]): string {
   for (const value of values) {
     if (value == null) continue;
-    const text = String(value).trim();
+    const text = decodeDisplayText(String(value)).trim();
     if (text) return text;
   }
   return '';

@@ -50,14 +50,38 @@ const HTML_NAMED_ENTITIES: Record<string, string> = {
 };
 
 function looksLikeUtf8Mojibake(text: string): boolean {
-  return /Ã[\u0080-\u00BF]|Å.|Ä[\u0080-\u00BF]/.test(text);
+  return /Ã[\u0080-\u00BF]|Å.|Ä[\u0080-\u00BF]|\u0102/.test(text);
+}
+
+let windows1250Bytes: Map<string, number> | null = null;
+
+function windows1250ByteMap(): Map<string, number> {
+  if (windows1250Bytes) return windows1250Bytes;
+  const decoder = new TextDecoder('windows-1250');
+  const map = new Map<string, number>();
+  for (let i = 0; i < 256; i++) map.set(decoder.decode(Uint8Array.of(i)), i);
+  windows1250Bytes = map;
+  return map;
 }
 
 function repairUtf8Mojibake(text: string): string {
   if (!looksLikeUtf8Mojibake(text)) return text;
+  const latin1 = Uint8Array.from(Array.from(text, (ch) => ch.charCodeAt(0) & 0xff));
   try {
-    const bytes = Uint8Array.from(Array.from(text, (ch) => ch.charCodeAt(0) & 0xff));
-    const decoded = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    const decoded = new TextDecoder('utf-8', { fatal: true }).decode(latin1);
+    if (decoded && !decoded.includes('\uFFFD')) return decoded;
+  } catch {
+    /* a C3 bájt Windows-1250-ben Ă, nem Ã */
+  }
+  const map = windows1250ByteMap();
+  const bytes: number[] = [];
+  for (const ch of text) {
+    const byte = map.get(ch);
+    if (byte == null) return text;
+    bytes.push(byte);
+  }
+  try {
+    const decoded = new TextDecoder('utf-8', { fatal: true }).decode(Uint8Array.from(bytes));
     return decoded || text;
   } catch {
     return text;

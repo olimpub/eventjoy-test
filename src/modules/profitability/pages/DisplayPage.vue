@@ -72,6 +72,7 @@
                     v-for="row in col"
                     :key="row.key"
                     class="pta-seat-list__row"
+                    :style="{ background: row.color }"
                   >
                     <span class="pta-seat-list__who">
                       <span class="pta-seat-list__name">{{ row.name }}</span>
@@ -79,7 +80,6 @@
                     </span>
                     <span class="pta-seat-list__meta">
                       <span class="pta-seat-list__desk">{{ row.deskNo }}</span>
-                      <i class="pta-seat-list__swatch" :style="{ background: row.color }" />
                     </span>
                   </div>
                 </div>
@@ -1824,13 +1824,13 @@ onUnmounted(() => {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 0;
+  gap: 6px;
 }
 
 .pta-seat-list__head,
 .pta-seat-list__row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) clamp(56px, 7vw, 100px);
   align-items: center;
   gap: 10px;
   min-width: 0;
@@ -1847,12 +1847,10 @@ onUnmounted(() => {
 }
 
 .pta-seat-list__row {
-  padding: 5px 8px;
-  border-radius: 8px;
-}
-
-.pta-seat-list__row:nth-child(even) {
-  background: rgba(255, 255, 255, 0.04);
+  flex: 1 1 0;
+  min-height: 0;
+  padding: 8px 12px;
+  border-radius: 12px;
 }
 
 .pta-seat-list__who {
@@ -1871,41 +1869,36 @@ onUnmounted(() => {
 }
 
 .pta-seat-list__name {
-  font-size: clamp(13px, 1.3vw, 17px);
+  font-size: clamp(15px, 1.6vw, 22px);
   font-weight: 800;
-  color: #f8fafc;
+  color: #121416;
   line-height: 1.2;
 }
 
 .pta-seat-list__team {
-  font-size: clamp(11px, 1.05vw, 13px);
+  font-size: clamp(12px, 1.2vw, 16px);
   font-weight: 700;
-  color: #94a3b8;
+  color: rgba(18, 20, 22, 0.78);
   line-height: 1.2;
 }
 
 .pta-seat-list__meta {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
+  align-self: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
   flex-shrink: 0;
 }
 
 .pta-seat-list__desk {
-  min-width: 1.6em;
-  font-size: clamp(14px, 1.4vw, 18px);
+  width: 100%;
+  font-size: clamp(24px, 3vw, 42px);
   font-weight: 800;
-  color: #f8fafc;
-  text-align: right;
+  line-height: 1;
+  color: #121416;
+  text-align: center;
   font-variant-numeric: tabular-nums;
-}
-
-.pta-seat-list__swatch {
-  display: block;
-  width: 12px;
-  height: 12px;
-  border-radius: 999px;
-  flex-shrink: 0;
 }
 </style>

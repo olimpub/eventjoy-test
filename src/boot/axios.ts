@@ -1,5 +1,8 @@
 import { boot } from 'quasar/wrappers';
+import { Notify } from 'quasar';
 import axios, { AxiosError, AxiosInstance } from 'axios';
+import { readApiReturnDescription } from 'src/utils/apiPayload';
+import { decodeDisplayText } from 'src/utils/appVersions';
 import { isAxiosNetworkError, markNetworkFailure, markNetworkOk } from 'src/utils/networkStatus';
 
 declare module '@vue/runtime-core' {
@@ -50,6 +53,32 @@ api.interceptors.request.use((config) => {
   return Promise.reject(error);
 });
 
+function notifyApiError(message: string) {
+  Notify.create({
+    message,
+    color: 'dark',
+    textColor: 'red-4',
+    position: 'top',
+    timeout: 2800,
+    classes: 'border border-red-500/30 rounded-xl q-px-lg q-py-md font-bold text-[13px] mt-4',
+    style: 'background: rgba(10, 11, 12, 0.92);',
+  });
+}
+
+function apiErrorMessage(data: unknown): string {
+  let payload = data;
+  if (typeof data === 'string') {
+    const trimmed = data.trim();
+    if (!trimmed || trimmed.startsWith('<')) return '';
+    try {
+      payload = JSON.parse(trimmed);
+    } catch {
+      return decodeDisplayText(trimmed);
+    }
+  }
+  return decodeDisplayText(readApiReturnDescription(payload));
+}
+
 api.interceptors.response.use(
   (response) => {
     markNetworkOk();
@@ -61,7 +90,13 @@ api.interceptors.response.use(
     if (String(url).includes('/logs/error') || isAzureBlobUrl(url)) return Promise.reject(error);
     if (isAxiosNetworkError(error)) {
       markNetworkFailure();
+      notifyApiError('Nem sikerült kapcsolódni a szerverhez (Hálózati hiba).');
       return Promise.reject(error);
+    }
+    const description = apiErrorMessage(error.response?.data);
+    if (description) notifyApiError(description);
+    else if (error.response && status !== 401) {
+      notifyApiError('Ismeretlen hiba történt a művelet során.');
     }
     if (status === 401) {
       if (!String(url).includes('/auth/')) {
