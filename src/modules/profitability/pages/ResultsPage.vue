@@ -142,6 +142,15 @@
               />
             </template>
           </q-input>
+          <button
+            type="button"
+            class="res-excel"
+            aria-label="Excel letöltés"
+            :disabled="!filteredStandings.length"
+            @click="downloadResultsExcel"
+          >
+            <q-icon name="sym_r_download" size="22px" />
+          </button>
         </div>
 
         <div v-if="filteredStandings.length === 0" class="res-empty res-empty--compact">
@@ -182,9 +191,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { nullableNumericId } from 'src/utils/apiPayload';
+import { downloadExcelSheet, excelFileBase } from 'src/utils/excelExport';
 import { useEventStore } from 'src/stores/event';
 import { useMasterDataStore } from 'src/stores/masterData';
 import { eventDatasheetKind, eventRolePath, eventRoleQuery } from 'src/utils/eventRoleNav';
@@ -427,6 +437,36 @@ const standingsCaption = computed(() => {
   return `${first} – ${current.label} után`;
 });
 
+function downloadResultsExcel() {
+  const rows = filteredStandings.value;
+  if (!rows.length) return;
+  const attrs = groupingAttrs.value;
+  const grouped = rows.some((row) => row.memberCount != null);
+  const activeGroup = attrs.find((attr) => attr.key === groupKey.value);
+  downloadExcelSheet(
+    `${excelFileBase(eventName.value, scope.value === 'round' ? 'fordulo' : 'osszesitett')}.xlsx`,
+    'Eredmények',
+    rows.map((row, index) => {
+      const base: Record<string, string | number> = {
+        Helyezés: index + 1,
+        Név: row.name,
+      };
+      if (grouped && activeGroup) {
+        base[activeGroup.label] = row.name;
+      } else if (row.playerId) {
+        for (const attr of attrs) {
+          base[attr.label] = groupingValueForPlayer(row.playerId, attr.key);
+        }
+      }
+      base.Összeg = row.amount;
+      base.Kamion = row.onTrack;
+      base.Pont = row.resultPoint;
+      if (grouped) base.Létszám = row.memberCount ?? 1;
+      return base;
+    })
+  );
+}
+
 function goBack() {
   const { readonly: _readonly, from: _from, ...query } = route.query;
   router.push({
@@ -434,6 +474,24 @@ function goBack() {
     query: Object.keys(query).length ? query : eventRoleQuery(enteredRole.value),
   });
 }
+
+async function loadDataSheet() {
+  const q = route.query.eventUserId;
+  const fromQuery = q != null && q !== '' ? Number(q) : NaN;
+  const fromCtx = eventStore.eventUserScreenContext?.requestEventUserId;
+  const fromRole = enteredRole.value?.eventUserId;
+  const id = Number.isFinite(fromQuery) && fromQuery > 0 ? fromQuery : fromCtx ?? fromRole;
+  if (id == null) return;
+  try {
+    await eventStore.loadEventUserDataSheet(id, eventId.value);
+  } catch {
+    /* az eredmény a már betöltött userdata-ra is rá tud épülni */
+  }
+}
+
+onMounted(() => {
+  void loadDataSheet();
+});
 
 </script>
 
@@ -775,12 +833,36 @@ function goBack() {
 }
 
 .res-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin-bottom: 12px;
   min-width: 0;
   max-width: 100%;
 }
 
+.res-excel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border: 1px solid rgba(246, 139, 41, 0.32);
+  border-radius: 14px;
+  background: rgba(246, 139, 41, 0.14);
+  color: #f68b29;
+  cursor: pointer;
+}
+
+.res-excel:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 .res-search {
+  flex: 1;
+  min-width: 0;
   width: 100%;
   max-width: 100%;
 }

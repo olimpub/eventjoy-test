@@ -2,10 +2,12 @@ import { boot } from 'quasar/wrappers';
 import { createErrorLogPayload, useErrorLogStore } from 'src/stores/errorLog';
 import { isAxiosNetworkError } from 'src/utils/networkStatus';
 import { isGoogle3pLoadError, markGoogleAuthBlocked } from 'src/utils/googleAuthStatus';
+import { isStaleChunkError, reloadOnceForStaleChunk } from 'src/utils/staleChunk';
 
 function isNoisyClientError(err: unknown): boolean {
   if (isAxiosNetworkError(err)) return true;
   if (isGoogle3pLoadError(err)) return true;
+  if (isStaleChunkError(err) && reloadOnceForStaleChunk()) return true;
   const msg = err instanceof Error ? err.message : String(err ?? '');
   return /ResizeObserver loop/i.test(msg);
 }

@@ -38,15 +38,36 @@
           >
             <q-icon name="sym_r_qr_code_2" size="26px" />
           </button>
+          </template>
           <button
             type="button"
             class="part-excel-btn"
-            aria-label="Excel feltöltés"
-            @click="isImportOpen = true"
+            aria-label="Excel"
+            aria-haspopup="menu"
           >
-            <q-icon name="sym_r_upload_file" size="26px" />
+            <q-icon name="sym_r_table_chart" size="26px" />
+            <q-menu class="part-excel-menu" dark anchor="bottom right" self="top right" :offset="[0, 8]">
+              <button
+                v-if="!isReadOnly"
+                v-close-popup
+                type="button"
+                class="part-excel-menu__item"
+                @click="isImportOpen = true"
+              >
+                <q-icon name="sym_r_upload_file" size="18px" />
+                Lista feltöltése
+              </button>
+              <button
+                v-close-popup
+                type="button"
+                class="part-excel-menu__item"
+                @click="downloadParticipantsExcel"
+              >
+                <q-icon name="sym_r_download" size="18px" />
+                Lista letöltése
+              </button>
+            </q-menu>
           </button>
-          </template>
         </div>
       </header>
 
@@ -163,7 +184,7 @@
           class="part-card"
         >
           <button type="button" class="part-card__main" @click="openDetail(row)">
-            <span class="part-avatar">{{ row.initials }}</span>
+            <span class="part-avatar" translate="no">{{ row.initials }}</span>
             <span class="part-card__body">
               <span class="part-card__name">{{ row.name }}</span>
               <span
@@ -207,7 +228,7 @@
         </q-card-section>
         <q-card-section class="q-pt-md q-px-md pb-8">
           <div class="part-sheet__person">
-            <span class="part-avatar part-avatar--lg">{{ selected.initials }}</span>
+            <span class="part-avatar part-avatar--lg" translate="no">{{ selected.initials }}</span>
             <div>
               <div class="part-card__name">{{ selected.name }}</div>
               <div v-if="selected.email" class="part-sheet__email">{{ selected.email }}</div>
@@ -480,7 +501,7 @@ import { useMasterDataStore, ORGANIZER_ROLE_TYPE_ID } from 'src/stores/masterDat
 import { nullableNumericId, readAxiosErrorMessage } from 'src/utils/apiPayload';
 import { EVENT_USER_FLOW_TEMPLATE_CODE, type EventUserStatusTransition, withOrganizerDoorCheckInTransition } from 'src/utils/eventUserFlow';
 import { participantListRank } from 'src/utils/eventUserStatus';
-import { setEventUserStatus } from 'src/utils/eventChange';
+import { downloadExcelSheet, excelFileBase } from 'src/utils/excelExport';
 import AppConfirmDialog from 'src/components/ui/AppConfirmDialog.vue';
 import {
   findPtaPlayerForEventUser,
@@ -654,8 +675,9 @@ function displayNameFromUser(row: Record<string, unknown>, isSelf: boolean): { n
 
 function initialsOf(name: string): string {
   const parts = name.split(/\s+/).filter(Boolean);
-  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
-  return (name.slice(0, 2) || '?').toUpperCase();
+  const raw =
+    parts.length >= 2 ? (parts[0][0] + parts[1][0]).toUpperCase() : (name.slice(0, 2) || '?').toUpperCase();
+  return raw.split('').join('\u200c');
 }
 
 function resolveTicketTemplateId(ticket: Record<string, unknown> | null | undefined): number | null {
@@ -869,6 +891,34 @@ const filteredParticipants = computed(() => {
 const kpiRegistered = computed(() => String(participants.value.length));
 const kpiCheckedIn = computed(() => String(participants.value.filter((row) => row.checkedIn).length));
 const kpiNotEntered = computed(() => String(participants.value.filter((row) => !row.checkedIn).length));
+
+function downloadParticipantsExcel() {
+  const rows = filteredParticipants.value;
+  if (!rows.length) {
+    $q.notify({ message: 'Nincs exportálható résztvevő.', color: 'dark', textColor: 'orange-4', position: 'top' });
+    return;
+  }
+  const groupLabels = [
+    ...new Set(rows.flatMap((row) => row.groupAttrs.map((attr) => attr.label))),
+  ];
+  downloadExcelSheet(`${excelFileBase(eventName.value, 'resztvevok')}.xlsx`, 'Résztvevők', rows.map((row) => {
+    const base: Record<string, string | number> = {
+      Vezetéknév: row.lastName,
+      Keresztnév: row.firstName,
+      Email: row.email,
+      Telefon: row.phone,
+      Szerep: row.roleName,
+      Jegy: row.ticketName,
+      Státusz: row.statusName,
+      Belépett: row.checkedIn ? 'Igen' : 'Nem',
+    };
+    for (const label of groupLabels) {
+      const value = row.groupAttrs.find((attr) => attr.label === label)?.value;
+      base[label] = value && value !== '—' ? value : '';
+    }
+    return base;
+  }));
+}
 
 function openDetail(row: ParticipantRow) {
   selected.value = row;
@@ -1836,5 +1886,37 @@ function comingSoon(label: string, icon = 'sym_r_schedule') {
 .part-sheet__row.is-danger {
   color: #fb7185;
   border-color: rgba(244, 63, 94, 0.28);
+}
+</style>
+
+<style>
+.part-excel-menu {
+  background: #16181b !important;
+  border: 1px solid rgba(246, 139, 41, 0.32);
+  border-radius: 14px;
+  padding: 6px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+.part-excel-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #f1f5f9;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+
+.part-excel-menu__item:hover {
+  background: rgba(246, 139, 41, 0.16);
+  color: #f68b29;
 }
 </style>

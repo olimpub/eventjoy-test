@@ -742,7 +742,7 @@ function clampCeremonyPlace() {
   const max = ceremonyMax.value;
   if (max <= 0) return;
   if (ceremonyPlace.value > max) ceremonyPlace.value = max;
-  if (ceremonyPlace.value < 1) ceremonyPlace.value = max;
+  if (ceremonyPlace.value < 1) ceremonyPlace.value = 1;
 }
 
 function applyRemoteDisplayState(remote: PtaDisplayRemoteState | null, fromGet = false) {
@@ -765,7 +765,10 @@ function applyRemoteDisplayState(remote: PtaDisplayRemoteState | null, fromGet =
         : keepCeremony
           ? 'ceremony'
           : remote.state;
-    if (remote.roundId != null) {
+    const appliedRound =
+      remote.roundId != null &&
+      (remote.state === wallState.value || wallState.value === 'leaderboard');
+    if (appliedRound) {
       selectedRoundId.value = remote.roundId;
       if (wallState.value === 'seating' || wallState.value === 'roundstand') {
         seatingRoundId.value = remote.roundId;
@@ -1586,7 +1589,7 @@ onUnmounted(() => {
 .pta-progress__col {
   min-width: 0;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
 }
 
 .pta-progress__head {

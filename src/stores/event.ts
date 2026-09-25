@@ -283,6 +283,16 @@ function ptaRowsForEvent<T extends Record<string, unknown>>(rows: T[], eventId: 
   return (rows || []).filter((row) => ptaRowEventKey(row) === key);
 }
 
+function stampPtaEventId<T extends Record<string, unknown>>(
+  rows: T[],
+  eventId: number | string | null | undefined
+): T[] {
+  if (eventId == null || eventId === '') return rows;
+  const id = Number(eventId);
+  if (!Number.isFinite(id)) return rows;
+  return rows.map((row) => (ptaRowEventKey(row) ? row : ({ ...row, EventID: id } as T)));
+}
+
 function ptaRowsExceptEvent<T extends Record<string, unknown>>(rows: T[], eventId: number | string): T[] {
   const key = String(eventId);
   return (rows || []).filter((row) => ptaRowEventKey(row) !== key);
@@ -1007,7 +1017,7 @@ export const useEventStore = defineStore('event', {
       }
     },
 
-    async loadEventUserDataSheet(eventUserId: number | string) {
+    async loadEventUserDataSheet(eventUserId: number | string, knownEventId?: number | string | null) {
       const id = Number(eventUserId);
       if (!Number.isFinite(id) || id <= 0) return null;
 
@@ -1102,50 +1112,69 @@ export const useEventStore = defineStore('event', {
         )
       );
 
-      this.replaceEventPtaFromApi(this.eventUserScreenContext?.eventId ?? null, {
+      const sheetEventId = this.eventUserScreenContext?.eventId ?? nullableNumericId(knownEventId);
+      this.replaceEventPtaFromApi(sheetEventId, {
         settings: normalizePtaEventSettings(
           pickDataset(data, 'EventSettings', 'eventSettings', 'PtaEventSettings')
         ),
-        desks: normalizePtaRows(pickDataset(data, 'EventDesks', 'eventDesks', 'PtaEventDesks')),
-        rounds: normalizePtaEventRounds(
-          pickDataset(data, 'EventRounds', 'eventRounds', 'PtaEventRounds')
+        desks: stampPtaEventId(
+          normalizePtaRows(pickDataset(data, 'EventDesks', 'eventDesks', 'PtaEventDesks')),
+          sheetEventId
         ),
-        roundDesks: normalizePtaRoundDesks(
-          pickDataset(
-            data,
-            'EventRoundDesks',
-            'eventRoundDesks',
-            'PtaEventRoundDesks',
-            'RoundDesks',
-            'roundDesks'
-          )
+        rounds: stampPtaEventId(
+          normalizePtaEventRounds(
+            pickDataset(data, 'EventRounds', 'eventRounds', 'PtaEventRounds')
+          ),
+          sheetEventId
         ),
-        players: normalizePtaEventPlayers(
-          pickDataset(
-            data,
-            'EventPlayers',
-            'eventPlayers',
-            'PtaEventPlayers',
-            'ptaEventPlayers',
-            'RS9',
-            'Result9',
-            'ResultSet9'
-          )
+        roundDesks: stampPtaEventId(
+          normalizePtaRoundDesks(
+            pickDataset(
+              data,
+              'EventRoundDesks',
+              'eventRoundDesks',
+              'PtaEventRoundDesks',
+              'RoundDesks',
+              'roundDesks'
+            )
+          ),
+          sheetEventId
         ),
-        schedules: normalizePtaSchedules(
-          pickDataset(
-            data,
-            'GameSchedules',
-            'gameSchedules',
-            'PtaGameSchedules',
-            'GameSchedule',
-            'Schedules',
-            'RS10',
-            'Result10',
-            'ResultSet10'
-          )
+        players: stampPtaEventId(
+          normalizePtaEventPlayers(
+            pickDataset(
+              data,
+              'EventPlayers',
+              'eventPlayers',
+              'PtaEventPlayers',
+              'ptaEventPlayers',
+              'RS9',
+              'Result9',
+              'ResultSet9'
+            )
+          ),
+          sheetEventId
         ),
-        prizes: normalizePtaRows(pickDataset(data, 'EventPrizes', 'eventPrizes')),
+        schedules: stampPtaEventId(
+          normalizePtaSchedules(
+            pickDataset(
+              data,
+              'GameSchedules',
+              'gameSchedules',
+              'PtaGameSchedules',
+              'GameSchedule',
+              'Schedules',
+              'RS10',
+              'Result10',
+              'ResultSet10'
+            )
+          ),
+          sheetEventId
+        ),
+        prizes: stampPtaEventId(
+          normalizePtaRows(pickDataset(data, 'EventPrizes', 'eventPrizes')),
+          sheetEventId
+        ),
       });
 
       warnIfDatasetMissing('event.userdata.EventParticpants', participants, data);
@@ -1223,6 +1252,36 @@ export const useEventStore = defineStore('event', {
         snapshot.rounds.length > 0 ||
         snapshot.roundDesks.length > 0 ||
         snapshot.schedules.length > 0;
+
+      if (
+        key != null &&
+        snapshot.rounds.length === 0 &&
+        ptaRowsForEvent(this.ptaEventRounds, key).length > 0
+      ) {
+        snapshot.rounds = ptaRowsForEvent(this.ptaEventRounds, key).map((row) => ({ ...row }));
+        if (!snapshot.roundDesks.length) {
+          const roundIds = new Set(
+            snapshot.rounds
+              .map((row) => ptaEventRoundId(row) ?? nullableNumericId(row.id))
+              .filter((id): id is number => id != null)
+          );
+          snapshot.roundDesks = this.ptaEventRoundDesks.filter((row) => {
+            const roundId = ptaEventRoundId(row);
+            return roundId != null && roundIds.has(roundId);
+          });
+        }
+        if (!snapshot.schedules.length) {
+          const deskIds = new Set(
+            snapshot.roundDesks
+              .map((row) => ptaRoundDeskId(row))
+              .filter((id): id is number => id != null)
+          );
+          snapshot.schedules = this.ptaGameSchedules.filter((row) => {
+            const deskId = ptaScheduleRoundDeskId(row);
+            return deskId != null && deskIds.has(deskId);
+          });
+        }
+      }
 
       if (key != null && !apiHasDraw) {
         const hasSessionDraw =

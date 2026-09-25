@@ -445,7 +445,7 @@
           </div>
 
           <button
-            v-if="canEnterResults && !selectedTable.isClosed"
+            v-if="canScoreSelected && !selectedTable.isClosed"
             type="button"
             class="game-close-desk"
             :disabled="deskSaving || photoUploading || !canCloseDesk"
@@ -717,7 +717,7 @@ const enteredRole = computed(() => {
 const isOrganizerView = computed(() => eventDatasheetKind(enteredRole.value) === 'organizer');
 const isGameMasterView = computed(() => eventDatasheetKind(enteredRole.value) === 'gamemaster');
 const deskLocked = computed(() => {
-  if (!canEnterResults.value) return true;
+  if (!canScoreSelected.value) return true;
   return !!selectedTable.value?.isClosed && !isOrganizerView.value;
 });
 
@@ -871,7 +871,18 @@ const canEnterResults = computed(
   () => playPhase.value === 'game' && canEnterRoundResults(currentRound.value?.status || '')
 );
 
+function canScoreDesk(table: { isMine: boolean } | null | undefined): boolean {
+  if (!table || !canEnterResults.value) return false;
+  if (isOrganizerView.value) return true;
+  return isGameMasterView.value && table.isMine;
+}
+
+const canScoreSelected = computed(() => canScoreDesk(selectedTable.value));
+
 const resultsEntryHint = computed(() => {
+  if (canEnterResults.value && selectedTable.value && !canScoreSelected.value) {
+    return 'Ezt az asztalt csak a játékmestere vagy a szervező pontozhatja.';
+  }
   if (canEnterResults.value) return '';
   if (playPhase.value !== 'game') {
     return 'Eredményt csak Játék státuszban lehet felvinni.';
@@ -1400,9 +1411,8 @@ async function ensureRoundInProgress() {
 let persistingDesk = false;
 
 function persistDeskRanking(seats: GameSeatRow[], manualOrder: boolean) {
-  if (!canEnterResults.value || persistingDesk) return;
   const table = selectedTable.value;
-  if (!table) return;
+  if (!table || !canScoreDesk(table) || persistingDesk) return;
   persistingDesk = true;
   try {
   const ranked = rankDeskSeats(seats, ptaSettings.value, manualOrder);
@@ -1707,7 +1717,7 @@ const canCloseDesk = computed(() => {
 
 async function closeDesk() {
   const table = selectedTable.value;
-  if (!table || !canEnterResults.value || deskSaving.value) return;
+  if (!table || !canScoreDesk(table) || deskSaving.value) return;
   const source = seatsWithDrafts(sheetSeats.value.length ? sheetSeats.value : table.seats);
   const ranked = rankDeskSeats(source, ptaSettings.value, sheetManualOrder.value || table.manualOrder);
   focusedScore.value = null;

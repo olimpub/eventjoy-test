@@ -12,6 +12,7 @@ import {
   disconnectEventLive,
   isEventLiveJoinRoute,
 } from 'src/services/signalrService';
+import { clearStaleChunkReload, isStaleChunkError, reloadOnceForStaleChunk } from 'src/utils/staleChunk';
 
 export default route(function (/* { store, ssrContext } */) {
   const createHistory = process.env.SERVER
@@ -126,6 +127,14 @@ export default route(function (/* { store, ssrContext } */) {
         void refreshEventCatalog();
       }
     })();
+  });
+
+  Router.onError((err) => {
+    if (isStaleChunkError(err)) reloadOnceForStaleChunk();
+  });
+
+  Router.afterEach(() => {
+    clearStaleChunkReload();
   });
 
   return Router;

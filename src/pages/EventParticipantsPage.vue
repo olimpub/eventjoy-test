@@ -47,6 +47,14 @@
           <button
             type="button"
             class="part-excel-btn"
+            aria-label="Excel letöltés"
+            @click="downloadParticipantsExcel"
+          >
+            <q-icon name="sym_r_download" size="26px" />
+          </button>
+          <button
+            type="button"
+            class="part-excel-btn"
             aria-label="Excel feltöltés"
             @click="isImportOpen = true"
           >
@@ -168,7 +176,7 @@
           class="part-card"
         >
           <button type="button" class="part-card__main" @click="openDetail(row)">
-            <span class="part-avatar">{{ row.initials }}</span>
+            <span class="part-avatar" translate="no">{{ row.initials }}</span>
             <span class="part-card__body">
               <span class="part-card__name">{{ row.name }}</span>
               <span
@@ -212,7 +220,7 @@
         </q-card-section>
         <q-card-section class="q-pt-md q-px-md pb-8">
           <div class="part-sheet__person">
-            <span class="part-avatar part-avatar--lg">{{ selected.initials }}</span>
+            <span class="part-avatar part-avatar--lg" translate="no">{{ selected.initials }}</span>
             <div>
               <div class="part-card__name">{{ selected.name }}</div>
               <div v-if="selected.email" class="part-sheet__email">{{ selected.email }}</div>
@@ -458,6 +466,7 @@ import { nullableNumericId, readAxiosErrorMessage } from 'src/utils/apiPayload';
 import { EVENT_USER_FLOW_TEMPLATE_CODE, type EventUserStatusTransition, withOrganizerDoorCheckInTransition } from 'src/utils/eventUserFlow';
 import { participantListRank } from 'src/utils/eventUserStatus';
 import { setEventUserStatus } from 'src/utils/eventChange';
+import { downloadExcelSheet, excelFileBase } from 'src/utils/excelExport';
 import InviteExcelImport from 'src/components/event/InviteExcelImport.vue';
 import WalkInRegisterSheet from 'src/components/event/WalkInRegisterSheet.vue';
 import JoinQrSheet from 'src/components/event/JoinQrSheet.vue';
@@ -602,8 +611,9 @@ function displayNameFromUser(row: Record<string, unknown>, isSelf: boolean): { n
 
 function initialsOf(name: string): string {
   const parts = name.split(/\s+/).filter(Boolean);
-  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
-  return (name.slice(0, 2) || '?').toUpperCase();
+  const raw =
+    parts.length >= 2 ? (parts[0][0] + parts[1][0]).toUpperCase() : (name.slice(0, 2) || '?').toUpperCase();
+  return raw.split('').join('\u200c');
 }
 
 function resolveTicketTemplateId(ticket: Record<string, unknown> | null | undefined): number | null {
@@ -780,6 +790,24 @@ const filteredParticipants = computed(() => {
 const kpiRegistered = computed(() => String(participants.value.length));
 const kpiCheckedIn = computed(() => String(participants.value.filter((row) => row.checkedIn).length));
 const kpiNotEntered = computed(() => String(participants.value.filter((row) => !row.checkedIn).length));
+
+function downloadParticipantsExcel() {
+  const rows = filteredParticipants.value;
+  if (!rows.length) {
+    $q.notify({ message: 'Nincs exportálható résztvevő.', color: 'dark', textColor: 'orange-4', position: 'top' });
+    return;
+  }
+  downloadExcelSheet(`${excelFileBase(eventName.value, 'resztvevok')}.xlsx`, 'Résztvevők', rows.map((row) => ({
+    Vezetéknév: row.lastName,
+    Keresztnév: row.firstName,
+    Email: row.email,
+    Telefon: row.phone,
+    Szerep: row.roleName,
+    Jegy: row.ticketName,
+    Státusz: row.statusName,
+    Belépett: row.checkedIn ? 'Igen' : 'Nem',
+  })));
+}
 
 function openDetail(row: ParticipantRow) {
   selected.value = row;
