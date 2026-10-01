@@ -113,22 +113,11 @@ Envelope: ugyanaz, mint a többi event API (`ReturnValue`, `Data` / `Result2`).
 
 ---
 
-## Letöltés (SAS)
+## Letöltés
 
-A lista `BlobUrl`-je **SAS nélküli**, a konténer privát. A FE **nem** hívhatja JWT-vel az Azure-t (AuthorizationFailure), és SAS nélkül sem.
+A `materials` konténer publikus. A lista `BlobUrl`-je végleges, query nélküli cím. A FE ezt használja `<img>`, letöltés és helyi állapot mentéséhez. Olvasási SAS-t nem kér, lejárat miatt nem tölt újra.
 
-### `GET /event/{eventId}/materials/{eventMaterialId}/download-url`
-
-Szervező JWT. Alternatíva: `GET /event/{eventId}/materials/download-url?eventMaterialId=`
-
-**200:** `{ "SasUrl": "https://...sas..." }` (opcionális `BlobUrl`)
-
-- `SasUrl`: read SAS, TTL ~15 perc, csak GET.
-- A FE `fetch`/`GET` JWT **nélkül**. Ha a lista elemén már van read SAS (`sig=` + `sp` tartalmaz `r`-t), azt használja, nem kér újat.
-
-Azure Storage CORS: a FE originre `GET` is kell (a PUT mellé).
-
-Fallback, ha a download-url nincs: `GET /event/{eventId}/materials/{eventMaterialId}/file` — a Functions streameli a fájlt (JWT OK, ez nem Azure).
+A `fetch` JWT **nélkül** megy, `cache: force-cache`. Ha a soron nincs `BlobUrl`, a fallback `GET /event/{eventId}/materials/{eventMaterialId}/file` a Functionsön át streamel.
 
 ---
 
@@ -144,7 +133,7 @@ Fallback, ha a download-url nincs: `GET /event/{eventId}/materials/{eventMateria
 
 ## Axios / SAS
 
-A FE JWT interceptora **nem** teheti rá a `Authorization` headert a `SasUrl` PUT/GET-re. A BE-nek sem kell JWT-t várnia az Azure hívásokon.
+A FE JWT interceptora **nem** teheti rá a `Authorization` headert a feltöltő `SasUrl` PUT-ra és a publikus `BlobUrl` GET-re.
 
 ---
 

@@ -7,7 +7,7 @@
       'ej-app--admin': isAdminRoute,
     }"
   >
-    <div class="ej-app__main" :class="{ 'ej-app__main--flush': !showBottomNav && (route.path.includes('/display') || isAdminRoute) }">
+    <div class="ej-app__main" :class="{ 'ej-app__main--flush': !showBottomNav && (route.path.includes('/display') || isAdminRoute || isOlimpubJoin) }">
       <router-view />
     </div>
     <AppBottomNav v-if="showBottomNav" />
@@ -32,12 +32,16 @@ const isAdminRoute = computed(() => {
   return path === '/admin' || path.startsWith('/admin/')
 })
 
+const isOlimpubJoin = computed(() => route.name === 'olimpub-join' || route.path === '/olimpub/join')
+
 const showBottomNav = computed(() => {
   const path = route.path || ''
   return (
     path !== '/login' &&
     !path.startsWith('/invite') &&
-    !path.startsWith('/join') &&
+    !path.startsWith('/join/') &&
+    path !== '/join' &&
+    !isOlimpubJoin.value &&
     !path.startsWith('/admin') &&
     !path.includes('/display')
   )

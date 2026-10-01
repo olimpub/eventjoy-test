@@ -659,18 +659,20 @@ function resolveMasterRoleId(eu: EventUser): number | null {
 }
 
 function displayNameFromUser(row: Record<string, unknown>, isSelf: boolean): { name: string; email: string } {
+  const nickname = String(row.Nickname ?? row.nickname ?? row.Becenev ?? row.becenev ?? '').trim();
   if (isSelf && authStore.user) {
     const last = String(authStore.user.LastName || '').trim();
     const first = String(authStore.user.FirstName || '').trim();
     const email = String(authStore.user.EmailAddress || authStore.user.Email || '').trim();
-    const name = [last, first].filter(Boolean).join(' ') || email || 'Felhasználó';
+    const selfNick = String(authStore.user.Nickname ?? authStore.user.nickname ?? nickname).trim();
+    const name = [last, first].filter(Boolean).join(' ') || selfNick || email || 'Felhasználó';
     return { name, email };
   }
   const last = String(row.LastName ?? row.lastName ?? '').trim();
   const first = String(row.FirstName ?? row.firstName ?? '').trim();
   const email = String(row.EmailAddress ?? row.Email ?? row.email ?? '').trim();
   const display = String(row.DisplayName ?? row.UserName ?? row.Name ?? '').trim();
-  const name = [last, first].filter(Boolean).join(' ') || display || email || 'Ismeretlen';
+  const name = [last, first].filter(Boolean).join(' ') || nickname || display || email || 'Ismeretlen';
   return { name, email };
 }
 

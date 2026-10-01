@@ -8,6 +8,71 @@ export const OP_EVENT_TYPE_ID = 43;
 
 export const OP_DURATION_MINUTES = [60, 90, 120, 150, 180, 210, 240] as const;
 
+export const OP_PUBLIC_SITE = 'www.eventjoy.hu';
+
+export const OP_REACT_GLYPHS = {
+  heart: '❤️',
+  laugh: '😂',
+  fire: '🔥',
+  sad: '😢',
+  poop: '💩',
+} as const;
+
+export type OpReactId = keyof typeof OP_REACT_GLYPHS;
+
+export function opReactGlyph(id: string): string {
+  return OP_REACT_GLYPHS[id as OpReactId] || '';
+}
+
+export function opJoinAbsoluteUrl(): string {
+  if (typeof window === 'undefined') return '/olimpub/join';
+  const base = String(process.env.VUE_ROUTER_BASE || '/').replace(/\/+$/, '');
+  return `${window.location.origin}${base}/olimpub/join`;
+}
+
+export const OP_EXTRA_GAMES = [
+  { id: 'EG1', title: 'Párbaj', total: 5 },
+  { id: 'EG2', title: 'Mozaik', total: 6 },
+  { id: 'EG3', title: 'Karaoke', total: null },
+  { id: 'EG4', title: 'Fordított', total: 5 },
+  { id: 'EG5', title: 'Generációk', total: 5 },
+  { id: 'EG6', title: 'Műsorvezető', total: 5 },
+  { id: 'EG7', title: 'Filmguru', total: 5 },
+  { id: 'EG8', title: 'Ki beszél?', total: 5 },
+] as const;
+
+function foldExtraKey(raw: string): string {
+  return raw
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
+}
+
+export function matchOpExtraGame(
+  ...values: Array<string | null | undefined>
+): (typeof OP_EXTRA_GAMES)[number] | null {
+  for (const value of values) {
+    const text = String(value || '').trim();
+    if (!text) continue;
+    const folded = foldExtraKey(text);
+    const numbered = text.toUpperCase().match(/\bEG\s*([1-8])\b/) || folded.match(/eg([1-8])/);
+    if (numbered) {
+      const id = `EG${numbered[1]}` as (typeof OP_EXTRA_GAMES)[number]['id'];
+      const byId = OP_EXTRA_GAMES.find((row) => row.id === id);
+      if (byId) return byId;
+    }
+    const hit = OP_EXTRA_GAMES.find((row) => {
+      const title = foldExtraKey(row.title);
+      const idFold = foldExtraKey(row.id);
+      if (folded === idFold || folded === title) return true;
+      return title.length >= 5 && folded.includes(title);
+    });
+    if (hit) return hit;
+  }
+  return null;
+}
+
 export function eventTypeIdOf(event: Record<string, unknown> | null | undefined): number | null {
   return typeIdOf(event);
 }
@@ -16,9 +81,16 @@ export function isOlimpubEventType(eventTypeId: number | string | null | undefin
   if (eventTypeId == null || eventTypeId === '') return false;
   const n = Number(eventTypeId);
   if (!Number.isFinite(n)) return false;
+  if (n === OP_EVENT_TYPE_ID) return true;
   const type = useMasterDataStore().getEventTypeById(n);
-  if (type) return eventTypeHasOpFlag(type as Record<string, unknown>);
-  return n === OP_EVENT_TYPE_ID;
+  if (!type) return false;
+  if (eventTypeHasOpFlag(type as Record<string, unknown>)) return true;
+  const name = String(
+    (type as { TypeName?: string; Name?: string }).TypeName ??
+      (type as { Name?: string }).Name ??
+      ''
+  ).toLowerCase();
+  return name.includes('olimpub') || name.includes('olimpu');
 }
 
 export function isOlimpubRouteName(name: unknown): boolean {

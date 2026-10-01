@@ -31,6 +31,16 @@ const routes: RouteRecordRaw[] = [
         component: () => import('./pages/ReleaseNotesPage.vue'),
       },
       {
+        path: 'data/master',
+        name: 'sysadmin-master',
+        component: () => import('./pages/MasterDataPage.vue'),
+      },
+      {
+        path: 'olimpub/kabalas',
+        name: 'sysadmin-kabalas',
+        component: () => import('./pages/KabalasPage.vue'),
+      },
+      {
         path: 'soon/:section',
         name: 'sysadmin-soon',
         component: () => import('./pages/ComingSoonPage.vue'),

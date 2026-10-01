@@ -6,6 +6,7 @@ import {
   throwIfApiFailed,
   unwrapApiPayload,
 } from 'src/utils/apiPayload';
+import { eventStatusAllowsQuickJoin } from 'src/utils/eventFlow';
 
 const GUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -65,18 +66,23 @@ export interface EventJoinResult {
 }
 
 export async function fetchEventJoinPreview(eventUid: string): Promise<EventJoinPreview> {
-  const response = await api.get(`/event/join/${encodeURIComponent(eventUid)}`);
+  const response = await api.get(`/event/join/${encodeURIComponent(eventUid)}`, {
+    skipAuth: true,
+    skipErrorNotify: true,
+  });
   const data = unwrapApiPayload(response.data);
   const uid = String(data.EventUID ?? data.EventUid ?? data.eventUid ?? eventUid).trim();
+  const EventStatusName = String(data.EventStatusName ?? data.eventStatusName ?? '').trim();
+  const rawOpen =
+    data.CheckInOpen == null && data.checkInOpen == null
+      ? null
+      : isTruthyFlag(data.CheckInOpen ?? data.checkInOpen);
   return {
     EventUID: uid || eventUid,
     EventID: nullableNumericId(data.EventID ?? data.eventID ?? data.EventId),
     Title: String(data.Title ?? data.EventName ?? data.Name ?? '').trim() || 'Esemény',
-    CheckInOpen:
-      data.CheckInOpen == null && data.checkInOpen == null
-        ? null
-        : isTruthyFlag(data.CheckInOpen ?? data.checkInOpen),
-    EventStatusName: String(data.EventStatusName ?? data.eventStatusName ?? '').trim(),
+    CheckInOpen: eventStatusAllowsQuickJoin(EventStatusName) ? true : rawOpen,
+    EventStatusName,
   };
 }
 

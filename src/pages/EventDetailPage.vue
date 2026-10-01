@@ -6,7 +6,7 @@
     </div>
 
     <!-- 1. HEADER IMAGE -->
-    <div class="relative w-full h-[280px] sm:h-[350px] overflow-hidden">
+    <div class="relative w-full h-[200px] sm:h-[260px] overflow-hidden">
       <!-- Back Button -->
       <q-btn 
         icon="arrow_back" 
@@ -15,30 +15,37 @@
         dense
         class="absolute top-4 left-4 z-20 text-white event-cover-btn"
         aria-label="Vissza"
-        @click="router.go(-1)"
+        @click="router.push({ name: 'my_events' })"
       />
 
       <!-- Image -->
       <div
         class="w-full h-full"
-        :class="event.isDefaultCover ? 'event-cover-default' : ''"
+        :class="event.isOlimpubCover ? 'bg-black' : event.isDefaultCover ? 'event-cover-default' : ''"
       >
         <img
           :src="event.coverImage"
           alt=""
           class="w-full h-full"
-          :class="event.isDefaultCover
-            ? 'object-contain p-16 sm:p-24 scale-100'
-            : 'object-cover object-center scale-105'"
+          :class="event.isOlimpubCover
+            ? 'object-contain p-3 sm:p-4'
+            : event.isDefaultCover
+              ? 'object-contain p-16 sm:p-24 scale-100'
+              : 'object-cover object-center scale-105'"
         />
       </div>
 
       <!-- Premium Gradient overlay to blend with the background -->
-      <div class="absolute inset-0 bg-gradient-to-t from-[#0F172A] via-[#0F172A]/60 to-transparent pointer-events-none"></div>
+      <div
+        class="absolute inset-0 pointer-events-none"
+        :class="event.isOlimpubCover
+          ? 'bg-gradient-to-t from-[#0F172A] to-transparent'
+          : 'bg-gradient-to-t from-[#0F172A] via-[#0F172A]/60 to-transparent'"
+      ></div>
     </div>
 
     <!-- MAIN CONTENT CONTAINER -->
-    <div class="relative z-10 px-4 sm:px-6 -mt-24 sm:-mt-32 max-w-2xl mx-auto w-full">
+    <div class="relative z-10 px-4 sm:px-6 -mt-8 sm:-mt-10 max-w-2xl mx-auto w-full">
       
       <!-- 2. FEJLÉC PANEL (Glassmorphism, megegyezik a főoldallal) -->
       <div 
@@ -51,13 +58,19 @@
         <div v-if="event.isProfitability || isDemoProfitabilityRoute" style="position: absolute; top: 16px; right: 16px; z-index: 2; display: flex; align-items: center;">
           <img src="~assets/PTA.png" alt="PROFI-T-ABILITY" style="height: 36px; width: auto; object-fit: contain;" />
         </div>
+        <div v-else-if="event.isOlimpub" style="position: absolute; top: 16px; right: 16px; z-index: 2; display: flex; align-items: center;">
+          <img :src="olimpubTypeIcon" alt="Olimpub" style="height: 18px; width: auto; max-width: 96px; object-fit: contain;" />
+        </div>
         <div v-else style="position: absolute; top: 16px; right: 16px; background-color: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px 16px 8px 8px; padding: 6px 14px; z-index: 2; display: flex; align-items: center; gap: 6px;">
           <q-icon name="sym_r_work" size="16px" style="color: #cbd5e1;" />
           <span style="font-size: 12px; font-weight: 800; color: #cbd5e1; text-transform: uppercase; letter-spacing: 0.05em;">{{ event.type }}</span>
         </div>
 
         <!-- Roles (Megegyezik a kártyák szerepkör címke stílusával) -->
-        <div v-if="event.roles && event.roles.length > 0" class="flex flex-wrap gap-2 mb-3 pr-28 relative z-10">
+        <div
+          v-if="event.roles && event.roles.length > 0"
+          class="flex flex-wrap gap-2 mb-3 pr-28 relative z-10"
+        >
           <span
             v-for="role in event.roles"
             :key="role.name || role"
@@ -74,7 +87,9 @@
         </div>
 
         <!-- Event Name -->
-        <h3 style="font-size: 26px; font-weight: 800; color: #ffffff; line-height: 1.2; margin: 0 0 12px 0; text-wrap: balance; padding-right: 10px;">
+        <h3
+          style="font-size: 26px; font-weight: 800; color: #ffffff; line-height: 1.2; margin: 0 0 12px 0; text-wrap: balance; padding-right: 10px;"
+        >
           {{ event.name }}
         </h3>
 
@@ -410,7 +425,7 @@
           <p class="event-enter-hint">Válaszd ki, melyik szerepkörrel lépsz be az adatlapra.</p>
           <div class="event-info-sheet__scroll">
             <button
-              v-for="role in enterableRoles"
+              v-for="role in readyEnterRoles"
               :key="role.eventRoleId ?? role.eventUserId"
               type="button"
               class="event-enter-role"
@@ -488,12 +503,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useQuasar } from 'quasar';
 import QRCode from 'qrcode';
 import { useEventStore, type EnterableEventRole } from 'src/stores/event';
 import { useMasterDataStore } from 'src/stores/masterData';
+import { isOlimpubEventType, OP_EVENT_TYPE_ID } from 'src/modules/olimpub/constants';
+import { OLIMPUB_BRAND } from 'src/assets/brand/olimpub';
+import { fetchOpCurrent, applyFetchedOpCurrent, readOpDeviceSession } from 'src/modules/olimpub/opDevice';
 import { isProfitabilityEventType } from 'src/modules/profitability/constants';
 import defaultCover from 'src/assets/eventjoy_icon_gradient.svg';
 import ptaCover from 'src/assets/PTA2_back.png';
@@ -512,7 +530,7 @@ import { normalizeEventUserUid } from 'src/utils/eventUserQr';
 import InviteDecisionSheet from 'src/components/event/InviteDecisionSheet.vue';
 import ComingSoonCube from 'src/components/event/ComingSoonCube.vue';
 import { eventLocalDateRange, groupProgramsForDisplay } from 'src/utils/eventProgram';
-import { findEventStatus } from 'src/utils/eventFlow';
+import { findEventStatus, findEventStatusIdByNameHints } from 'src/utils/eventFlow';
 
 const $q = useQuasar();
 const router = useRouter();
@@ -520,9 +538,18 @@ const route = useRoute();
 const eventStore = useEventStore();
 const masterDataStore = useMasterDataStore();
 const inviteSheetOpen = ref(false);
+const olimpubTypeIcon = OLIMPUB_BRAND.wordmark;
+const olimpubCover = OLIMPUB_BRAND.logoDark;
 const isSoonOpen = ref(false);
 const soonLabel = ref('Hamarosan elérhető');
 const soonIcon = ref('sym_r_schedule');
+
+function matchingOpDeviceSession() {
+  const session = readOpDeviceSession();
+  if (!session) return null;
+  if (String(session.eventId) !== String(route.params.id)) return null;
+  return session;
+}
 
 function eventCoverUrl(row: Record<string, unknown> | null | undefined): string {
   const raw = String(row?.EventImageUrl || row?.CoverImageUrl || row?.ImageUrl || '').trim();
@@ -560,13 +587,29 @@ function eventStatusView(dbEvent: Record<string, unknown> | null | undefined): {
   key: 'active' | 'upcoming' | 'completed' | 'other';
   name: string;
 } {
-  const statusId = nullableNumericId(
+  const nameFromRow = String(
+    dbEvent?.EventStatusName ??
+      dbEvent?.SName ??
+      dbEvent?.StatusName ??
+      dbEvent?.EventStatus ??
+      dbEvent?.statusName ??
+      ''
+  ).trim();
+  let statusId = nullableNumericId(
     dbEvent?.EventStatusID ?? dbEvent?.eventStatusID ?? dbEvent?.StatusID ?? dbEvent?.StatusId
   );
+  if (statusId == null && nameFromRow) {
+    statusId = findEventStatusIdByNameHints(masterDataStore.eventStatuses, [nameFromRow]);
+  }
   const rec = findEventStatus(masterDataStore.eventStatuses, statusId);
+  const isOp = isOlimpubEventType(dbEvent?.EventTypeID ?? dbEvent?.eventTypeId);
   const name = rec
     ? String(rec.StatusName || rec.Name || 'Státusz')
-    : masterDataStore.getEventStatusNameById(statusId, statusId == null ? 'Tervezés' : 'Státusz');
+    : nameFromRow ||
+      masterDataStore.getEventStatusNameById(
+        statusId,
+        statusId == null ? (isOp ? 'Státusz' : 'Tervezés') : 'Státusz'
+      );
   const folded = name.toLowerCase();
   if (
     masterDataStore.isEventStatusClosed(statusId) ||
@@ -639,6 +682,36 @@ const event = computed(() => {
                || eventStore.discoveryEvents?.find((e: any) => String(e.id) === targetId);
 
   if (!dbEvent) {
+    const device = matchingOpDeviceSession();
+    if (device) {
+      const statusView = eventStatusView({
+        EventStatusID: device.statusId,
+        EventStatusName: device.statusName,
+        EventTypeID: OP_EVENT_TYPE_ID,
+      });
+      return {
+        id: targetId,
+        name: device.eventTitle || 'Olimpub',
+        date: '',
+        location: '',
+        city: '',
+        type: 'Olimpub',
+        status: statusView.key,
+        roles: [{ name: 'Játékos', color: OLIMPUB_BRAND.primary }],
+        tags: [] as string[],
+        statusName: statusView.name,
+        organizer: { name: '', allowChat: false },
+        coverImage: olimpubCover,
+        isDefaultCover: false,
+        isOlimpub: true,
+        isOlimpubCover: true,
+        description: '',
+        allowLateEntry: true,
+        userHasTicket: true,
+        isTicketPurchasable: false,
+        canEnter: true,
+      };
+    }
     return {
       id: targetId,
       name: 'PROFI-T-ABILITY Bajnokság',
@@ -665,7 +738,9 @@ const event = computed(() => {
   }
 
   // Típus
-  const eventType = masterDataStore.eventTypes?.find((t: any) => t.id === dbEvent.EventTypeID);
+  const eventType = masterDataStore.eventTypes?.find(
+    (t: any) => Number(t.id) === Number(dbEvent.EventTypeID ?? dbEvent.eventTypeId)
+  );
   const typeName = eventType?.TypeName || eventType?.Name || (isDemoProfitabilityRoute.value ? 'PROFI-T-ABILITY' : 'Esemény');
 
   // Helyszín
@@ -721,8 +796,13 @@ const event = computed(() => {
 
   // Cover Image
   const isPtaEvent = isDemoProfitabilityRoute.value || isProfitabilityEventType(dbEvent.EventTypeID);
+  const isOpEvent =
+    isOlimpubEventType(dbEvent.EventTypeID ?? dbEvent.eventTypeId) ||
+    !!eventStore.getOpSettingsForEvent(dbEvent.id) ||
+    /olimpu/i.test(String(typeName));
   const uploadedCover = eventCoverUrl(dbEvent);
-  const imageUrl = uploadedCover || (isPtaEvent ? ptaCover : defaultCover);
+  const imageUrl =
+    uploadedCover || (isPtaEvent ? ptaCover : isOpEvent ? olimpubCover : defaultCover);
 
   // Leírás
   const desc = dbEvent.Description || dbEvent.DescriptionText || 'A PROFI-T-ABILITY üzleti és stratégiai szimulációs bajnokság, ahol a résztvevők valós gazdasági döntéseket hozhatnak és hálózatot építhetnek.';
@@ -758,13 +838,15 @@ const event = computed(() => {
     statusName: statusView.name,
     roles: myRoles,
     isProfitability: isPtaEvent,
+    isOlimpub: isOpEvent,
+    isOlimpubCover: isOpEvent && !uploadedCover,
     tags,
     organizer: {
       name: orgName,
       allowChat: true
     },
     coverImage: imageUrl,
-    isDefaultCover: !uploadedCover && !isPtaEvent,
+    isDefaultCover: !uploadedCover && !isPtaEvent && !isOpEvent,
     description: desc,
     allowLateEntry: true,
     userHasTicket: hasValidTicket,
@@ -800,7 +882,9 @@ const hasParticipated = computed(() => {
   return eventStore.isUserOnEvent(event.value.id);
 });
 
-const canShowEnterButton = computed(() => readyEnterRoles.value.length > 0);
+const canShowEnterButton = computed(
+  () => readyEnterRoles.value.length > 0 || !!matchingOpDeviceSession()
+);
 
 const needUserApproval = computed(
   () => !!eventStore.getMyEventUserStatus(String(route.params.id))?.needUserApproval
@@ -890,7 +974,23 @@ function getRoleStyle(hexColor?: string) {
 }
 
 function enterEvent() {
-  const roles = enterableRoles.value;
+  const roles = readyEnterRoles.value;
+  const eventId = event.value.id;
+  if (!roles.length && matchingOpDeviceSession()) {
+    void router.push({ path: `/olimpub/event/${eventId}` });
+    return;
+  }
+  if (!roles.length) return;
+  const isOp =
+    isOlimpubEventType(currentDbEvent.value?.EventTypeID ?? currentDbEvent.value?.eventTypeId) ||
+    !!eventStore.getOpSettingsForEvent(eventId);
+  if (isOp) {
+    const player = roles.find((role) => eventDatasheetKind(role, eventId) === 'player');
+    if (player) {
+      void enterAsRole(player);
+      return;
+    }
+  }
   if (roles.length > 1) {
     isEnterRolePickerOpen.value = true;
     return;
@@ -913,7 +1013,9 @@ async function enterAsRole(role: EnterableEventRole | null) {
   }
   enterBusy.value = true;
   try {
-    await enterEventSession(event.value.id, role);
+    void enterEventSession(event.value.id, role).catch((error) => {
+      console.error('SignalR csatlakozás sikertelen:', error);
+    });
     await router.push({
       path: eventRolePath(event.value.id, role),
       query: eventRoleQuery(role),
@@ -963,10 +1065,65 @@ watch(
   { immediate: true }
 );
 
+async function syncOpDatasheetStatus() {
+  const id = nullableNumericId(route.params.id);
+  if (id == null) return;
+  const db = currentDbEvent.value;
+  const isOp =
+    !!matchingOpDeviceSession() ||
+    isOlimpubEventType(db?.EventTypeID ?? db?.eventTypeId);
+  if (!isOp) return;
+  try {
+    const current = await fetchOpCurrent();
+    if (current && current.eventId === id) {
+      await applyFetchedOpCurrent(current);
+    }
+  } catch {
+    /* a stub/master marad */
+  }
+}
+
+onMounted(() => {
+  void syncOpDatasheetStatus();
+});
+
+watch(
+  () => String(route.params.id),
+  () => {
+    void syncOpDatasheetStatus();
+  }
+);
+
+let opStatusPoll: ReturnType<typeof setInterval> | null = null;
+watch(
+  () => {
+    const db = currentDbEvent.value;
+    return (
+      !!matchingOpDeviceSession() ||
+      isOlimpubEventType(db?.EventTypeID ?? db?.eventTypeId)
+    );
+  },
+  (isOp) => {
+    if (opStatusPoll) {
+      clearInterval(opStatusPoll);
+      opStatusPoll = null;
+    }
+    if (!isOp) return;
+    opStatusPoll = setInterval(() => {
+      void syncOpDatasheetStatus();
+    }, 8000);
+  },
+  { immediate: true }
+);
+
 onUnmounted(() => {
   if (ticketScanPoll) {
     clearInterval(ticketScanPoll);
     ticketScanPoll = null;
+  }
+  if (opStatusPoll) {
+    clearInterval(opStatusPoll);
+    opStatusPoll = null;
   }
 });
 

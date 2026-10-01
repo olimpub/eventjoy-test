@@ -460,8 +460,9 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useQuasar } from 'quasar';
 import { useAuthStore } from 'src/stores/auth';
-import { useEventStore, type EventUser } from 'src/stores/event';
+import { useEventStore, nicknameFromRow, type EventUser } from 'src/stores/event';
 import { useMasterDataStore, ORGANIZER_ROLE_TYPE_ID } from 'src/stores/masterData';
+import { useOlimpubStore } from 'src/stores/olimpub';
 import { nullableNumericId, readAxiosErrorMessage } from 'src/utils/apiPayload';
 import { EVENT_USER_FLOW_TEMPLATE_CODE, type EventUserStatusTransition, withOrganizerDoorCheckInTransition } from 'src/utils/eventUserFlow';
 import { participantListRank } from 'src/utils/eventUserStatus';
@@ -475,6 +476,7 @@ import { eventOrganizerManagePath, eventReachedCheckIn, isEventUserCheckedInName
 import AppConfirmDialog from 'src/components/ui/AppConfirmDialog.vue';
 import { OLIMPUB_BRAND } from 'src/assets/brand/olimpub';
 import { isOlimpubRouteName } from 'src/modules/olimpub/constants';
+import { fetchOpLeaderboard } from 'src/modules/olimpub/opApi';
 import 'src/modules/olimpub/theme.css';
 
 interface ParticipantRow {
@@ -504,6 +506,7 @@ const router = useRouter();
 const $q = useQuasar();
 const authStore = useAuthStore();
 const eventStore = useEventStore();
+const olimpubStore = useOlimpubStore();
 const masterDataStore = useMasterDataStore();
 
 const isImportOpen = ref(false);
@@ -594,18 +597,20 @@ function resolveMasterRoleId(eu: EventUser): number | null {
 }
 
 function displayNameFromUser(row: Record<string, unknown>, isSelf: boolean): { name: string; email: string } {
+  const nickname = nicknameFromRow(row) || '';
   if (isSelf && authStore.user) {
     const last = String(authStore.user.LastName || '').trim();
     const first = String(authStore.user.FirstName || '').trim();
     const email = String(authStore.user.EmailAddress || authStore.user.Email || '').trim();
-    const name = [last, first].filter(Boolean).join(' ') || email || 'Felhasználó';
+    const selfNick = nicknameFromRow(authStore.user as Record<string, unknown>) || nickname;
+    const name = [last, first].filter(Boolean).join(' ') || selfNick || email || 'Felhasználó';
     return { name, email };
   }
   const last = String(row.LastName ?? row.lastName ?? '').trim();
   const first = String(row.FirstName ?? row.firstName ?? '').trim();
   const email = String(row.EmailAddress ?? row.Email ?? row.email ?? '').trim();
   const display = String(row.DisplayName ?? row.UserName ?? row.Name ?? '').trim();
-  const name = [last, first].filter(Boolean).join(' ') || display || email || 'Ismeretlen';
+  const name = [last, first].filter(Boolean).join(' ') || nickname || display || email || 'Ismeretlen';
   return { name, email };
 }
 
@@ -985,6 +990,31 @@ async function loadDataSheet() {
   if (id == null) return;
   try {
     await eventStore.loadEventUserDataSheet(id);
+    if (isOlimpubRouteName(route.name)) {
+      try {
+        await olimpubStore.loadGame(eventId.value);
+        eventStore.applyParticipantNicknames(
+          eventId.value,
+          olimpubStore
+            .getGame(eventId.value)
+            .teamMembers.filter((row) => row.Nickname)
+            .map((row) => ({ eventUserId: row.EventUserID, name: String(row.Nickname) }))
+        );
+      } catch {
+        /* userdata Nickname marad */
+      }
+      try {
+        const board = await fetchOpLeaderboard(eventId.value, 'shadow');
+        eventStore.applyParticipantNicknames(
+          eventId.value,
+          board
+            .filter((row) => row.eventUserId != null && row.name)
+            .map((row) => ({ eventUserId: row.eventUserId as number, name: row.name }))
+        );
+      } catch {
+        /* shadow tabla nem kötelező */
+      }
+    }
   } catch (error) {
     $q.notify({
       message: error instanceof Error ? error.message : 'Résztvevők betöltése sikertelen',

@@ -66,6 +66,47 @@ export function validateOpMediaFile(file: File, kind: OpMediaKind): string {
   return '';
 }
 
+const OP_IMAGE_MAX_EDGE = 1600;
+const OP_IMAGE_WEBP_QUALITY = 0.8;
+
+function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => (blob ? resolve(blob) : reject(new Error('A kép nem alakítható át.'))),
+      type,
+      quality
+    );
+  });
+}
+
+/** Kérdéskép WebP-re, hosszabbik oldal max 1600. Kisebb képet nem nagyít. */
+export async function compressOpQuestionImage(file: File): Promise<File> {
+  const bitmap = await createImageBitmap(file);
+  try {
+    const longest = Math.max(bitmap.width, bitmap.height) || 1;
+    const scale = longest > OP_IMAGE_MAX_EDGE ? OP_IMAGE_MAX_EDGE / longest : 1;
+    const width = Math.max(1, Math.round(bitmap.width * scale));
+    const height = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('A kép nem alakítható át.');
+    ctx.drawImage(bitmap, 0, 0, width, height);
+    let blob = await canvasToBlob(canvas, 'image/webp', OP_IMAGE_WEBP_QUALITY);
+    let type = 'image/webp';
+    if (blob.type && blob.type !== 'image/webp') {
+      blob = await canvasToBlob(canvas, 'image/jpeg', OP_IMAGE_WEBP_QUALITY);
+      type = 'image/jpeg';
+    }
+    const base = file.name.replace(/\.[^.]+$/, '') || 'kerdeskep';
+    const ext = type === 'image/webp' ? 'webp' : 'jpg';
+    return new File([blob], `${base}.${ext}`, { type });
+  } finally {
+    bitmap.close();
+  }
+}
+
 function parseMediaItem(row: unknown): OpMediaItem | null {
   const rec = asRecord(row);
   if (!rec) return null;
@@ -80,7 +121,7 @@ function parseMediaItem(row: unknown): OpMediaItem | null {
     Mime: readString(rec.Mime, rec.mime, rec.ContentType, rec.contentType),
     SizeInBytes: nullableNumericId(rec.SizeInBytes ?? rec.sizeInBytes) ?? 0,
     ContentHash: readString(rec.ContentHash, rec.contentHash, rec.Hash, rec.hash),
-    BlobUrl: readString(rec.BlobUrl, rec.blobUrl, rec.DownloadUrl, rec.downloadUrl, rec.SasUrl, rec.sasUrl),
+    BlobUrl: readString(rec.BlobUrl, rec.blobUrl, rec.ImageUrl, rec.imageUrl, rec.AudioUrl, rec.audioUrl, rec.DownloadUrl, rec.downloadUrl),
   };
 }
 
@@ -141,29 +182,35 @@ export async function uploadOpMedia(input: {
   file: File;
   kind: OpMediaKind;
   questionId?: number | null;
-}): Promise<OpMediaItem> {
-  const invalid = validateOpMediaFile(input.file, input.kind);
+}): Promise<{ item: OpMediaItem; storedFile: File }> {
+  let file = input.file;
+  if (input.kind === 'image') {
+    if (opMediaKindOfFile(file) !== 'image') throw new Error('Csak JPEG, PNG vagy WebP kép tölthető fel.');
+    file = await compressOpQuestionImage(file);
+  }
+  const invalid = validateOpMediaFile(file, input.kind);
   if (invalid) throw new Error(invalid);
-  const hash = await hashOpFile(input.file);
-  const urls = await fetchOpMediaUploadUrl(input.eventId, input.file, input.kind);
-  await axios.put(urls.sasUrl, input.file, {
+  const hash = await hashOpFile(file);
+  const urls = await fetchOpMediaUploadUrl(input.eventId, file, input.kind);
+  await axios.put(urls.sasUrl, file, {
     headers: {
-      'Content-Type': input.file.type || (input.kind === 'audio' ? 'audio/mpeg' : 'application/octet-stream'),
+      'Content-Type': file.type || (input.kind === 'audio' ? 'audio/mpeg' : 'image/webp'),
       'x-ms-blob-type': 'BlockBlob',
     },
   });
-  return registerOpMedia({
+  const item = await registerOpMedia({
     EventID: input.eventId,
     MediaKey: urls.mediaKey,
     Kind: input.kind,
     BlobUrl: urls.blobUrl,
     ContentHash: hash,
-    Mime: input.file.type || (input.kind === 'audio' ? 'audio/mpeg' : 'image/jpeg'),
-    SizeInBytes: input.file.size,
-    FileName: input.file.name,
+    Mime: file.type || (input.kind === 'audio' ? 'audio/mpeg' : 'image/webp'),
+    SizeInBytes: file.size,
+    FileName: file.name,
     QuestionID: input.questionId ?? undefined,
     Slot: input.questionId != null ? input.kind : undefined,
   });
+  return { item, storedFile: file };
 }
 
 export async function fetchOpMediaManifest(eventId: number | string): Promise<OpMediaItem[]> {

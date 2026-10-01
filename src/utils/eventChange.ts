@@ -322,12 +322,28 @@ export const SIGNALR_LIVE_ACTIONS = [
   'Pta.ShowDisplay',
   'Op.StartQuestion',
   'Op.StopQuestion',
+  'Op.ReopenQuestion',
+  'Op.PauseQuestion',
   'Op.NextQuestion',
   'Op.CloseRound',
+  'Op.ResetRound',
+  'Op.ResetExtra',
   'Op.PublishRound',
   'Op.ShowLeaderboard',
+  'Op.CastDisplay',
   'Op.SubmitAnswer',
+  'Op.React',
   'Op.Penalty',
+  'Op.SetCurrent',
+  'Op.JoinTeam',
+  'Op.LeaveTeam',
+  'Op.AdjustTeam',
+  'Op.MosaicJudge',
+  'Op.MosaicBuzz',
+  'Op.StartExtra',
+  'Op.StopExtra',
+  'Op.StartExtraQuestion',
+  'Op.StopExtraQuestion',
 ] as const;
 
 export interface LiveChangeContext {
@@ -344,6 +360,15 @@ function asArray(value: unknown): unknown[] {
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   return value as Record<string, unknown>;
+}
+
+const OP_ACTION_BARE =
+  /^(SubmitAnswer|React|StartQuestion|StopQuestion|NextQuestion|ReopenQuestion|PauseQuestion|StartExtra|StopExtra|StartExtraQuestion|StopExtraQuestion|JoinTeam|LeaveTeam|MosaicBuzz|MosaicJudge|ShowLeaderboard|CastDisplay|CloseRound|ResetRound|ResetExtra|PublishRound|SetCurrent|AdjustTeam|Penalty)$/i;
+
+function asOpAction(action: string) {
+  const text = String(action || '').trim();
+  if (text.startsWith('Op.')) return text;
+  return OP_ACTION_BARE.test(text) ? `Op.${text}` : text;
 }
 
 export function notifyTicketScanSuccess() {
@@ -815,15 +840,16 @@ export function applyLiveChange(
     return;
   }
 
-  if (String(msg.Action || '').startsWith('Op.')) {
+  const opAction = asOpAction(String(msg.Action || ''));
+  if (opAction.startsWith('Op.')) {
     if (eventId == null) {
       inbound(false, 'skip missing EventID');
       return;
     }
     void import('src/stores/olimpub').then((mod) => {
-      mod.useOlimpubStore().notePing(eventId, msg.Action);
+      mod.useOlimpubStore().notePing(eventId, opAction, { ...msg, ...msg.Payload });
     });
-    inbound(true, `op ping ${msg.Action}`);
+    inbound(true, `op ping ${opAction}`);
     return;
   }
 

@@ -503,6 +503,7 @@ import { isProfitabilityEventType } from 'src/modules/profitability/constants';
 import InviteDecisionSheet from 'src/components/event/InviteDecisionSheet.vue';
 import CatalogPullRefresh from 'src/components/layout/CatalogPullRefresh.vue';
 import { refreshEventCatalog } from 'src/utils/eventCatalogRefresh';
+import { readOpDeviceSession } from 'src/modules/olimpub/opDevice';
 import { eventUserStatusIcon, findEventUserStatus } from 'src/utils/eventUserFlow';
 
 const router = useRouter();
@@ -512,6 +513,8 @@ const authStore = useAuthStore();
 const catalogRefreshing = ref(false);
 
 onMounted(() => {
+  const session = readOpDeviceSession();
+  if (session) eventStore.rememberOpDeviceEvent(session);
   void refreshEventCatalog().catch(() => undefined);
 });
 

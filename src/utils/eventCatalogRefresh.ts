@@ -18,7 +18,9 @@ export function markEventCatalogFresh(): void {
 
 export async function refreshEventCatalog(options?: { force?: boolean }): Promise<void> {
   const { useAuthStore } = await import('src/stores/auth');
-  if (!useAuthStore().isAuthenticated) return;
+  const auth = useAuthStore();
+  if (!auth.isAuthenticated) return;
+  if (auth.user?.TokenKind === 'OpDevice') return;
 
   const now = Date.now();
   if (!options?.force && lastAt > 0 && now - lastAt < MIN_INTERVAL_MS) return;

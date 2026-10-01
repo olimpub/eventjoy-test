@@ -15,9 +15,10 @@
       <h2 class="op-import__title">Kérdések feltöltése</h2>
       <p class="op-import__event">{{ eventName }}</p>
       <p class="op-import__hint">
-        Töltsd le a sablont, töltsd ki a <strong>Minták</strong> lap szerint, majd töltsd fel.
-        A feltöltésből forduló is készül. A <strong>Típus</strong> oszlopba a kód kell:
-        single, multi, order, match, category, freetext.
+        Töltsd le a sablont, és a <strong>Kérdések</strong> lapot töltsd ki.
+        A <strong>Minták</strong> lapon minden kérdéstípus és játék szerepel.
+        A <strong>Típus</strong> oszlopba a kód kell: single, multi, order, match, category, freetext.
+        A <strong>Játék</strong> üresen vagy kviz a forduló. EG1 a párbaj, EG2 és EG4–EG8 a többi extra játék.
       </p>
 
       <div class="op-import__actions">

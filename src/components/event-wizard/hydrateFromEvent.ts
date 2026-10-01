@@ -229,8 +229,23 @@ function collectRoles(
   masterData: ReturnType<typeof useMasterDataStore>,
   eventId: string | number
 ): WizardEventRole[] {
+  const ticketIds = new Set(
+    (eventStore.tickets || [])
+      .filter((row: any) => belongsToEvent(row, eventId))
+      .map((row: any) => String(row.id ?? row.ID ?? ''))
+      .filter(Boolean)
+  );
+  const linkedRoleIds = new Set(
+    (eventStore.roleTickets || [])
+      .filter((link: any) =>
+        ticketIds.has(String(link.EventTicketID ?? link.eventTicketID ?? link.EventTicketId ?? ''))
+      )
+      .map((link: any) => String(link.EventRoleID ?? link.eventRoleID ?? link.EventRoleId ?? ''))
+      .filter(Boolean)
+  );
+
   return (eventStore.roles || [])
-    .filter((row: any) => belongsToEvent(row, eventId))
+    .filter((row: any) => belongsToEvent(row, eventId) || linkedRoleIds.has(String(row.id ?? row.ID ?? '')))
     .map((row: any) => {
       const roleId = Number(row.RoleID ?? row.roleID ?? row.RoleId);
       return {
@@ -250,6 +265,7 @@ function collectTickets(
   basics: WizardBasics
 ): WizardTicket[] {
   const roleByEventRoleId = new Map(roles.map((r) => [r.tempId, r]));
+  const roleByName = new Map(roles.map((r) => [r.roleName.trim().toLowerCase(), r]));
   const tickets = (eventStore.tickets || []).filter((row: any) => belongsToEvent(row, eventId));
 
   return tickets.map((row: any, index: number) => {
@@ -267,17 +283,32 @@ function collectTickets(
         row.RegistrationEndDate ??
         row.SaleEndAtUtc
     );
-    const roleTempIds = (eventStore.roleTickets || [])
+    const fromLinks = (eventStore.roleTickets || [])
       .filter((link: any) => sameId(link.EventTicketID ?? link.eventTicketID ?? link.EventTicketId, ticketId))
       .map((link: any) => String(link.EventRoleID ?? link.eventRoleID ?? link.EventRoleId ?? ''))
       .filter((id) => id && roleByEventRoleId.has(id));
+    const directRoleId = String(
+      row.EventRoleID ?? row.eventRoleID ?? row.EventRoleId ?? ''
+    ).trim();
+    const ticketName = firstString(row, 'TicketName', 'Name', 'name');
+    const foldedName = ticketName.trim().toLowerCase();
+    const byName =
+      roleByName.get(foldedName) ||
+      (foldedName.startsWith('játékos') ? roleByName.get('játékos') : undefined);
+    const roleTempIds = fromLinks.length
+      ? fromLinks
+      : directRoleId && roleByEventRoleId.has(directRoleId)
+        ? [directRoleId]
+        : byName
+          ? [byName.tempId]
+          : [];
 
     const isFree = isTruthy(row.FreeFlg ?? row.freeFlg) || price === 0;
 
     return {
       tempId: ticketId || crypto.randomUUID(),
       Code: firstString(row, 'Code', 'TicketCode', 'code') || generateTicketCode(basics.eventUid, index + 1),
-      TicketName: firstString(row, 'TicketName', 'Name', 'name'),
+      TicketName: ticketName,
       Description: firstString(row, 'Description', 'description'),
       isFree,
       Price: isFree ? 0 : price,

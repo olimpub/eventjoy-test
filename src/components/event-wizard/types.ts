@@ -298,6 +298,19 @@ function findStarterRole(roles: WizardEventRole[], name: string): WizardEventRol
   );
 }
 
+function foldTicketName(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+/** OP/PTA: a játékos jegy neve lehet „Játékos” vagy „Játékos jegy”. */
+export function findPlayerTicket(tickets: WizardTicket[]): WizardTicket | undefined {
+  const exact = tickets.find((row) => foldTicketName(row.TicketName) === 'játékos');
+  if (exact) return exact;
+  const prefixed = tickets.find((row) => foldTicketName(row.TicketName).startsWith('játékos'));
+  if (prefixed) return prefixed;
+  return tickets.length === 1 ? tickets[0] : undefined;
+}
+
 /** PTA create: Játékos / Játékmester / Szervező + 2 díjmentes jegy. */
 export function ensurePtaStarterRolesAndTickets(
   basics: WizardBasics,
@@ -376,9 +389,7 @@ export function ensureOpStarterRolesAndTickets(
 
   const window = ticketRegistrationWindow(basics);
   const role = findStarterRole(basics.roles, 'Játékos');
-  let ticket = (basics.tickets || []).find(
-    (row) => row.TicketName.trim().toLowerCase() === 'játékos'
-  );
+  let ticket = findPlayerTicket(basics.tickets || []);
   if (!ticket) {
     ticket = createEmptyTicket(basics.eventUid, basics.tickets.length + 1, window);
     ticket.TicketName = 'Játékos';

@@ -21,6 +21,8 @@ export interface OpImportQuestion {
   MediaKey: string | null;
   MediaUrl: string | null;
   SortIndex: number | null;
+  /** Üres vagy kviz: forduló kérdésbank. EG2, EG4–EG8: extra játék. */
+  Game: string | null;
 }
 
 function foldHeader(value: string): string {
@@ -112,6 +114,28 @@ function flagsFromCorrectRaw(type: OpQuestionTypeCode, raw: string): boolean[] {
   return flags;
 }
 
+function normalizeOpGame(raw: string, rowNumber: number): string | null {
+  const folded = foldHeader(raw);
+  if (!folded || ['kviz', 'quiz', 'kor', 'round', 'fordulo'].includes(folded)) return null;
+  const numbered = folded.match(/^eg([1-8])$/);
+  if (numbered) return `EG${numbered[1]}`;
+  const aliases: Record<string, string> = {
+    parbaj: 'EG1',
+    mozaik: 'EG2',
+    mosaic: 'EG2',
+    karaoke: 'EG3',
+    reverse: 'EG4',
+    generalciok: 'EG5',
+    generaciok: 'EG5',
+    musorvezeto: 'EG6',
+    filmguru: 'EG7',
+    kibeszel: 'EG8',
+  };
+  const game = aliases[folded];
+  if (game) return game;
+  throw new Error(`A(z) ${rowNumber}. sor játéka ismeretlen: „${raw}”. Üres, kviz, EG1, EG2, vagy EG4–EG8.`);
+}
+
 function parsePairs(raw: string): Array<{ left: string; right: string }> {
   return raw
     .split('|')
@@ -153,6 +177,8 @@ function toPayloadRow(q: OpImportQuestion): Record<string, unknown> {
     TimeSec: q.TimeSec,
   };
   if (q.SortIndex != null) row.SortIndex = q.SortIndex;
+  if (q.Game) row.ExtraGameId = q.Game;
+  if (q.TimeSec == null) delete row.TimeSec;
   if (q.MediaUrl) {
     if (/^https?:\/\//i.test(q.MediaUrl)) row.MediaUrl = q.MediaUrl;
     else row.ImageKey = q.MediaUrl;
@@ -205,6 +231,7 @@ export function parseOpQuestionGrid(grid: string[][]): OpImportQuestion[] {
   const timeIdx = idx(['idomp', 'timesec', 'ido', 'time']);
   const mediaIdx = idx(['mediakey', 'mediaurl', 'media']);
   const sortIdx = idx(['sorszam', 'sortindex', 'order', 'ordernumber', 'orderno']);
+  const gameIdx = idx(['jatek', 'game', 'extragame', 'extragameid']);
 
   const list: OpImportQuestion[] = [];
   for (let r = headerRow + 1; r < grid.length; r += 1) {
@@ -260,6 +287,7 @@ export function parseOpQuestionGrid(grid: string[][]): OpImportQuestion[] {
     }
     const timeRaw = cell(row, timeIdx);
     const media = cell(row, mediaIdx);
+    const game = normalizeOpGame(cell(row, gameIdx), r + 1);
     const derivedFlags = flagsFromCorrectRaw(type, correctRaw);
     const isCorrect = derivedFlags.map((flag, i) => excelFlags[i] ?? flag);
     list.push({
@@ -271,10 +299,11 @@ export function parseOpQuestionGrid(grid: string[][]): OpImportQuestion[] {
       Matches: matches,
       CorrectRaw: correctRaw,
       IsCorrect: isCorrect,
-      TimeSec: timeRaw ? nullableNumericId(timeRaw) : opDefaultTimeSec(type),
+      TimeSec: timeRaw ? nullableNumericId(timeRaw) : game === 'EG2' ? null : opDefaultTimeSec(type),
       MediaKey: media || null,
       MediaUrl: media || null,
       SortIndex: nullableNumericId(cell(row, sortIdx)),
+      Game: game,
     });
   }
   return list;
@@ -287,32 +316,18 @@ function sheetGrid(workbook: XLSX.WorkBook, name: string): string[][] {
   return grid.map((row) => row.map((value) => String(value ?? '').trim()));
 }
 
-function sheetHasQuestions(grid: string[][]): boolean {
-  if (grid.length < 2) return false;
-  try {
-    return parseOpQuestionGrid(grid).length > 0;
-  } catch {
-    return true;
-  }
-}
-
 function pickQuestionSheetName(workbook: XLSX.WorkBook): string | null {
   const names = workbook.SheetNames.filter((name) => {
     const folded = foldHeader(name);
-    return folded !== 'tipusok' && folded !== 'types' && folded !== 'legend';
+    return folded !== 'tipusok' && folded !== 'types' && folded !== 'legend' && folded !== 'mintak' && folded !== 'samples';
   });
   if (!names.length) return workbook.SheetNames[0] || null;
   const preferred = names.find((name) => {
     const folded = foldHeader(name);
     return folded === 'kerdesek' || folded === 'questions';
   });
-  if (preferred && sheetHasQuestions(sheetGrid(workbook, preferred))) return preferred;
-  const samples = names.find((name) => {
-    const folded = foldHeader(name);
-    return folded === 'mintak' || folded === 'samples';
-  });
-  if (samples && sheetHasQuestions(sheetGrid(workbook, samples))) return samples;
-  return preferred || names[0] || null;
+  if (preferred) return preferred;
+  return names[0] || null;
 }
 
 export async function parseOpQuestionFile(file: File): Promise<OpImportQuestion[]> {
@@ -374,48 +389,74 @@ export function readOpImportHttpError(error: unknown): {
 
 const TEMPLATE_HEADERS = [
   'Témakör',
+  'Játék',
   'Típus',
   'Sorszám',
   'Kérdés',
-  'Answer1',
-  'Answer2',
-  'Answer3',
-  'Answer4',
-  'Answer5',
-  'Answer6',
-  'Answer7',
-  'Answer8',
-  'Match1',
-  'Match2',
-  'Match3',
-  'Match4',
+  'Válasz1',
+  'Válasz2',
+  'Válasz3',
+  'Válasz4',
+  'Válasz5',
+  'Válasz6',
+  'Válasz7',
+  'Válasz8',
+  'Pár1',
+  'Pár2',
+  'Pár3',
+  'Pár4',
+  'Kategória1',
+  'Kategória2',
+  'Kategória3',
+  'Kategória4',
   'Helyes',
   'IdőMp',
-  'MediaUrl',
 ];
+
+function blankSlots(count: number, values?: string[]): string[] {
+  return Array.from({ length: count }, (_, index) => values?.[index] || '');
+}
+
+function sampleRow(input: {
+  topic: string;
+  game?: string;
+  type: string;
+  sort?: number | '';
+  prompt: string;
+  answers?: string[];
+  pairs?: string[];
+  cats?: string[];
+  correct: string;
+  time?: number | '';
+  note: string;
+}): Array<string | number> {
+  return [
+    input.topic,
+    input.game || 'kviz',
+    input.type,
+    input.sort ?? '',
+    input.prompt,
+    ...blankSlots(8, input.answers),
+    ...blankSlots(4, input.pairs),
+    ...blankSlots(4, input.cats),
+    input.correct,
+    input.time ?? '',
+    input.note,
+  ];
+}
 
 function applyTemplateCols(ws: XLSX.WorkSheet) {
   ws['!cols'] = [
     { wch: 16 },
+    { wch: 10 },
     { wch: 12 },
     { wch: 10 },
-    { wch: 42 },
-    { wch: 16 },
-    { wch: 16 },
-    { wch: 16 },
-    { wch: 16 },
-    { wch: 14 },
-    { wch: 14 },
-    { wch: 14 },
-    { wch: 14 },
-    { wch: 16 },
-    { wch: 18 },
-    { wch: 16 },
-    { wch: 16 },
-    { wch: 36 },
+    { wch: 46 },
+    ...Array.from({ length: 8 }, () => ({ wch: 22 })),
+    ...Array.from({ length: 4 }, () => ({ wch: 24 })),
+    ...Array.from({ length: 4 }, () => ({ wch: 14 })),
+    { wch: 56 },
     { wch: 8 },
-    { wch: 16 },
-    { wch: 40 },
   ];
 }
 
@@ -427,152 +468,212 @@ export function downloadOpQuestionTemplate() {
 
   const samples = XLSX.utils.aoa_to_sheet([
     [...TEMPLATE_HEADERS, 'Megjegyzés'],
-    [
-      '90-es évek',
-      'single',
-      1,
-      'Ki énekelte a Take On Me-t?',
-      'A-ha',
-      'Queen',
-      'ABBA',
-      'The Beatles',
-      '',
-      '',
-      '',
-      '',
-      '',
-      '',
-      '',
-      '',
-      '1',
-      20,
-      '',
-      'Helyes: 1 = első opció (A-ha).',
-    ],
-    [
-      '90-es évek',
-      'multi',
-      2,
-      'Kik voltak a Nirvana tagjai?',
-      'Kurt Cobain',
-      'Krist Novoselic',
-      'Dave Grohl',
-      'Axl Rose',
-      '',
-      '',
-      '',
-      '',
-      '',
-      '',
-      '',
-      '',
-      '1|2|3',
-      25,
-      '',
-      'Több helyes index | jellel. 4. (Axl) nem.',
-    ],
-    [
-      'Albumok',
-      'order',
-      3,
-      'Rakd időrendbe a lemezeket (legrégebbi elöl).',
-      'Nevermind (1991)',
-      'In Utero (1993)',
-      'Bleach (1989)',
-      'Unplugged in New York (1994)',
-      '',
-      '',
-      '',
-      '',
-      '',
-      '',
-      '',
-      '',
-      '3|1|2|4',
-      30,
-      '',
-      'Helyes: az opciók sorrendje 1-től.',
-    ],
-    [
-      'Párosítás',
-      'match',
-      '',
-      'Párosítsd az előadót a dallal.',
-      'Queen',
-      'A-ha',
-      'Nirvana',
-      'ABBA',
-      '',
-      '',
-      '',
-      '',
-      'Bohemian Rhapsody',
-      'Take On Me',
-      'Smells Like Teen Spirit',
-      'Dancing Queen',
-      'Queen=Bohemian Rhapsody|A-ha=Take On Me|Nirvana=Smells Like Teen Spirit|ABBA=Dancing Queen',
-      30,
-      '',
-      'Answer = bal oldal, Match = jobb. Helyes: bal=jobb|…',
-    ],
-    [
-      'Műfajok',
-      'category',
-      '',
-      'Sorold be a dalokat stílus szerint.',
-      'Take On Me',
-      'Smells Like Teen Spirit',
-      'Dancing Queen',
-      'Lithium',
-      '',
-      '',
-      '',
-      '',
-      'pop',
-      'grunge',
-      '',
-      '',
-      'Take On Me=pop|Smells Like Teen Spirit=grunge|Dancing Queen=pop|Lithium=grunge',
-      30,
-      '',
-      'Answer = darabok. Match = kategóriák (pop, grunge). Helyes: darab=kategória|…',
-    ],
-    [
-      '90-es évek',
-      'freetext',
-      '',
-      'Melyik városban alakult a Nirvana?',
-      'Aberdeen|Aberdeen WA',
-      '',
-      '',
-      '',
-      '',
-      '',
-      '',
-      '',
-      '',
-      '',
-      '',
-      '',
-      '',
-      40,
-      '',
-      'Szinonimák az Answer1-ben, | jellel.',
-    ],
+    sampleRow({
+      topic: '90-es évek',
+      type: 'single',
+      sort: 1,
+      prompt: 'Ki énekelte a Take On Me-t?',
+      answers: ['A-ha', 'Queen', 'ABBA', 'The Beatles'],
+      correct: '1',
+      time: 20,
+      note: 'Helyes: 1 = első válasz (A-ha).',
+    }),
+    sampleRow({
+      topic: '90-es évek',
+      type: 'multi',
+      sort: 2,
+      prompt: 'Kik voltak a Nirvana tagjai?',
+      answers: ['Kurt Cobain', 'Krist Novoselic', 'Dave Grohl', 'Axl Rose'],
+      correct: '1|2|3',
+      time: 25,
+      note: 'Több helyes index | jellel. A 4. (Axl) nem.',
+    }),
+    sampleRow({
+      topic: 'Albumok',
+      type: 'order',
+      sort: 3,
+      prompt: 'Rakd időrendbe a lemezeket, a legrégebbi elöl.',
+      answers: ['Nevermind (1991)', 'In Utero (1993)', 'Bleach (1989)', 'Unplugged in New York (1994)'],
+      correct: '3|1|2|4',
+      time: 30,
+      note: 'Helyes: a válaszok sorrendje 1-től.',
+    }),
+    sampleRow({
+      topic: 'Párosítás',
+      type: 'match',
+      prompt: 'Párosítsd az előadót a dallal.',
+      answers: ['Queen', 'A-ha', 'Nirvana', 'ABBA'],
+      pairs: ['Bohemian Rhapsody', 'Take On Me', 'Smells Like Teen Spirit', 'Dancing Queen'],
+      correct: 'Queen=Bohemian Rhapsody|A-ha=Take On Me|Nirvana=Smells Like Teen Spirit|ABBA=Dancing Queen',
+      time: 30,
+      note: 'Legfeljebb 4 pár. Válasz = bal oldal, Pár = jobb oldal.',
+    }),
+    sampleRow({
+      topic: 'Műfajok',
+      type: 'category',
+      prompt: 'Sorold be a dalokat stílus szerint.',
+      answers: ['Take On Me', 'Smells Like Teen Spirit', 'Dancing Queen', 'Lithium', 'Vogue', 'Heart-Shaped Box'],
+      cats: ['pop', 'grunge', 'disco'],
+      correct:
+        'Take On Me=pop|Smells Like Teen Spirit=grunge|Dancing Queen=disco|Lithium=grunge|Vogue=disco|Heart-Shaped Box=grunge',
+      time: 30,
+      note: '6 válasz, 3 kategória. A kategória neve a Kategória oszlopban van, nem a párban.',
+    }),
+    sampleRow({
+      topic: '90-es évek',
+      type: 'freetext',
+      prompt: 'Melyik városban alakult a Nirvana?',
+      answers: ['Aberdeen|Aberdeen WA'],
+      correct: '',
+      time: 40,
+      note: 'Szinonimák a Válasz1-ben, | jellel.',
+    }),
+    sampleRow({
+      topic: 'Párbaj',
+      game: 'EG1',
+      type: 'single',
+      sort: 1,
+      prompt: 'Melyik együttes adta ki a Nevermindot?',
+      answers: ['Nirvana', 'Pearl Jam', 'Oasis', 'Blur'],
+      correct: '1',
+      time: 10,
+      note: 'Párbaj. Játék = EG1, egyválasztós. A készletből az első 5 sorszám indul.',
+    }),
+    sampleRow({
+      topic: 'Párbaj',
+      game: 'EG1',
+      type: 'single',
+      sort: 2,
+      prompt: 'Melyik városban alakult a Beatles?',
+      answers: ['Liverpool', 'London', 'Manchester', 'Dublin'],
+      correct: '1',
+      time: 10,
+      note: 'Párbaj, 2. kérdés.',
+    }),
+    sampleRow({
+      topic: 'Párbaj',
+      game: 'EG1',
+      type: 'single',
+      sort: 3,
+      prompt: 'Ki énekelte a Billie Jean-t?',
+      answers: ['Michael Jackson', 'Prince', 'Madonna', 'George Michael'],
+      correct: '1',
+      time: 10,
+      note: 'Párbaj, 3. kérdés.',
+    }),
+    sampleRow({
+      topic: 'Párbaj',
+      game: 'EG1',
+      type: 'single',
+      sort: 4,
+      prompt: 'Ki volt a Queen frontembere?',
+      answers: ['Freddie Mercury', 'Robert Plant', 'Mick Jagger', 'Axl Rose'],
+      correct: '1',
+      time: 10,
+      note: 'Párbaj, 4. kérdés. A helyes a személy, nem az együttes.',
+    }),
+    sampleRow({
+      topic: 'Párbaj',
+      game: 'EG1',
+      type: 'single',
+      sort: 5,
+      prompt: 'Melyik évben jelent meg a Thriller?',
+      answers: ['1982', '1979', '1987', '1991'],
+      correct: '1',
+      time: 10,
+      note: 'Párbaj, 5. kérdés.',
+    }),
+    sampleRow({
+      topic: 'Zenék',
+      game: 'EG2',
+      type: 'freetext',
+      sort: 1,
+      prompt: 'Melyik szám szól?',
+      answers: ['Take On Me|A-ha'],
+      correct: '',
+      note: 'Mozaik. Az idő üres, nem számít. A hangot a kérdésre töltöd, nem az Excelbe.',
+    }),
+    sampleRow({
+      topic: 'Fordított',
+      game: 'EG4',
+      type: 'freetext',
+      sort: 1,
+      prompt: 'Melyik számnak ez a szövege: Take on me…',
+      answers: ['Take On Me|Take on me'],
+      correct: '',
+      time: 20,
+      note: 'Reverse. Szabad szöveg, a cím vagy az előadó.',
+    }),
+    sampleRow({
+      topic: 'Generációk',
+      game: 'EG5',
+      type: 'single',
+      sort: 1,
+      prompt: 'Melyik együttes a 80-as évekből való?',
+      answers: ['A-ha', 'Nirvana', 'ABBA', 'Queen'],
+      correct: '1',
+      time: 12,
+      note: 'Generációk. Rövid egyválasztós.',
+    }),
+    sampleRow({
+      topic: 'Műsorvezető',
+      game: 'EG6',
+      type: 'freetext',
+      sort: 1,
+      prompt: 'Ki van a képen?',
+      answers: ['Kurt Cobain|Cobain'],
+      correct: '',
+      time: 20,
+      note: 'A képet a kérdésre töltöd, nem az Excelbe.',
+    }),
+    sampleRow({
+      topic: 'Filmek',
+      game: 'EG7',
+      type: 'single',
+      sort: 1,
+      prompt: 'Melyik filmben szerepelt ez a dal?',
+      answers: ['Trainspotting', 'Ponyvaregény', 'Mátrix', 'Titanic'],
+      correct: '1',
+      time: 12,
+      note: 'Filmguru. Egyválasztós.',
+    }),
+    sampleRow({
+      topic: 'Hangok',
+      game: 'EG8',
+      type: 'freetext',
+      sort: 1,
+      prompt: 'Ki beszél?',
+      answers: ['David Attenborough|Attenborough'],
+      correct: '',
+      time: 20,
+      note: 'Ki beszél? Szabad szöveg. A hangot a kérdésre töltöd.',
+    }),
   ]);
   applyTemplateCols(samples);
+  samples['!cols'] = [...(samples['!cols'] || []), { wch: 62 }];
   XLSX.utils.book_append_sheet(wb, samples, 'Minták');
 
   const legend = XLSX.utils.aoa_to_sheet([
-    ['Típus (ezt írd a Típus oszlopba)', 'Jelentés', 'Helyes mező', 'Sorszám'],
-    ['single', 'Egyválasztós', '1 = első opció', '1–8 = forduló sorrendje. Üres = csak a kérdésbank.'],
-    ['multi', 'Többválasztós', '1|3'],
-    ['order', 'Sorrendezés', '3|1|2'],
-    ['match', 'Párosítás', 'bal=jobb|bal2=jobb2'],
-    ['category', 'Kategorizálás', 'Match1… = kategóriák; Helyes: dal=pop|dal2=grunge'],
-    ['freetext', 'Szabad szöveg', 'Answer1: szinonima1|szinonima2'],
+    ['Oszlop / kód', 'Jelentés', 'Helyes mező'],
+    ['kviz vagy üres', 'Forduló kérdésbankja', ''],
+    ['single', 'Egyválasztós', '1 = első válasz'],
+    ['multi', 'Többválasztós', '1|2|3'],
+    ['order', 'Sorrendezés', '3|1|2|4'],
+    ['match', 'Párosítás, legfeljebb 4 pár', 'bal=jobb|bal2=jobb2'],
+    ['category', 'Kategorizálás. Válasz = darab, Kategória = csoport', 'dal=pop|dal2=grunge'],
+    ['freetext', 'Szabad szöveg', 'Szinonimák a Válasz1-ben: a|b'],
+    ['Sorszám', '1–8 a fordulóban, üres = csak a kérdésbank', ''],
+    ['IdőMp', 'Üresen a típus alapideje. Mozaiknál hagyd üresen.', ''],
+    ['EG1 Párbaj', 'Saját egyválasztós sorok, Játék = EG1. Induláskor ebből jön az 5 kérdés.', '1 = első válasz'],
+    ['EG2 Mozaik', 'Szabad szöveg. Az idő üres. A hang a kérdésen.', 'Válasz1: cím|előadó'],
+    ['EG3 Karaoke', 'Nincs kérdés sor. A pont a játékmester pluszpontja.', ''],
+    ['EG4 Reverse', 'Szabad szöveg, cím vagy előadó.', ''],
+    ['EG5 Generációk', 'Rövid egyválasztós.', ''],
+    ['EG6 Műsorvezető', 'Szabad szöveg. A kép a kérdésen.', ''],
+    ['EG7 Filmguru', 'Egyválasztós.', ''],
+    ['EG8 Ki beszél?', 'Szabad szöveg. A hang a kérdésen.', ''],
   ]);
-  legend['!cols'] = [{ wch: 28 }, { wch: 16 }, { wch: 36 }, { wch: 42 }];
+  legend['!cols'] = [{ wch: 22 }, { wch: 62 }, { wch: 36 }];
   XLSX.utils.book_append_sheet(wb, legend, 'Típusok');
 
   const bytes = XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as Uint8Array;

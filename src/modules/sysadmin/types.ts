@@ -209,6 +209,31 @@ export function isClosedTicketStatus(statusId: number | null | undefined): boole
   return TICKET_STATUS_OPTIONS.some((item) => item.value === statusId && item.isClosed);
 }
 
+export type KabalaAssetSlot = 'profile' | 'full';
+
+export interface SysadminKabalaAsset {
+  slot: KabalaAssetSlot;
+  kind: 'image' | 'animation';
+  blobUrl: string | null;
+  mime: string | null;
+  sizeInBytes: number | null;
+}
+
+export interface SysadminKabala {
+  id: number;
+  name: string;
+  activeFlg: boolean;
+  teamCount: number;
+  assets: SysadminKabalaAsset[];
+}
+
+export interface SysadminKabalaSave {
+  id: number;
+  name: string;
+  activeFlg: boolean;
+  assets: SysadminKabalaAsset[];
+}
+
 export const DASHBOARD_PERIODS: { value: DashboardPeriod; label: string }[] = [
   { value: 1, label: 'Ma' },
   { value: 7, label: 'Elmúlt 1 hét' },

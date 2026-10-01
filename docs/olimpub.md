@@ -120,10 +120,13 @@ Wizard: `StepOpSettings` típus 43-nál (PTA `StepPtaSettings` mintájára).
 |---|---|
 | `id` | PK |
 | `Name` | csapatnév, ha kiosztják |
-| `ImageUrl` | opcionális |
 | `ActiveFlg` | |
 
+A fájl külön sor: `OP.KabalaAsset` (`Slot`: `profile` lista/csapatválasztó, `full` nagy kép; később animációs slot). Kind: `image` \| `animation`. Egy aktív fájl / kabala / slot.
+
 Eseményen: `OP.Team (EventID, KabalaID, TeamId, …)` — egy kabala **egyszer** / esemény.
+
+A törzs felvitele sysadmin: Adatok → Mester adatok → Kabalák. Szerződés: [`olimpub-kabala-admin.md`](./olimpub-kabala-admin.md). Az esti kiosztás a varázsló `KabalaIds` mezője.
 
 ### 4.2 Helyszíni EventUID QR
 
@@ -138,6 +141,8 @@ Folyamat = EventUID join, de `TeamId` előre kötve: **nincs** kabala-választó
 A kapitány (már a csapatban lévő játékos) **Társak behívása** ezt a QR-t mutatja.
 
 ### 4.4 DeviceId vendég-session (app nélküli csapatépítő)
+
+A helyszíni csapatépítő köre (állandó `/olimpub/join` QR, egy `CurrentFlg`, csak nickname, négy SignalR csatorna) a backend szerződése: [`olimpub-live.md`](./olimpub-live.md). Az alábbi név-mezős join a régebbi váz; ahol ütköznek, az élő menet a mérvadó.
 
 A mai `DeviceId` csak session-gép, nem identitás. OP helyszínen:
 
@@ -230,12 +235,17 @@ A választóban / keréken **csak** az eseményen engedélyezett **és** még **
 | Oszlop | Kötelező | |
 |---|---|---|
 | `Témakör` | igen | repository topic, upsert név alapján |
+| `Játék` | nem | üres vagy `kviz` = forduló. `EG1` párbaj, `EG2`, `EG4`–`EG8` = extra játék. `EG3` karaoke nem kérdés sor. |
 | `Típus` | igen | `single` / `multi` / `order` / `match` / `category` / `freetext` (HU alias oké) |
+| `Sorszám` | nem | 1–8 a fordulóban. Üres = csak a kérdésbank. |
 | `Kérdés` | igen | |
-| `Opciók` | típusfüggő | `|` vagy külön oszlopok |
-| `Helyes` | igen | index(ek), sorrend, párok, kategória-map, szinonimák `\|` |
-| `IdőMp` | nem | üres → típus-default |
-| `MediaKey` | nem | későbbi blob-kötés |
+| `Válasz1…8` | típusfüggő | bal oldal, opciók, vagy szabad szöveg szinonimái `\|` jellel a Válasz1-ben |
+| `Pár1…4` | párosítás | jobb oldal, legfeljebb 4 |
+| `Kategória1…4` | kategória | csoportnevek. A darabok a Válasz oszlopban maradnak. |
+| `Helyes` | igen | index(ek), sorrend, `bal=jobb`, `darab=kategória` |
+| `IdőMp` | nem | üres → típus-default. Mozaiknál üres. |
+
+Kép és hang nincs az Excelben. A média a kérdésen, a Kvíz nézetben töltődik.
 
 Csak szervező. 403 kvízmesternek.
 
@@ -286,7 +296,7 @@ Join: `POST /signalr/join` + `display` role, ha a token/JWT engedi.
 - Forduló lezárása → utána: eredmények a kliensekre + kivetítés a TV-re
 - Extra játék UI (§10)
 
-A kvízmester **látja** a kérdést + helyes választ a vezérlőn. A játékos csak az indított kérdést.
+A kvízmester **látja** a kérdést + helyes választ a vezérlőn. A játékos csak az indított kérdést. Kérdések között a játékos **váróterme**: [`olimpub-player-lobby.md`](./olimpub-player-lobby.md).
 
 ### 7.4 Kliens validáció vs szerver pont
 
@@ -391,14 +401,14 @@ Csak az `OpSettings.ExtraGameIds`-ben lévők. Pont a játék **lezárása** ut�
 
 | ID | UI | Pont |
 |---|---|---|
-| **EG1 Párbaj** | 5 rapid kérdés | kérdésenként csak a **leggyorsabb helyes** +10. Döntetlen nincs (szerver `t`, kisebb nyer; egyenlő `t` → kisebb EventUserID). Max 50. |
-| **EG2 Mozaik** | játékos: nagy Megállít (SignalR a vezérlőnek / display kép stop). Hang a kvízmester/szervező gépén. | JM/szervező jóváhagyja a bemondást. Jó: **+20** annak a csapatnak, zenénként 1 nyertes, következő feladvány. |
+| **EG1 Párbaj** | 5 rapid kérdés a felöltött `ExtraGameId=EG1` készletből, `SortIndex` szerint. Nem a kör bankjából. | kérdésenként csak a **leggyorsabb helyes** +10. Döntetlen nincs (szerver `t`, kisebb nyer; egyenlő `t` → kisebb EventUserID). Max 50. |
+| **EG2 Mozaik** | a felöltött `EG2` szabad szöveges sorok, sorrendben. Nincs számláló. Hang a kvízmester/szervező gépén. | JM/szervező jóváhagyja a bemondást. Jó: **+20** annak a csapatnak, zenénként 1 nyertes, következő feladvány. |
 | **EG3 Karaoke** | vezérlőn csapatlista, koppintásra létszám (0..n) | éneklőnként **+10** a csapatnak |
-| **EG4 Reverse** | 5× freetext (cím/előadó) | Top5: 50/40/30/20/10, holtverseny §8.3 |
-| **EG5 Generációk** | 10–15 mp single rapid | ugyanaz a Top5 |
-| **EG6 Műsorvezető** | TV kép (display), telefon freetext + fuzzy | Top5 |
-| **EG7 Filmguru** | single rapid | Top5 |
-| **EG8 Ki beszél?** | single vagy freetext | Top5 |
+| **EG4 Reverse** | 5× freetext a felöltött `EG4` készletből | Top5: 50/40/30/20/10, holtverseny §8.3 |
+| **EG5 Generációk** | 5× single a felöltött `EG5` készletből | ugyanaz a Top5 |
+| **EG6 Műsorvezető** | 5× freetext a felöltött `EG6` készletből. Kép a kérdésen. | Top5 |
+| **EG7 Filmguru** | 5× single a felöltött `EG7` készletből | Top5 |
+| **EG8 Ki beszél?** | 5× freetext a felöltött `EG8` készletből. Hang a kérdésen. | Top5 |
 
 v1 kliensen extra játéknál sem szól zene a telefonon, csak UI + display kép.
 
@@ -421,6 +431,7 @@ Gyökér mint `/event/change`: `EventID`, `Action`, `Payload`. Auth JWT (szervez
 | `Op.Penalty` | QM / szerv. | `TeamId`, `Points` (negatív), `UndoId?` |
 | `Op.StartExtra` | QM / szerv. | `ExtraGameId` |
 | `Op.StopExtra` | QM / szerv. | `ExtraGameId` — extra pontok beírása |
+| `Op.ResetExtra` | QM / szerv. | `ExtraGameId` / `ExtraRunID` — ExtraScore törlése |
 | `Op.MosaicBuzz` | játékos | `TeamId` |
 | `Op.MosaicJudge` | QM / szerv. | `TeamId`, `CorrectFlg` |
 | `Op.KaraokeSet` | QM / szerv. | `TeamId`, `SingerCount` |

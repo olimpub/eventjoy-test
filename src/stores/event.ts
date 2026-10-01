@@ -27,9 +27,9 @@ import {
 } from 'src/modules/profitability/ptaData';
 import { buildPtaDraw, type PtaDrawBuildResult } from 'src/modules/profitability/buildPtaDraw';
 import { PLAYERS_PER_DESK, normalizePtaSchedules } from 'src/modules/profitability/drawEngine';
-import { isOlimpubEventType } from 'src/modules/olimpub/constants';
+import { isOlimpubEventType, OP_EVENT_TYPE_ID } from 'src/modules/olimpub/constants';
 import { isAxiosNetworkError } from 'src/utils/networkStatus';
-import { normalizeOpSettings, type OpEventSettings } from 'src/modules/olimpub/opData';
+import { normalizeOpCatalog, normalizeOpSettings, normalizeOpTeams, withKabalaAssets, type OpEventSettings } from 'src/modules/olimpub/opData';
 import { isProfitabilityEventType } from 'src/modules/profitability/constants';
 import {
   catalogHasPublishedStatus,
@@ -43,6 +43,7 @@ import {
   isInviteDecisionStatusId,
 } from 'src/utils/eventUserFlow';
 import { normalizeEventPrograms, type EventProgram } from 'src/utils/eventProgram';
+import { findEventStatusIdByNameHints } from 'src/utils/eventFlow';
 import { useMasterDataStore, ORGANIZER_ROLE_TYPE_ID } from './masterData';
 
 /** GetEventData RS: EventUsers — a belépett user saját sorai */
@@ -61,6 +62,8 @@ export interface EventUser {
   /** 1–5, vagy null ha még nincs értékelés — GET /event/data + userdata */
   Rating: number | null;
   RatingComment: string | null;
+  /** Device / Olimpub: tblUser.Nickname. A résztvevőlistán név híján ezt mutatjuk. */
+  Nickname?: string | null;
   [key: string]: unknown;
 }
 
@@ -111,6 +114,54 @@ function rowNullableString(row: Record<string, unknown>, ...keys: string[]): str
     if (s && s !== 'null' && s !== 'undefined') return s;
   }
   return null;
+}
+
+/** Device-játékos: tblUser.Nickname — userdata EventParticpants / Users / nested User. */
+export function nicknameFromRow(row: Record<string, unknown> | null | undefined, depth = 0): string | null {
+  if (!row) return null;
+  const named = rowNullableString(
+    row,
+    'Nickname',
+    'nickname',
+    'NICKNAME',
+    'NickName',
+    'nickName',
+    'UserNickname',
+    'userNickname',
+    'UsrNickname',
+    'Becenev',
+    'becenev'
+  );
+  if (named) return named;
+  for (const [key, val] of Object.entries(row)) {
+    if (!/nick|becenev/i.test(key)) continue;
+    if (val && typeof val === 'object') continue;
+    const s = String(val ?? '').trim();
+    if (s && s !== 'null' && s !== 'undefined') return s;
+  }
+  if (depth >= 2) return null;
+  const nested = row.User ?? row.user ?? row.Usr ?? row.tblUser;
+  if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+    return nicknameFromRow(nested as Record<string, unknown>, depth + 1);
+  }
+  return null;
+}
+
+function attachSheetUserNicknames(participants: EventParticipant[], userRows: unknown[]): EventParticipant[] {
+  const byUserId = new Map<number, Record<string, unknown>>();
+  for (const raw of userRows || []) {
+    if (!raw || typeof raw !== 'object') continue;
+    const rec = raw as Record<string, unknown>;
+    const id = rowNumericId(rec, 'id', 'ID', 'UserID', 'UserId');
+    if (id != null) byUserId.set(id, rec);
+  }
+  return participants.map((row) => {
+    const fromSelf = nicknameFromRow(row as Record<string, unknown>);
+    const fromUser =
+      row.UserID != null ? nicknameFromRow(byUserId.get(Number(row.UserID)) || undefined) : null;
+    const nick = fromSelf || fromUser || row.Nickname || null;
+    return nick ? { ...row, Nickname: nick } : { ...row, Nickname: row.Nickname ?? null };
+  });
 }
 
 function normalizeEvents(rows: unknown[]): any[] {
@@ -171,6 +222,7 @@ function normalizeEventUsers(rows: unknown[]): EventUser[] {
         ),
         Rating: rowNullableRating(row),
         RatingComment: rowNullableString(row, 'RatingComment', 'ratingComment'),
+        Nickname: nicknameFromRow(row),
       };
     })
     .filter((row) => row.id !== undefined && row.EventID !== undefined);
@@ -191,6 +243,54 @@ function normalizeTickets(rows: unknown[]): any[] {
     .filter((row) => row.id !== undefined);
 }
 
+function looksLikeEventRoleRow(row: Record<string, unknown>): boolean {
+  if (nullableNumericId(row.EventID ?? row.eventID ?? row.EventId) != null) return true;
+  const id = nullableNumericId(row.id ?? row.ID ?? row.Id ?? row.EventRoleID);
+  const roleId = nullableNumericId(row.RoleID ?? row.roleID ?? row.RoleId);
+  return id != null && roleId != null && id !== roleId;
+}
+
+function stampEventIdOnRoleRows(rows: unknown[], eventId: number | null | undefined): unknown[] {
+  const eid = nullableNumericId(eventId);
+  if (eid == null) return rows;
+  return (rows || []).map((raw) => {
+    if (!raw || typeof raw !== 'object') return raw;
+    const rec = raw as Record<string, unknown>;
+    if (!looksLikeEventRoleRow(rec)) return rec;
+    if (nullableNumericId(rec.EventID ?? rec.eventID ?? rec.EventId) != null) return rec;
+    return { ...rec, EventID: eid };
+  });
+}
+
+function normalizeRoleTickets(rows: unknown[]): Array<{
+  EventRoleID: number;
+  EventTicketID: number;
+  EventID?: number | null;
+}> {
+  const list: Array<{ EventRoleID: number; EventTicketID: number; EventID?: number | null }> = [];
+  const seen = new Set<string>();
+  for (const raw of rows || []) {
+    if (!raw || typeof raw !== 'object') continue;
+    const rec = raw as Record<string, unknown>;
+    const EventRoleID = nullableNumericId(
+      rec.EventRoleID ?? rec.eventRoleID ?? rec.EventRoleId ?? rec.RoleID
+    );
+    const EventTicketID = nullableNumericId(
+      rec.EventTicketID ?? rec.eventTicketID ?? rec.EventTicketId ?? rec.TicketID
+    );
+    if (EventRoleID == null || EventTicketID == null) continue;
+    const key = `${EventRoleID}:${EventTicketID}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    list.push({
+      EventRoleID,
+      EventTicketID,
+      EventID: nullableNumericId(rec.EventID ?? rec.eventID ?? rec.EventId),
+    });
+  }
+  return list;
+}
+
 function normalizeEventParticipants(rows: unknown[]): EventParticipant[] {
   return normalizeEventUsers(rows).map((row) => ({
     ...row,
@@ -198,6 +298,7 @@ function normalizeEventParticipants(rows: unknown[]): EventParticipant[] {
     LastName: String(row.LastName ?? row.lastName ?? ''),
     EmailAddress: String(row.EmailAddress ?? row.emailAddress ?? row.Email ?? ''),
     PhoneNumber: (row.PhoneNumber ?? row.phoneNumber ?? row.Phone ?? null) as string | null,
+    Nickname: row.Nickname ?? null,
   }));
 }
 
@@ -302,7 +403,8 @@ function participantDisplayName(row: Record<string, unknown>): string {
   const last = String(row.LastName ?? row.lastName ?? '').trim();
   const first = String(row.FirstName ?? row.firstName ?? '').trim();
   const display = String(row.DisplayName ?? row.UserName ?? row.Name ?? '').trim();
-  return [last, first].filter(Boolean).join(' ') || display || 'Játékos';
+  const nick = nicknameFromRow(row);
+  return [last, first].filter(Boolean).join(' ') || nick || display || 'Játékos';
 }
 
 function eventUserLooksCheckedIn(statusName: string): boolean {
@@ -504,6 +606,11 @@ function eventUserRoleTypeId(eventRoles: any[], eu: EventUser): number | null {
   );
 }
 
+function eventUserRoleLabel(eu: EventUser): string {
+  const raw = eu.RoleName ?? eu.EventRoleName ?? eu.RoleTitle ?? eu.roleName;
+  return typeof raw === 'string' ? raw.trim() : '';
+}
+
 function eventUserMembershipKind(
   eventRoles: any[],
   masterDataStore: ReturnType<typeof useMasterDataStore>,
@@ -646,6 +753,7 @@ export const useEventStore = defineStore('event', {
             LastName: String((eu as EventParticipant).LastName ?? ''),
             EmailAddress: String((eu as EventParticipant).EmailAddress ?? ''),
             PhoneNumber: ((eu as EventParticipant).PhoneNumber ?? null) as string | null,
+            Nickname: eu.Nickname ?? null,
           });
         }
         return [...byId.values()];
@@ -942,11 +1050,12 @@ export const useEventStore = defineStore('event', {
           if (seen.has(key)) continue;
           seen.add(key);
 
+          const fromMaster = masterRoleId != null ? masterDataStore.getRoleNameById(masterRoleId) : '';
           result.push({
             eventUserId: eu.id,
             eventRoleId,
             masterRoleId,
-            name: masterRoleId != null ? masterDataStore.getRoleNameById(masterRoleId) : 'Szerepkör',
+            name: eventUserRoleLabel(eu) || fromMaster || 'Szerepkör',
             roleTypeName: masterRoleId != null ? masterDataStore.getRoleTypeNameByRoleId(masterRoleId) : '',
             color: masterRoleId != null ? masterDataStore.getRoleColorById(masterRoleId) : '#38bdf8',
             isOrganizer,
@@ -958,26 +1067,140 @@ export const useEventStore = defineStore('event', {
   },
   actions: {
     setEventData(data: any) {
-      this.events = normalizeEvents(data.Events || data.events || []);
+      const incomingEvents = normalizeEvents(data.Events || data.events || []);
+      const incomingUsers = normalizeEventUsers(data.EventUsers || data.eventUsers || []);
+      // Üres /event/data ne törölje a már betöltött listát (OpDevice token, hibás payload).
+      if (incomingEvents.length) {
+        this.events = incomingEvents;
+        this.eventUsers = incomingUsers;
+      } else if (!this.events.length) {
+        this.events = incomingEvents;
+        this.eventUsers = incomingUsers;
+      }
       this.invitations = data.Invitations || [];
       this.eventLabels = data.EventLabels || [];
       this.labels = data.Labels || [];
       this.locations = data.Locations || [];
-      this.roles = data.Roles || [];
-      this.roleTickets = data.RoleTickets || [];
-      this.tickets = normalizeTickets(data.Tickets || data.tickets || []);
-      this.eventUsers = normalizeEventUsers(data.EventUsers || data.eventUsers || []);
+      const catalogRoles = pickFilledDataset(
+        data,
+        'EventRoles',
+        'eventRoles',
+        'Roles',
+        'roles'
+      );
+      this.roles = catalogRoles.length ? catalogRoles : data.Roles || data.roles || [];
+      this.roleTickets = normalizeRoleTickets(
+        pickFilledDataset(data, 'RoleTickets', 'roleTickets', 'EventRoleTickets', 'eventRoleTickets')
+      );
+      const ticketRows = pickFilledDataset(data, 'Tickets', 'tickets', 'EventTickets', 'EventTicket');
+      this.tickets = normalizeTickets(ticketRows.length ? ticketRows : data.Tickets || data.tickets || []);
       this.eventTypeOwners = data.EventTypeOwners || [];
       this.eventPrograms = normalizeEventPrograms(data.EventPrograms || data.eventPrograms || []);
       pruneLocalEventUserStatusPatches(this.eventUsers);
       this.reapplyLocalEventUserStatuses();
-      // Event.SetStatus a /event/change-en megy; a GET a forrás. Régi dummy overlay ki.
       clearLocalEventStatuses();
       clearLocalPtaDraws();
     },
 
+    rememberOpDeviceEvent(session: {
+      eventId: number;
+      eventUserId: number;
+      eventTitle: string;
+      statusId?: number | null;
+      statusName?: string;
+    }) {
+      const now = new Date();
+      const statusId = nullableNumericId(session.statusId);
+      const statusName = String(session.statusName || '').trim();
+      this.upsertEvents([
+        {
+          id: session.eventId,
+          Title: session.eventTitle || 'Olimpub',
+          EventName: session.eventTitle || 'Olimpub',
+          EventTypeID: OP_EVENT_TYPE_ID,
+          StartAtUtc: now.toISOString(),
+          EndAtUtc: new Date(now.getTime() + 12 * 60 * 60 * 1000).toISOString(),
+          ...(statusId != null ? { EventStatusID: statusId } : {}),
+          ...(statusName ? { EventStatusName: statusName, SName: statusName } : {}),
+        },
+      ]);
+      const already = this.eventUsers.some((row) => Number(row.id) === Number(session.eventUserId));
+      if (already) return;
+      this.eventUsers = [
+        ...this.eventUsers,
+        {
+          id: session.eventUserId,
+          EventID: session.eventId,
+          EventRoleID: null,
+          EventTicketID: null,
+          InvoiceID: null,
+          EventUserStatusID: null,
+          UserID: null,
+          EventUserUID: null,
+          PrevEventUserStatusID: null,
+          Rating: null,
+          RatingComment: null,
+          RoleName: 'Játékos',
+        },
+      ];
+    },
+
+    /** Olimpub élő státusz a GET /op/current-ből — játékos adatlap = szervezői adatlap. */
+    applyOpLiveStatus(payload: {
+      eventId: number;
+      title?: string;
+      statusId?: number | null;
+      statusName?: string;
+    }): { statusId: number | null; statusName: string } {
+      const master = useMasterDataStore();
+      let statusId = nullableNumericId(payload.statusId);
+      const statusName = String(payload.statusName || '').trim();
+      if (statusId == null && statusName) {
+        statusId = findEventStatusIdByNameHints(master.eventStatuses, [statusName]);
+      }
+      const row: Record<string, unknown> = {
+        id: payload.eventId,
+        EventTypeID: OP_EVENT_TYPE_ID,
+      };
+      const title = String(payload.title || '').trim();
+      if (title) {
+        row.Title = title;
+        row.EventName = title;
+      }
+      if (statusId != null) row.EventStatusID = statusId;
+      if (statusName) {
+        row.EventStatusName = statusName;
+        row.SName = statusName;
+      }
+      this.upsertEvents([row]);
+      return { statusId, statusName };
+    },
+
+    applyParticipantNicknames(
+      eventId: number | string,
+      rows: Array<{ eventUserId: number; name: string }>
+    ) {
+      const byEu = new Map<number, string>();
+      for (const row of rows) {
+        const name = String(row.name || '').trim();
+        if (!name || name === 'Névtelen' || name === 'Ismeretlen') continue;
+        byEu.set(Number(row.eventUserId), name);
+      }
+      if (!byEu.size) return;
+      this.eventParticipants = this.eventParticipants.map((row) => {
+        if (Number(row.EventID) !== Number(eventId) && String(row.EventID) !== String(eventId)) {
+          return row;
+        }
+        const nick = byEu.get(Number(row.id));
+        if (!nick || row.Nickname) return row;
+        return { ...row, Nickname: nick };
+      });
+    },
+
     async refreshEventData() {
       try {
+        const { deviceUserFromSession } = await import('src/modules/olimpub/opDevice');
+        if (deviceUserFromSession()) return;
         const response = await api.get('/event/data');
         this.setEventData(unwrapApiPayload(response.data));
       } catch (error) {
@@ -997,6 +1220,10 @@ export const useEventStore = defineStore('event', {
             merged.EventStatusID = prev.EventStatusID;
             merged.PrevEventStatusID = ev.PrevEventStatusID ?? prev.PrevEventStatusID;
           }
+          if (!String(ev.EventStatusName ?? '').trim() && prev.EventStatusName) {
+            merged.EventStatusName = prev.EventStatusName;
+            if (!merged.SName && prev.SName) merged.SName = prev.SName;
+          }
           this.events[idx] = merged;
         } else {
           this.events.push(ev);
@@ -1015,6 +1242,21 @@ export const useEventStore = defineStore('event', {
           this.tickets.push(ticket);
         }
       }
+    },
+
+    upsertRoleTickets(rows: unknown[]) {
+      const incoming = normalizeRoleTickets(rows);
+      if (!incoming.length) return;
+      const map = new Map(
+        (this.roleTickets || []).map((row: { EventRoleID?: unknown; EventTicketID?: unknown }) => [
+          `${row.EventRoleID}:${row.EventTicketID}`,
+          row,
+        ])
+      );
+      for (const row of incoming) {
+        map.set(`${row.EventRoleID}:${row.EventTicketID}`, row);
+      }
+      this.roleTickets = [...map.values()];
     },
 
     async loadEventUserDataSheet(eventUserId: number | string, knownEventId?: number | string | null) {
@@ -1045,15 +1287,28 @@ export const useEventStore = defineStore('event', {
         'eventParticipants',
         'EventParticipant'
       );
-      const incomingParticipants = normalizeEventParticipants(participants);
+      const sheetUserRows = pickDataset(data, 'Users', 'users', 'User', 'tblUser', 'TblUser');
+      const incomingParticipants = attachSheetUserNicknames(
+        normalizeEventParticipants(participants),
+        sheetUserRows
+      );
       const ctxEventId = this.eventUserScreenContext?.eventId;
-      const userdataUsers = normalizeEventParticipants(
-        pickDataset(data, 'EventUsers', 'eventUsers')
-      ).filter((row) => ctxEventId == null || Number(row.EventID) === Number(ctxEventId));
+      const userdataUsers = attachSheetUserNicknames(
+        normalizeEventParticipants(pickDataset(data, 'EventUsers', 'eventUsers')).filter(
+          (row) => ctxEventId == null || Number(row.EventID) === Number(ctxEventId)
+        ),
+        sheetUserRows
+      );
       const toMerge = incomingParticipants.length ? incomingParticipants : userdataUsers;
       if (toMerge.length) {
         const byId = new Map(this.eventParticipants.map((row) => [row.id, row]));
-        for (const row of toMerge) byId.set(row.id, row);
+        for (const row of toMerge) {
+          const prev = byId.get(row.id);
+          byId.set(row.id, {
+            ...row,
+            Nickname: row.Nickname || prev?.Nickname || null,
+          });
+        }
         this.eventParticipants = [...byId.values()];
       } else if (Number(this.eventUserScreenContext?.dataSheetType) === ORGANIZER_DATASHEET_TYPE) {
         const eventId = this.eventUserScreenContext?.eventId;
@@ -1065,7 +1320,17 @@ export const useEventStore = defineStore('event', {
       }
 
       const tickets = pickDataset(data, 'Tickets', 'tickets', 'EventTickets', 'EventTicket');
-      this.upsertTickets(tickets);
+      const ticketEventId = this.eventUserScreenContext?.eventId ?? nullableNumericId(knownEventId);
+      this.upsertTickets(
+        ticketEventId == null
+          ? tickets
+          : tickets.map((raw) => {
+              if (!raw || typeof raw !== 'object') return raw;
+              const rec = raw as Record<string, unknown>;
+              if (nullableNumericId(rec.EventID ?? rec.eventID ?? rec.EventId) != null) return rec;
+              return { ...rec, EventID: ticketEventId };
+            })
+      );
 
       if (hasDatasetKey(data, 'EventPrograms', 'eventPrograms')) {
         const incomingPrograms = normalizeEventPrograms(
@@ -1088,7 +1353,16 @@ export const useEventStore = defineStore('event', {
         }
       }
 
-      const incomingRoles = pickDataset(data, 'Roles', 'EventRoles', 'eventRoles');
+      const incomingRoles = stampEventIdOnRoleRows(
+        pickFilledDataset(data, 'EventRoles', 'eventRoles').length
+          ? pickFilledDataset(data, 'EventRoles', 'eventRoles')
+          : pickDataset(data, 'Roles', 'roles', 'EventRoles', 'eventRoles'),
+        this.eventUserScreenContext?.eventId ?? nullableNumericId(knownEventId)
+      ).filter((raw) => {
+        if (!raw || typeof raw !== 'object') return false;
+        const rec = raw as Record<string, unknown>;
+        return looksLikeEventRoleRow(rec);
+      });
       if (incomingRoles.length) {
         const byId = new Map(
           (this.roles || []).map((row: { id?: number; ID?: number }) => [String(row.id ?? row.ID), row])
@@ -1104,15 +1378,52 @@ export const useEventStore = defineStore('event', {
         this.roles = [...byId.values()];
       }
 
-      this.replaceEventOpFromApi(
-        this.eventUserScreenContext?.eventId ?? null,
-        normalizeOpSettings(
-          pickDataset(data, 'OpSettings', 'opSettings'),
-          this.eventUserScreenContext?.eventId
-        )
+      this.upsertRoleTickets(
+        pickFilledDataset(data, 'RoleTickets', 'roleTickets', 'EventRoleTickets', 'eventRoleTickets')
       );
 
+      const opSettings = normalizeOpSettings(
+        pickDataset(data, 'OpSettings', 'opSettings'),
+        this.eventUserScreenContext?.eventId
+      );
+      const kabalaFromKids = pickDataset(data, 'OpSettingKabalas', 'opSettingKabalas', 'EventKabalas')
+        .map((raw) => {
+          if (typeof raw === 'number' || typeof raw === 'string') return nullableNumericId(raw);
+          if (!raw || typeof raw !== 'object') return null;
+          const rec = raw as Record<string, unknown>;
+          return nullableNumericId(rec.KabalaID ?? rec.KabalaId ?? rec.kabalaId ?? rec.id ?? rec.ID);
+        })
+        .filter((id): id is number => id != null);
+      if (opSettings.length && kabalaFromKids.length) {
+        const seen = new Set(opSettings[0].KabalaIds);
+        opSettings[0] = {
+          ...opSettings[0],
+          KabalaIds: [...opSettings[0].KabalaIds, ...kabalaFromKids.filter((id) => !seen.has(id))],
+        };
+      }
+      this.replaceEventOpFromApi(this.eventUserScreenContext?.eventId ?? null, opSettings);
+
       const sheetEventId = this.eventUserScreenContext?.eventId ?? nullableNumericId(knownEventId);
+      try {
+        const { useOlimpubStore } = await import('src/stores/olimpub');
+        const opStore = useOlimpubStore();
+        opStore.replaceSettings(opSettings);
+        opStore.replaceTeams(
+          sheetEventId,
+          normalizeOpTeams(pickFilledDataset(data, 'OpTeams', 'opTeams', 'Teams', 'tblTeam'), sheetEventId)
+        );
+        opStore.mergeKabalas(
+          normalizeOpCatalog(
+            withKabalaAssets(
+              pickFilledDataset(data, 'OpKabalas', 'opKabalas', 'Kabalas', 'kabalas'),
+              pickDataset(data, 'OpKabalaAssets', 'opKabalaAssets', 'KabalaAssets', 'kabalaAssets')
+            )
+          )
+        );
+      } catch {
+        /* az OP store nem blokkolhatja az adatlapot */
+      }
+
       this.replaceEventPtaFromApi(sheetEventId, {
         settings: normalizePtaEventSettings(
           pickDataset(data, 'EventSettings', 'eventSettings', 'PtaEventSettings')

@@ -46,7 +46,7 @@ A régi egy mezős `MediaKey` **ne** legyen a hang. Ha megmarad kompatnak: alias
 
 ---
 
-## 2. Feltöltés — SAS (mint Anyagok)
+## 2. Feltöltés — SAS (csak írás)
 
 A fájl **ne** menjen a Functions body-n (MP3). Ugyanaz a minta, mint `GET /event/{id}/materials/upload-url`.
 
@@ -118,7 +118,7 @@ Ha van `QuestionID`+`Slot`: írd `tblQuestion.ImageKey` / `AudioKey`. Csak szerv
 
 Auth: **szervező + QM**. Játékos / display → `403`.
 
-Az estéhez tartozó **összes** Active `OP.Media` (nem csak a bekötött — a FE a kérdés-kulcsokból szűr, ha kell). A letöltéshez **olvasó SAS** kell, ne nyilvános konténer a hangnak.
+Az estéhez tartozó **összes** Active `OP.Media` (nem csak a bekötött — a FE a kérdés-kulcsokból szűr, ha kell). A konténer publikus (Blob), így a letöltéshez **nincs szükség SAS tokenre**.
 
 **200:**
 
@@ -133,7 +133,7 @@ Az estéhez tartozó **összes** Active `OP.Media` (nem csak a bekötött — a 
       "Mime": "image/jpeg",
       "SizeInBytes": 184320,
       "ContentHash": "…",
-      "BlobUrl": "https://…read-sas…"
+      "BlobUrl": "https://….blob.core.windows.net/op-media/…"
     },
     {
       "MediaKey": "b91-aud.mp3",
@@ -142,13 +142,13 @@ Az estéhez tartozó **összes** Active `OP.Media` (nem csak a bekötött — a 
       "Mime": "audio/mpeg",
       "SizeInBytes": 2400000,
       "ContentHash": "…",
-      "BlobUrl": "https://…read-sas…"
+      "BlobUrl": "https://….blob.core.windows.net/op-media/…"
     }
   ]
 }
 ```
 
-- `BlobUrl` = read SAS, TTL legalább **12 óra** (helyszíni letöltés / szünet után is).
+- `BlobUrl` = nyers, végleges, publikus URL. Nincs lejárat, SAS token nem kell hozzá.
 - A FE a `ContentHash`-t hasonlítja a helyi fájlhoz. Egyezik → nem tölti újra.
 - Üres este: `Items: []`, ne 500.
 
@@ -188,16 +188,16 @@ Lapos mezők a meglévő Answer/Match mellett:
 | Mező | Szerv / QM | Játékos | Display |
 |---|---|---|---|
 | `ImageKey` | igen | igen (vagy null) | igen |
-| `ImageUrl` | read SAS vagy blob URL | **igen** — ebből lesz az `<img>` | igen |
+| `ImageUrl` | publikus blob URL | **igen** — ebből lesz az `<img>` | igen |
 | `AudioKey` | igen | **null** | **null** |
-| `AudioUrl` | read SAS | **null soha** | **null soha** |
+| `AudioUrl` | publikus blob URL | **null soha** | **null soha** |
 
 `MediaUrl` / `MediaKey` alias **csak a képre**, ha muszáj. Hangot ide tenni tilos (a player `<img>`-be tenné).
 
 Játékos: csak `active` kérdés, kép URL-lel. Hang soha.
 Display: kép igen, hang nem, helyes válasz tilos (marad).
 
-`ImageUrl` / `AudioUrl` TTL: ugyanaz a rend, mint a manifest read SAS (GET-enként új SAS oké).
+`ImageUrl` / `AudioUrl`: Nyers publikus URL, SAS paraméterek nélkül.
 
 ---
 

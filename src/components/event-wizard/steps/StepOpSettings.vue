@@ -148,9 +148,16 @@ const typeIconResolved = computed(() => resolveTypeIcon(props.typeIcon));
 const topicOptions = computed(() =>
   (olimpubStore.topics || []).map((row) => ({ label: row.Name, value: row.id }))
 );
-const kabalaOptions = computed(() =>
-  (olimpubStore.kabalas || []).map((row) => ({ label: row.Name, value: row.id }))
-);
+const kabalaOptions = computed(() => {
+  const options = (olimpubStore.kabalas || []).map((row) => ({ label: row.Name, value: row.id }));
+  const known = new Set(options.map((row) => row.value));
+  for (const id of props.modelValue.opKabalaIds || []) {
+    if (known.has(id)) continue;
+    options.push({ label: `Inaktív kabala (#${id})`, value: id });
+    known.add(id);
+  }
+  return options;
+});
 const durationOptions = OP_DURATION_MINUTES.map((min) => ({
   label: `${min} perc`,
   value: min,

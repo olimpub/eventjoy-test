@@ -78,6 +78,13 @@ export default route(function (/* { store, ssrContext } */) {
       next({ path: '/login', query: { next: to.fullPath } });
     } else if (!isPublic && authStore.isAuthenticated && !authStore.user) {
       try {
+        const { deviceUserFromSession } = await import('src/modules/olimpub/opDevice');
+        const device = deviceUserFromSession();
+        if (device) {
+          authStore.user = device;
+          allowAdminOrRedirect();
+          return;
+        }
         await authStore.fetchBootData();
         allowAdminOrRedirect();
       } catch (err) {

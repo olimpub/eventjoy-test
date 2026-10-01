@@ -249,7 +249,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useEventStore } from 'src/stores/event';
 import { useMasterDataStore } from 'src/stores/masterData';
@@ -257,6 +257,7 @@ import CreateEventWizard from 'src/components/event-wizard/CreateEventWizard.vue
 import InviteDecisionSheet from 'src/components/event/InviteDecisionSheet.vue';
 import CatalogPullRefresh from 'src/components/layout/CatalogPullRefresh.vue';
 import { refreshEventCatalog } from 'src/utils/eventCatalogRefresh';
+import { readOpDeviceSession } from 'src/modules/olimpub/opDevice';
 import { resolveIconName } from 'src/components/event-wizard/groupIcons';
 import { isProfitabilityEventType } from 'src/modules/profitability/constants';
 
@@ -267,6 +268,11 @@ const wizardVisible = ref(false);
 const catalogRefreshing = ref(false);
 const inviteSheetOpen = ref(false);
 const inviteEvent = ref<EventItem | null>(null);
+
+onMounted(() => {
+  const session = readOpDeviceSession();
+  if (session) eventStore.rememberOpDeviceEvent(session);
+});
 
 function openInviteDecision(event: EventItem) {
   inviteEvent.value = event;

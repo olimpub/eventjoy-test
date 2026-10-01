@@ -1,10 +1,16 @@
 <template>
   <div
     class="op-play"
-    :class="[`is-${phase}`, { 'is-hot': shownRatio < 0.22, 'is-intro': !!intro }]"
+    :class="[`is-${phase}`, face === 'game' ? 'is-game' : 'is-quiz', { 'is-hot': shownRatio < 0.22, 'is-intro': !!intro }]"
     :style="{ '--c': frameColor, '--p': shownRatio }"
   >
     <div class="op-play__mesh" aria-hidden="true" />
+    <p class="op-play__live">
+      <b>{{ face === 'game' ? 'Játék' : 'Kvíz' }}</b>
+      <em v-if="topic">{{ topic }}</em>
+      <span>{{ questionNo }} / {{ questionTotal }}</span>
+      <small v-if="face === 'game'">Csak a leggyorsabb helyes kap pontot.</small>
+    </p>
     <div
       v-if="!intro"
       class="op-play__frame"
@@ -34,6 +40,9 @@
 
     <section v-else-if="intro === 'read'" class="op-play__hero">
       <p class="op-play__prompt is-hero">{{ question?.prompt }}</p>
+      <div v-if="hasQuestionMedia" class="op-play__media">
+        <img :src="mediaSrc" alt="" />
+      </div>
     </section>
 
     <section
@@ -47,8 +56,8 @@
       <div class="op-play__stamp">
         <q-icon :name="verdict === 'ok' ? 'sym_r_check_circle' : 'sym_r_cancel'" size="84px" />
       </div>
-      <p>{{ verdict === 'ok' ? 'Helyes!' : 'Rossz válasz' }}</p>
-      <small>{{ verdict === 'ok' ? 'Szép volt — várj a következőre.' : 'Most nem jött össze.' }}</small>
+      <p>{{ verdictTitle }}</p>
+      <small>{{ verdictHint }}</small>
       <div v-if="showReacts" class="op-play__reacts">
         <button
           v-for="row in reacts"
@@ -98,15 +107,15 @@
             </div>
             <div class="op-play__col">
               <button
-                v-for="(right, i) in rights"
-                :key="`r-${i}`"
+                v-for="right in rights"
+                :key="`r-${right.i}`"
                 type="button"
                 class="op-play__opt"
-                :class="rightClass(i)"
+                :class="rightClass(right.i)"
                 :disabled="locked"
-                @click="tapRight(i)"
+                @click="tapRight(right.i)"
               >
-                {{ right }}
+                {{ right.text }}
               </button>
             </div>
           </div>
@@ -192,6 +201,12 @@ const props = withDefaults(
     remainingSec?: number;
     phase?: 'wait' | 'play';
     demo?: boolean;
+    face?: 'quiz' | 'game';
+    questionNo?: number;
+    questionTotal?: number;
+    skipIntro?: boolean;
+    introMs?: number;
+    paused?: boolean;
   }>(),
   {
     mediaUrl: null,
@@ -199,6 +214,12 @@ const props = withDefaults(
     remainingSec: 0,
     phase: 'play',
     demo: false,
+    face: 'quiz',
+    questionNo: 1,
+    questionTotal: 8,
+    skipIntro: false,
+    introMs: 3000,
+    paused: false,
   }
 );
 
@@ -216,6 +237,7 @@ const reacts = [
   { id: 'poop', glyph: '💩', label: 'Kaki' },
 ] as const;
 
+const mixSeed = ref(Math.floor(Math.random() * 1e9) + 1);
 const intro = ref<'read' | null>(null);
 const verdict = ref<'ok' | 'bad' | null>(null);
 const reaction = ref<string | null>(null);
@@ -234,6 +256,7 @@ const type = computed(
   () => normalizeOpTypeCode(String(props.question?.type || '')) || String(props.question?.type || 'single')
 );
 const typeLabel = computed(() => opTypeLabel(type.value));
+const topic = computed(() => props.question?.topic?.trim() || '');
 const hasQuestionMedia = computed(() => Boolean(props.mediaUrl));
 const mediaSrc = computed(() => props.mediaUrl || olimpubWordmark);
 const remainingRatio = computed(() => Math.max(0, Math.min(1, props.remainingRatio)));
@@ -243,17 +266,24 @@ const leftSec = computed(() =>
     : remainingRatio.value * (props.question?.timeSec || 0)
 );
 const showReacts = computed(() => Boolean(verdict.value) && reactArmed.value);
+const verdictTitle = computed(() =>
+  verdict.value === 'ok' ? (props.face === 'game' ? 'Helyes' : 'Helyes!') : 'Rossz válasz'
+);
+const verdictHint = computed(() => {
+  if (props.face === 'game' && verdict.value === 'ok') return 'A pontot a leggyorsabb kapja.';
+  return verdict.value === 'ok' ? 'Szép volt — várj a következőre.' : 'Most nem jött össze.';
+});
 const shownRatio = computed(() => (intro.value ? 1 : remainingRatio.value));
 const frameColor = computed(() => {
+  if (props.face === 'game') {
+    if (shownRatio.value > 0.45) return '#22d3ee';
+    if (shownRatio.value > 0.22) return '#818cf8';
+    return '#34d399';
+  }
   if (shownRatio.value > 0.45) return '#f5b942';
   if (shownRatio.value > 0.22) return '#ff8a2d';
   return '#ff2d6a';
 });
-
-function readHoldMs(text: string) {
-  const words = text.trim().split(/\s+/).filter(Boolean).length;
-  return Math.max(3000, Math.ceil(words / 2.5) * 1000);
-}
 
 function stopIntro() {
   if (introTimer != null) {
@@ -280,15 +310,36 @@ function finishIntro() {
 
 function startIntro() {
   stopIntro();
-  if (props.phase === 'wait' || !props.question?.prompt) {
+  const hold = Math.max(0, Number(props.introMs) || 0);
+  if (
+    props.phase === 'wait' ||
+    !props.question?.prompt ||
+    props.face === 'game' ||
+    props.skipIntro ||
+    hold <= 0
+  ) {
     intro.value = null;
+    if (props.question?.prompt && props.phase !== 'wait') emit('ready');
     return;
   }
   intro.value = 'read';
-  introTimer = window.setTimeout(finishIntro, readHoldMs(props.question?.prompt || ''));
+  introTimer = window.setTimeout(finishIntro, hold);
 }
 
-const options = computed(() =>
+function mixList<T>(list: T[], seed: number): T[] {
+  const out = [...list];
+  let s = (seed || 1) >>> 0;
+  for (let i = out.length - 1; i > 0; i -= 1) {
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+    const j = s % (i + 1);
+    const keep = out[i];
+    out[i] = out[j] as T;
+    out[j] = keep as T;
+  }
+  return out;
+}
+
+const rawOptions = computed(() =>
   (props.question?.answers || [])
     .map((item, i) => ({
       i,
@@ -298,10 +349,14 @@ const options = computed(() =>
     .filter((row) => row.text)
 );
 
+const options = computed(() => mixList(rawOptions.value, mixSeed.value));
+
 const rights = computed(() => {
-  const fromMatch = options.value.map((row) => row.match).filter(Boolean);
-  if (fromMatch.length) return fromMatch;
-  return options.value.map((row) => row.text);
+  const fromMatch = rawOptions.value
+    .map((row) => ({ i: row.i, text: row.match }))
+    .filter((row) => row.text);
+  const source = fromMatch.length ? fromMatch : rawOptions.value.map((row) => ({ i: row.i, text: row.text }));
+  return mixList(source, mixSeed.value + 97);
 });
 
 const cats = computed(() => {
@@ -311,8 +366,8 @@ const cats = computed(() => {
   return [...new Set(named)].slice(0, 2);
 });
 
-const catItems = computed(() => options.value.slice(0, 6));
-const orderItems = computed(() => options.value.slice(0, 5));
+const catItems = computed(() => mixList(options.value.slice(0, 6), mixSeed.value + 13));
+const orderItems = computed(() => mixList(rawOptions.value.slice(0, 5), mixSeed.value + 29));
 const orderRows = computed(() => {
   const list = orderItems.value;
   const chosen = new Set(picked.value);
@@ -355,10 +410,12 @@ function judgeLocal() {
   }
   if (type.value === 'match') {
     return (
-      options.value.length > 0 &&
-      options.value.every((row) => {
+      rawOptions.value.length > 0 &&
+      rawOptions.value.every((row) => {
         const right = matchBind[row.i];
-        return right != null && rights.value[right] === row.match;
+        if (right == null) return false;
+        const text = String(props.question?.matches?.[right] || props.question?.answers?.[right] || '').trim();
+        return text === row.match || right === row.i;
       })
     );
   }
@@ -367,15 +424,19 @@ function judgeLocal() {
 
 function send() {
   if (locked.value || !canSend.value) return;
+  if ((props.remainingSec ?? 1) <= 0 || props.paused) return;
   locked.value = true;
   verdict.value = judgeLocal() ? 'ok' : 'bad';
   reactArmed.value = leftSec.value >= 3;
+  const correct = verdict.value === 'ok';
   emit('submitted', {
     TypeCode: type.value,
     Indexes: picked.value.slice(),
     Text: freeText.value.trim(),
     Buckets: { ...itemCat },
-    Correct: verdict.value === 'ok',
+    Matches: { ...matchBind },
+    Correct: correct,
+    Ratio: correct ? 1 : 0,
   });
 }
 
@@ -472,6 +533,7 @@ function tapCatItem(index: number) {
 watch(
   () => [props.phase, props.question?.prompt] as const,
   () => {
+    mixSeed.value = Math.floor(Math.random() * 1e9) + 1;
     locked.value = false;
     verdict.value = null;
     reaction.value = null;
@@ -486,6 +548,14 @@ watch(
     if (!intro.value) focusFreeInput();
   },
   { immediate: true }
+);
+
+watch(
+  () => props.remainingSec,
+  (sec) => {
+    if ((props.question?.timeSec || 0) <= 0) return;
+    if (sec != null && sec <= 0 && !verdict.value && !intro.value) locked.value = true;
+  }
 );
 
 onUnmounted(stopIntro);
@@ -515,10 +585,73 @@ onUnmounted(stopIntro);
     radial-gradient(ellipse 60% 40% at 50% 110%, rgba(245, 185, 66, 0.18), transparent 50%);
 }
 
+.op-play.is-game .op-play__mesh {
+  background:
+    radial-gradient(ellipse 80% 50% at 15% -10%, rgba(34, 211, 238, 0.42), transparent 55%),
+    radial-gradient(ellipse 70% 45% at 100% 0%, rgba(99, 102, 241, 0.38), transparent 52%),
+    radial-gradient(ellipse 60% 40% at 50% 110%, rgba(16, 185, 129, 0.22), transparent 50%);
+}
+
+.op-play__live {
+  position: relative;
+  z-index: 9;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 56px 0 14px;
+}
+
+.op-play__live b {
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: #ff4d6d;
+  color: #2a0610;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.op-play.is-game .op-play__live b {
+  background: #22d3ee;
+  color: #042433;
+}
+
+.op-play__live span {
+  margin-left: auto;
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.op-play__live em {
+  font-style: normal;
+  font-size: 14px;
+  font-weight: 800;
+  color: #ffe8c2;
+}
+
+.op-play.is-game .op-play__live em {
+  color: #a5f3fc;
+}
+
+.op-play__live small {
+  flex: 1 0 100%;
+  font-size: 12px;
+  font-weight: 800;
+  color: #67e8f9;
+}
+
 .op-play.is-hot .op-play__mesh {
   background:
     radial-gradient(ellipse 90% 55% at 50% -10%, rgba(255, 45, 106, 0.5), transparent 58%),
     radial-gradient(ellipse 70% 40% at 100% 20%, rgba(255, 138, 45, 0.25), transparent 50%);
+}
+
+.op-play.is-game.is-hot .op-play__mesh {
+  background:
+    radial-gradient(ellipse 90% 55% at 50% -10%, rgba(34, 211, 238, 0.55), transparent 58%),
+    radial-gradient(ellipse 70% 40% at 100% 20%, rgba(99, 102, 241, 0.4), transparent 50%);
 }
 
 .op-play__frame {
@@ -549,10 +682,17 @@ onUnmounted(stopIntro);
 .op-play__hero {
   flex: 1;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 16px;
   text-align: center;
   padding: 28px 32px 48px;
+}
+
+.op-play__hero .op-play__media {
+  width: min(100%, 420px);
+  max-height: 240px;
 }
 
 .op-play__prompt.is-hero {

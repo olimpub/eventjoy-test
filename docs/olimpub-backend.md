@@ -1,6 +1,8 @@
 # Olimpub — backend szerződés
 
-A termék összefoglaló: [`olimpub.md`](./olimpub.md). **Élő API (gazda):** a kész backend + a FE integrációs spec. A lenti régebbi `/op/change` / `Kind` példák **elavultak**, ha ütköznek ezzel a blokkal.
+A termék összefoglaló: [`olimpub.md`](./olimpub.md). **Élő menet (2026-09-28):** [`olimpub-live.md`](./olimpub-live.md) — állandó QR, egy aktuális esemény, nickname device-join, négy csatorna, kliens verdikt, backend pont. Ha ütközik ezzel a fájllal, az élő menet a mérvadó.
+
+**Élő API (gazda):** a kész backend + a FE integrációs spec. A lenti régebbi `/op/change` / `Kind` példák **elavultak**, ha ütköznek a fenti két blokkal.
 
 EventType **43**. `EventTypes.OPFlg` (bit, mint `PTAFlg`). `Pta.*` és PTA táblák **tiltva**. Séma: **`OP`**.
 
@@ -9,15 +11,18 @@ EventType **43**. `EventTypes.OPFlg` (bit, mint `PTAFlg`). `Pta.*` és PTA tábl
 | Method | Path | Megjegyzés |
 |---|---|---|
 | POST | `/event/save` | `OpSettings` ha `OPFlg` |
-| GET | `/op/master` | JWT: `OpKabalas`, `OpTopics` (nem `/user/data`) |
+| GET | `/op/master` | JWT: `OpKabalas` (csak Active, `Assets` profile/full), `OpTopics` (nem `/user/data`) |
+| GET | `/sysadmin/olimpub/kabalas` | sysadmin: teljes kabala törzs, inaktívval. [`olimpub-kabala-admin.md`](./olimpub-kabala-admin.md) |
+| GET | `/sysadmin/olimpub/kabalas/upload-url` | sysadmin: kabala fájl write SAS (`slot=profile\|full`) |
+| POST | `/sysadmin/olimpub/kabalas` | sysadmin: kabala insert/update (`id: 0` = új) |
 | GET | `/op/event/:id` | JWT vagy `X-Pta-Display-Token`. `OpEventQuestions` lapos `Answer1…8` / `Match1…8` / `IsCorrect1…8` — nincs `Options`/`Correct` tömb. [`olimpub-question-get.md`](./olimpub-question-get.md) |
 | POST | `/op/game/change` | `{ EventID, Action, Payload }` — payload PascalCase `ID` (`EventQuestionID`, `RoundID`, `TeamID`) |
 | POST | `/op/round/generate` | `{ EventID, TopicID, Mode: "mixed", RoundSortIndex }` — kör + 8 kérdés egy lépésben |
-| POST | `/op/questions/import` | angol lapos séma; kör + EventQuestion + TopicIds egyben. 200: `RoundID` / `RoundIDs`. Nincs generate utána. |
+| POST | `/op/questions/import` | angol lapos séma. Körbe csak az `ExtraGameId` nélküli sor. `ExtraGameId` = extra készlet (`OpExtraPool`), nem a teljes bank. 200: `RoundID` / `RoundIDs` (üres, ha nincs kör-sor). |
 | POST | `/op/question/save` | szervező; lapos GET-sor; csak `pending`. [`olimpub-question-save.md`](./olimpub-question-save.md) |
 | GET | `/op/media/upload-url` | szervező; write SAS. [`olimpub-media.md`](./olimpub-media.md) |
 | POST | `/op/media` | szervező; regisztrálás PUT után + opcionális kötés |
-| GET | `/op/media/manifest/:eventId` | szerv+QM; read SAS + hash. Játékos 403 |
+| GET | `/op/media/manifest/:eventId` | szerv+QM; nyers URL + hash (publikus Blob, nincs SAS). Játékos 403 |
 | POST | `/op/media/delete` | szervező; kötött kulcs 400 |
 | GET | `/op/leaderboard/:id?board=` | v1: `main`, `quiz`, `shadow` (`raw` 403 játékosnak; `games` üres) |
 | POST | `/auth/device-join` | vendég |
@@ -30,7 +35,7 @@ EventType **43**. `EventTypes.OPFlg` (bit, mint `PTAFlg`). `Pta.*` és PTA tábl
 
 **SignalR:** ping `event_{id}_gamer` / `_display` / `_organizer` / `_contributor`. A kliens GET `/op/event/:id`. Játékos CorrectJson csak `active` kérdésen; display soha.
 
-**V1 nincs:** extra futamok, implicit NextQuestion stop. Média: [`olimpub-media.md`](./olimpub-media.md) — két slot (`ImageKey` / `AudioKey`), SAS, manifest.
+**V1 nincs:** extra futamok, implicit NextQuestion stop. Média: [`olimpub-media.md`](./olimpub-media.md) — két slot (`ImageKey` / `AudioKey`), publikus Blob URL (nincs olvasási SAS), manifest.
 
 ---
 
@@ -76,7 +81,7 @@ Ha `OPFlg` hamis → `OpSettings: null`. Ha igaz → objektum, különben 400.
 | `ShadowAwardFlg` | bit | default 1. Shadow **mindig** számolódik |
 | `TopicIds` | int[] | létező `OP.Topic`, ActiveFlg=1. Üres tilos 400 `Válassz témakört.` |
 | `ExtraGameIds` | string[] | csak `EG1`…`EG8`. Ismeretlen → 400. Üres = nincs extra az estén |
-| `KabalaIds` | int[] | `OP.Kabala` Active. Duplikátum → 400. Létrehozza / szinkronizálja `OP.tblTeam`-et |
+| `KabalaIds` | int[] | Létező `OP.Kabala`. Új id csak Active. Már kiosztott csapat inaktív kabalával is menthető. Duplikátum → 400. Szinkron: `OP.tblTeam`. Részlet: [`olimpub-kabala-admin.md`](./olimpub-kabala-admin.md) |
 
 **Team szinkron save-kor:** `KabalaIds`-ben lévő → `OP.tblTeam` ActiveFlg=1 (insert ha nincs). Amit kivesztek és **nincs** `TeamMember` → ActiveFlg=0. Van tag → 400 `A csapatnak van játékosa.` (ne töröld).
 
@@ -97,9 +102,24 @@ CREATE SCHEMA OP;
 CREATE TABLE OP.Kabala (
   id int IDENTITY PRIMARY KEY,
   Name nvarchar(80) NOT NULL,
-  ImageUrl nvarchar(500) NULL,
   ActiveFlg bit NOT NULL DEFAULT 1
 );
+CREATE UNIQUE INDEX UX_OP_Kabala_Name ON OP.Kabala (Name) WHERE ActiveFlg = 1;
+
+-- Fájl slotonként (profile, full; később animáció). Nem OP.Media.
+CREATE TABLE OP.KabalaAsset (
+  id int IDENTITY PRIMARY KEY,
+  KabalaID int NOT NULL REFERENCES OP.Kabala(id),
+  Slot nvarchar(32) NOT NULL,          -- profile | full | későbbi animációs kód
+  Kind nvarchar(16) NOT NULL,          -- image | animation
+  BlobUrl nvarchar(500) NOT NULL,
+  Mime nvarchar(80) NULL,
+  SizeInBytes int NULL,
+  ContentHash char(64) NULL,
+  ActiveFlg bit NOT NULL DEFAULT 1
+);
+CREATE UNIQUE INDEX UX_OP_KabalaAsset_Slot ON OP.KabalaAsset (KabalaID, Slot) WHERE ActiveFlg = 1;
+-- Sysadmin CRUD: olimpub-kabala-admin.md + scripts/op-kabala-admin.sql
 
 CREATE TABLE OP.Topic (
   id int IDENTITY PRIMARY KEY,
@@ -174,6 +194,17 @@ CREATE TABLE OP.tblEventQuestion (
 );
 CREATE UNIQUE INDEX UX_OP_EQ_RoundSort ON OP.tblEventQuestion (RoundID, SortIndex) WHERE ActiveFlg = 1;
 
+-- Extra játék készlete, eseményhez kötve. A kör kérdései ide nem kerülnek.
+CREATE TABLE OP.tblEventExtraQuestion (
+  id int IDENTITY PRIMARY KEY,
+  EventID int NOT NULL,
+  QuestionID int NOT NULL REFERENCES OP.tblQuestion(id),
+  ExtraGameId nvarchar(8) NOT NULL, -- EG1|EG2|EG4|EG5|EG6|EG7|EG8
+  SortIndex int NULL,
+  ActiveFlg bit NOT NULL DEFAULT 1
+);
+CREATE INDEX IX_OP_EventExtra_Pool ON OP.tblEventExtraQuestion (EventID, ExtraGameId, SortIndex) WHERE ActiveFlg = 1;
+
 CREATE TABLE OP.tblAnswer (
   id int IDENTITY PRIMARY KEY,
   EventQuestionID int NOT NULL REFERENCES OP.tblEventQuestion(id),
@@ -225,7 +256,7 @@ CREATE TABLE OP.ExtraQuestion (
   SortIndex tinyint NOT NULL,
   TypeCode nvarchar(16) NOT NULL,
   Prompt nvarchar(max) NOT NULL,
-  OptionsJson nvarchar(max) NULL,
+  OptionsJson nvarchar(max) NULL, -- futam-másolat; GET opciók NEM innen, lásd OpExtraPool
   CorrectJson nvarchar(max) NOT NULL,
   TimeSec int NOT NULL,
   MediaKey nvarchar(200) NULL,
@@ -329,7 +360,7 @@ Szervező **minden** QM actiont hívhat. Import / media / save OpSettings: **csa
 Device JWT engedélyezett path:
 
 - `GET /op/event/{EventID}` (claim egyezik)
-- `POST /op/change` csak `Op.SubmitAnswer`, `Op.MosaicBuzz`, `Op.JoinTeam`
+- `POST /op/change` csak `Op.SubmitAnswer`, `Op.MosaicBuzz`, `Op.JoinTeam`, `Op.LeaveTeam`
 - `POST /signalr/join`
 - `GET /event/userdata/{saját EventUserID}`
 - `GET /user/data`
@@ -394,7 +425,11 @@ Ugyanaz a DeviceId **más** Eventen: ugyanaz a User, új EventUser, új JWT az *
 
 ### 4.3 `POST /op/change` `Op.JoinTeam`
 
-Játékos / device. Payload `{ "TeamId": 12 }`. Már van aktív tagság más csapatban → 409 `Már egy csapatban vagy.` Tele → 409. 200 + GET.
+Játékos / device. Payload `{ "TeamID": 12 }`. Már van aktív tagság más csapatban → 409 `Már egy csapatban vagy.` Tele → 409. 200 + GET.
+
+### 4.3b `Op.LeaveTeam`
+
+Külön hívás, nem Switch. Payload `{}`. Saját aktív `OP.tblTeamMember` ActiveFlg=0. Nincs tagság → 200. Active kérdés → 400 `A kérdés alatt nem válthatsz csapatot.` Egyébként az egész játék alatt szabad. Utána Join. Részlet: [`olimpub-player-lobby.md`](./olimpub-player-lobby.md).
 
 ---
 
@@ -584,18 +619,24 @@ Status `published`. SignalR §10. A játékos GET-en innentől látja a kör F-j
 - Nincs másik ExtraRun `active`.
 - INSERT ExtraRun + ExtraQuestion-ök:
 
-| ID | Kérdések |
-|---|---|
-| EG1 | 5× `single` random a repositoryból, engedélyezett topic, TimeSec=10 |
-| EG3 | **0 kérdés** (csak KaraokeSet) |
-| EG2 | **0 kérdés** (buzz + judge) |
-| EG4 | 5× `freetext` TimeSec=20 |
-| EG5 | 5× `single` TimeSec=12 |
-| EG6 | 5× `freetext` TimeSec=20, MediaKey ha van a kérdésen |
-| EG7 | 5× `single` TimeSec=12 |
-| EG8 | 5× `freetext` TimeSec=20 |
+A készlet az esemény `OP.tblEventExtraQuestion` sora, `ExtraGameId` szerint. **Nem** a teljes repository és **nem** a forduló kérdései. Sorrend: `SortIndex` növekvő, a NULL a végére, azon belül `QuestionID`. Több mint a keret: az első N. Kevesebb: 400, semmit ne indíts.
 
-Nincs elég kérdés → 400.
+`Op.StartExtra` a Prompt / TypeCode / TimeSec / SortIndex-et ExtraQuestionbe másolja, **futámonként** (ugyanaz a játék többször). A válaszopciók és a helyes **nem** duplikálódnak: `tblQuestionOption` / `tblQuestionCorrectAnswer` marad a forrás. ExtraQuestion.OptionsJson lehet NULL.
+
+GET `OpExtraPool`: ExtraQuestion (vagy StartExtra előtt EventExtraQuestion) **JOIN QuestionID** → QuestionOption / QuestionCorrectAnswer. **Ne** ExtraGameId+SortIndex-szel joinolj (két SortIndex=1 kérdés ugyanazt az opciókészletet kapja). Egy sor / ExtraQuestion. Mezők: `id` = ExtraQuestion.id (StartExtra után), `QuestionID`, `EventExtraQuestionID`, `ExtraGameId`, `SortIndex`, `Prompt`, `TimeSec`, `TypeCode`, `StatusCode`, lapos `Answer1…8` / `IsCorrect1…8` **vagy** ugyanaz az `OptionsJson`/`CorrectJson` mint a kvíz GET (OptionID változatlan). Üres ExtraQuestion.OptionsJson + külön teli join-sor = a FE összevonja `id` szerint, de idegen OptionID-s CorrectJson-t eldob.
+
+| ID | Készlet | Keret |
+|---|---|---|
+| EG1 | `ExtraGameId=EG1`, `TypeCode=single` | 5. `TimeSec` a kérdésről (minta: 10) |
+| EG2 | `EG2`, `freetext` | mind, `SortIndex` szerint. `TimeSec` 0 = nincs számláló (buzz + judge) |
+| EG3 | nincs kérdés | 0 (csak KaraokeSet) |
+| EG4 | `EG4`, `freetext` | 5. `TimeSec` a kérdésről, üresen 20 |
+| EG5 | `EG5`, `single` | 5. üres `TimeSec` → 12 |
+| EG6 | `EG6`, `freetext` | 5. üres `TimeSec` → 20. Kép a kérdés `ImageKey`-jén, ha van |
+| EG7 | `EG7`, `single` | 5. üres `TimeSec` → 12 |
+| EG8 | `EG8`, `freetext` | 5. üres `TimeSec` → 20. Hang a kérdés `AudioKey`-jén, ha van |
+
+Nincs elég kérdés → 400 `Nincs elég kérdés ehhez a játékhoz.` A kör bankjából ne pótolj.
 
 `Op.StartExtraQuestion` `{ "ExtraQuestionId": n }` — mint StartQuestion.
 
@@ -621,9 +662,25 @@ Nincs elég kérdés → 400.
 
 ## 7. Kérdésimport
 
-`POST /op/questions/import`  Auth: **szervező**. Egy hívás: Topic upsert + `tblQuestion` + `tblRound` témakörönként + `tblEventQuestion` + EventSettings `TopicIds`. **Nincs** `POST /op/round/generate` utána.
+`POST /op/questions/import`  Auth: **szervező**. Egy hívás: Topic upsert + `tblQuestion`. **Nincs** `POST /op/round/generate` utána.
 
-A FE angol lapos sémát küld (`Topic`, `Type`/`TypeCode`, `Prompt`, `Answer1…8`, `Match1…8`, `IsCorrect1…8` boolean, `TimeSec`, `SortIndex`, `MediaUrl`). A BE a magyar Excel-fejléceket is eszi (`Válasz1`, `Helyes`, `Témakör`); a FE attól még angolra mapel.
+- `ExtraGameId` **hiányzik** vagy null: kör-sor. `tblRound` témakörönként + `tblEventQuestion` + EventSettings `TopicIds`, mint eddig.
+- `ExtraGameId` ki van töltve: **nem** kör. Ne nyiss rá `tblRound`-ot és `tblEventQuestion`-t. INSERT `OP.tblEventExtraQuestion` (`EventID`, `QuestionID`, `ExtraGameId`, `SortIndex`).
+- Egy fájl keverheti a kettőt. Amelyik témakörnek csak extra sora van, arra ne nyíljon kör.
+- Csak extra sorok: 200, `Inserted` > 0, `RoundID` / `RoundIDs` üres.
+
+A FE angol lapos sémát küld (`Topic`, `Type`/`TypeCode`, `Prompt`, `Answer1…8`, `Match1…8`, `IsCorrect1…8` boolean, `TimeSec`, `SortIndex`, `ExtraGameId`). Kép és hang **nincs** az importban. A BE a magyar Excel-fejléceket is eszi (`Válasz1`, `Helyes`, `Témakör`, `Játék`); a FE attól még angolra mapel. `Játék` = `kviz` vagy üres → ne küldj `ExtraGameId`-t.
+
+`ExtraGameId`: `EG1` | `EG2` | `EG4` | `EG5` | `EG6` | `EG7` | `EG8`. Más, vagy `EG3` → 400 `A karakénak nincs kérdés sora.` / `Ismeretlen játék.` Az egész import rollback.
+
+Típus, különben 400 az adott sorra, rollback:
+
+| ExtraGameId | TypeCode |
+|---|---|
+| EG1, EG5, EG7 | `single` |
+| EG2, EG4, EG6, EG8 | `freetext` |
+
+Hiányzó `TimeSec`: EG2 → tárold **0**-nak (nincs számláló). Többi extra: EG1 nincs default kényszer, a kérdés saját ideje; EG4/EG6/EG8 → 20, EG5/EG7 → 12. Kör-sornál a típus defaultja (single 20, multi 25, order/match/category 30, freetext 40).
 
 **Freetext:** ne `Correct.Synonyms`. `Answer1`: `"8|nyolc"`.
 
@@ -642,6 +699,19 @@ A FE angol lapos sémát küld (`Topic`, `Type`/`TypeCode`, `Prompt`, `Answer1�
       "IsCorrect2": false,
       "TimeSec": 20,
       "SortIndex": 1
+    },
+    {
+      "Topic": "Párbaj",
+      "TypeCode": "single",
+      "Type": "single",
+      "Prompt": "Melyik együttes adta ki a Nevermindot?",
+      "Answer1": "Nirvana",
+      "Answer2": "Pearl Jam",
+      "IsCorrect1": true,
+      "IsCorrect2": false,
+      "TimeSec": 10,
+      "SortIndex": 1,
+      "ExtraGameId": "EG1"
     }
   ]
 }
@@ -657,7 +727,7 @@ A FE angol lapos sémát küld (`Topic`, `Type`/`TypeCode`, `Prompt`, `Answer1�
 
 `POST /op/media` szervező. `multipart/form-data`: `EventID`, `MediaKey` (filename-safe `[a-zA-Z0-9._-]+`), `file`.
 
-Azure Blob (meglévő storage). Hash SHA256. UPSERT `OP.Media`. 200: `{ MediaKey, BlobUrl, ContentHash, Mime }`.
+Azure Blob (meglévő storage). Hash SHA256. UPSERT `OP.Media`. 200: `{ MediaKey, BlobUrl, ContentHash, Mime }`. A konténer (`op-media`) **publikus**, így a `BlobUrl` állandó, SAS-paraméterek nélküli.
 
 `GET /op/media/manifest/:eventId` szervező+QM: `[{ MediaKey, BlobUrl, ContentHash, Mime }]`. A helyi cache FE ügy.
 
@@ -677,11 +747,12 @@ Dataset nevek (Result set alias, mint userdata):
 |---|---|
 | `OpSettings` | mind |
 | `OpTeams` | id, EventID, KabalaID, Name (=Kabala.Name), MemberCount |
-| `OpTeamMembers` | TeamID, EventUserID — játékos csak **saját** csapatát |
+| `OpTeamMembers` | TeamID, EventUserID, Nickname — játékos csak **saját** csapatát |
 | `OpRounds` | |
 | `OpEventQuestions` | QM/szerv: kör összes, **lapos** `Answer1…8` / `Match1…8` / `IsCorrect1…8`. Nincs `Options` / `Correct` tömb. Részlet: `docs/olimpub-question-get.md`. Játékos/device: csak `StatusCode=active`. Display: active, helyes válasz nélkül |
 | `OpLive` | 1 sor: DisplayState, ActiveRoundID, ActiveEventQuestionID, ActiveExtraRunID, ActiveExtraQuestionID |
 | `OpExtra` | active run + questions ugyanaz a Correct szabály |
+| `OpExtraPool` | QM/szerv/játékos (active|stopped extra): ExtraQuestion **vagy** EventExtraQuestion + **QuestionID join** a központi `tblQuestionOption` / `tblQuestionCorrectAnswer`-re. `id` = ExtraQuestion.id (StartExtra után). `QuestionID` kötelező. Opciók: lapos `Answer1…8` / `IsCorrect1…8` **vagy** kvíz-szerű `OptionsJson`/`CorrectJson` (azonos OptionID). ExtraQuestion.OptionsJson üresen is oké — a GET a fő táblából szolgálja. 1 sor / kérdés, ne cartesian |
 | `OpPenalties` | Active, QM/szerv/display; játékosnak elég a leaderboard |
 
 Nincs kör → üres tömb, ne 500.
@@ -691,7 +762,7 @@ Nincs kör → üres tömb, ne 500.
 | board | SQL |
 |---|---|
 | `main` | Team: SUM(RoundScore.F where Round published vagy closed — **lock: closed elég**, Publish csak SignalR) + SUM(ExtraScore ahol ExtraRun closed) + SUM(Penalty.Points Active) |
-| `quiz` | SUM(F) |
+| `quiz` | `Scope=total`: SUM(F). `Scope=round` + `RoundID`: **annak a körnek** a `RoundScore.F` (egész), CloseRound után. Nem RawS. |
 | `games` | SUM(ExtraScore closed) |
 | `raw` | SUM(QuestionScore.RawS) az eventen (élő, closed F nélkül) |
 | `shadow` | EventUser: SUM(ShadowScore.S), név First+Last |
@@ -700,7 +771,7 @@ Nincs kör → üres tömb, ne 500.
 
 ### `GET /op/questions/:eventId`
 
-Szervező. Repository kérdések, amik az Event TopicIds-hez tartoznak (szűrő), + az estén már EventQuestionben lévők jelölve.
+Szervező. Repository kérdések: Event TopicIds szerinti kvíz bank **és** az extra készlet (`ExtraGameId` = EG1…EG8), még ha a témakör nincs a TopicIds-ben. Lapos `Answer1…8` / `IsCorrect1…8` vagy `OptionsJson` mint EventQuestion. Quiz menü ebből szerkeszt, **nem** az élő ExtraQuestion-futamból (`GET /op/event` `OpExtraPool` StartExtra után).
 
 ---
 
@@ -723,6 +794,7 @@ Mini közös: `{ "Action", "EventID", "State" }`
 | `Op.SetRoundTopic` wheel | `display` | State=`draw_animation`, allowed Topic[] {id,Name} |
 | `Op.PublishRound` | `gamer` | RoundId, Status. Mini |
 | `Op.MosaicBuzz` | `contributor`, `organizer`, `display` | TeamId, TeamName |
+| `Op.JoinTeam` / `Op.LeaveTeam` | `gamer`, `contributor`, `organizer` | TeamID. Nincs névlista. FE GET `/op/event`. Display **nem**. [`olimpub-player-lobby.md`](./olimpub-player-lobby.md) |
 | `Op.StartExtra` / extra question start | mint StartQuestion, Kind=extra | |
 
 Ha a participant payload túl nagy: participant=`user_{EventUserID}` kérdésenként. A gamerre elég ping `{ Action, EventID }` → FE GET `/op/event`.

@@ -2,6 +2,7 @@ import olimpubIcon from './modules/olimpub/olimpub_app_icon_gradient.png';
 import olimpubIconTransparent from './modules/olimpub/olimpub_icon_transparent.png';
 import olimpubLogoDark from './modules/olimpub/olimpub_logo_full_dark.png';
 import olimpubLogoLight from './modules/olimpub/olimpub_logo_full_light.png';
+import olimpubWordmark from './modules/olimpub/olimpub_logo_wordmark.png';
 
 /** EventJoy Exkluzív — interaktív zenés kvíz. */
 export const OLIMPUB_BRAND = {
@@ -12,5 +13,6 @@ export const OLIMPUB_BRAND = {
   iconTransparent: olimpubIconTransparent,
   logoDark: olimpubLogoDark,
   logoLight: olimpubLogoLight,
+  wordmark: olimpubWordmark,
   primary: '#F5B942',
 };

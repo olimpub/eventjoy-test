@@ -52,12 +52,28 @@ export interface EventLiveJoin {
   displayOnly?: boolean;
   /** Laptop /display: a szerep csoportok mellé */
   includeDisplayGroup?: boolean;
+  /** Olimpub: csak organizer | gamemaster | gamer | display. Nincs contributor / participant / user_*. */
+  opChannels?: boolean;
+  /** Szervező a kvízmester képernyőn: organizer + gamemaster */
+  includeGamemaster?: boolean;
   displayToken?: string | null;
 }
 
 export function eventLiveGroupNames(join: EventLiveJoin): string[] {
   if (join.displayOnly) {
     return [`event_${join.eventId}_display`];
+  }
+  if (join.opChannels) {
+    const names: string[] = [];
+    if (join.roleName === 'organizer' || join.roleName === 'gamemaster' || join.roleName === 'gamer') {
+      names.push(`event_${join.eventId}_${join.roleName}`);
+    } else if (join.roleName === 'participant') {
+      names.push(`event_${join.eventId}_gamer`);
+    }
+    if (join.includeGamemaster && !names.includes(`event_${join.eventId}_gamemaster`)) {
+      names.push(`event_${join.eventId}_gamemaster`);
+    }
+    return names;
   }
   const names = [`event_${join.eventId}_${join.roleName}`, `event_${join.eventId}_gamer`];
   if (join.eventUserId != null) {
@@ -72,7 +88,7 @@ export function eventLiveGroupNames(join: EventLiveJoin): string[] {
 function joinKey(join: EventLiveJoin): string {
   return `${join.eventId}:${join.roleName}:${join.eventUserId ?? ''}:${join.displayOnly ? 'tv' : ''}:${
     join.includeDisplayGroup ? 'wall' : ''
-  }`;
+  }:${join.opChannels ? 'op' : ''}:${join.includeGamemaster ? 'qm' : ''}`;
 }
 
 function isJoinRejected(data: unknown): boolean {
@@ -483,7 +499,14 @@ class EventLiveService {
 
   private async joinGroups(join: EventLiveJoin): Promise<void> {
     const groupNames = eventLiveGroupNames(join);
-    if (!join.displayOnly && (join.eventUserId == null || groupNames.length < 3)) {
+    if (join.opChannels) {
+      if (
+        !groupNames.length ||
+        groupNames.some((name) => !/^event_\d+_(organizer|gamemaster|gamer|display)$/.test(name))
+      ) {
+        throw new Error('SignalR join: az Olimpub csak organizer / gamemaster / gamer / display csoportot kérhet.');
+      }
+    } else if (!join.displayOnly && (join.eventUserId == null || groupNames.length < 3)) {
       throw new Error('SignalR join: hiányzik a szerepkör, a gamer vagy a privát csoport (eventUserId).');
     }
     if (join.displayOnly && groupNames.length !== 1) {

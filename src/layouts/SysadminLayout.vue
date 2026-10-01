@@ -28,10 +28,10 @@
     </q-header>
 
     <q-page-container class="sa-page">
-      <div v-if="showBackToHub" class="sa-back-row">
-        <button type="button" class="sa-back" @click="router.push({ name: 'sysadmin-hub' })">
+      <div v-if="backLink" class="sa-back-row">
+        <button type="button" class="sa-back" @click="router.push({ name: backLink.name })">
           <q-icon name="sym_r_arrow_back" size="22px" />
-          <span>Sysadmin</span>
+          <span>{{ backLink.label }}</span>
         </button>
       </div>
       <div v-if="showSubnav" class="sa-subnav">
@@ -94,7 +94,7 @@ const tabs: { id: SectionId; label: string; icon: string }[] = [
 const menus: Record<SectionId, { label: string; icon: string; to: string }[]> = {
   data: [
     { label: 'Események', icon: 'sym_r_emoji_events', to: '/admin/soon/data' },
-    { label: 'Mester adatok', icon: 'sym_r_hub', to: '/admin/soon/data' },
+    { label: 'Mester adatok', icon: 'sym_r_hub', to: '/admin/data/master' },
     { label: 'Szervezetek', icon: 'sym_r_apartment', to: '/admin/soon/data' },
   ],
   flows: [{ label: 'Folyamatok', icon: 'sym_r_account_tree', to: '/admin/soon/flows' }],
@@ -110,7 +110,9 @@ const menus: Record<SectionId, { label: string; icon: string; to: string }[]> = 
 
 const activeSection = computed<SectionId | null>(() => {
   const path = route.path;
-  if (path.startsWith('/admin/soon/data') || path.startsWith('/admin/data')) return 'data';
+  if (path.startsWith('/admin/soon/data') || path.startsWith('/admin/data') || path.startsWith('/admin/olimpub')) {
+    return 'data';
+  }
   if (path.startsWith('/admin/soon/flows') || path.startsWith('/admin/flows')) return 'flows';
   if (path.startsWith('/admin/soon/comm') || path.startsWith('/admin/comm')) return 'comm';
   if (path === '/admin' || path === '/admin/') return null;
@@ -118,17 +120,24 @@ const activeSection = computed<SectionId | null>(() => {
 });
 
 const sectionItems = computed(() => (activeSection.value ? menus[activeSection.value] : []));
-const showSubnav = computed(() => String(route.name || '') === 'sysadmin-soon');
-const showBackToHub = computed(() => {
+const showSubnav = computed(() => {
   const name = String(route.name || '');
-  return (
+  return name === 'sysadmin-soon' || name === 'sysadmin-master';
+});
+const backLink = computed(() => {
+  const name = String(route.name || '');
+  if (name === 'sysadmin-kabalas') return { name: 'sysadmin-master', label: 'Mester adatok' };
+  if (
     name === 'sysadmin-users' ||
     name === 'sysadmin-tickets' ||
     name === 'sysadmin-ticket' ||
     name === 'sysadmin-logs-error' ||
     name === 'sysadmin-logs-data-change' ||
     name === 'sysadmin-versions'
-  );
+  ) {
+    return { name: 'sysadmin-hub', label: 'Sysadmin' };
+  }
+  return null;
 });
 
 function isActive(item: { to: string }) {

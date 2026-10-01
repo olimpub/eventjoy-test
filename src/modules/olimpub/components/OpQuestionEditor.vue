@@ -32,13 +32,23 @@
             <q-icon name="sym_r_perm_media" size="18px" />
             <q-tooltip>Média</q-tooltip>
           </button>
-          <button type="button" class="op-edit__view" aria-label="Kvízmester nézet" @click="openPreview('quizmaster')">
-            <q-icon name="sym_r_sports_esports" size="18px" />
-            <q-tooltip>Kvízmester nézet</q-tooltip>
-          </button>
-          <button type="button" class="op-edit__view" aria-label="Játékos nézet" @click="openPreview('player')">
-            <q-icon name="sym_r_smartphone" size="18px" />
-            <q-tooltip>Játékos nézet</q-tooltip>
+          <button type="button" class="op-edit__view" aria-label="Nézet" aria-haspopup="menu">
+            <q-icon name="sym_r_preview" size="18px" />
+            <q-tooltip>Nézet</q-tooltip>
+            <q-menu class="op-edit-menu" dark anchor="bottom right" self="top right">
+              <button v-close-popup type="button" class="op-edit-menu__item" @click="openPreview('player')">
+                <q-icon name="sym_r_smartphone" size="18px" />
+                Játékos
+              </button>
+              <button v-close-popup type="button" class="op-edit-menu__item" @click="openPreview('quizmaster')">
+                <q-icon name="sym_r_sports_esports" size="18px" />
+                Játékmester
+              </button>
+              <button v-close-popup type="button" class="op-edit-menu__item" @click="openPreview('display')">
+                <q-icon name="sym_r_tv" size="18px" />
+                Vetítés
+              </button>
+            </q-menu>
           </button>
           <span v-if="question" class="op-edit__ord">{{ question.SortIndex }}. kérdés</span>
         </div>
@@ -159,7 +169,12 @@
       </div>
     </q-card>
   </q-dialog>
-  <OpQuestionPreview v-model="previewOpen" :mode="previewMode" :question="previewModel" />
+  <OpQuestionPreview
+    v-model="previewOpen"
+    :mode="previewMode"
+    :question="previewModel"
+    :event-id="question?.EventID ?? null"
+  />
   <OpQuestionMediaSheet
     v-model="mediaOpen"
     :event-id="question?.EventID || 0"
@@ -179,20 +194,24 @@ import { useQuasar } from 'quasar';
 import { readAxiosErrorMessage } from 'src/utils/apiPayload';
 import {
   OP_QUESTION_TYPES,
+  opDefaultTimeSec,
   opQuestionStatusLabel,
   opTypeIcon,
   opTypeLabel,
   type OpQuestionTypeCode,
 } from '../constants';
 import { saveOpQuestion } from '../opApi';
+import { invalidateOpMediaManifest, resolveOpMediaUrl } from '../opMediaCache';
 import {
   extractOpFreetextSynonyms,
   extractOpQuestionOptions,
   isOpQuestionEditable,
+  opQuestionTopic,
   toOpQuestionSavePayload,
   type OpEventQuestion,
   type OpQuestionPreviewModel,
 } from '../opData';
+import { useOlimpubStore } from 'src/stores/olimpub';
 import OpQuestionPreview from './OpQuestionPreview.vue';
 import OpQuestionMediaSheet from './OpQuestionMediaSheet.vue';
 
@@ -218,15 +237,17 @@ const emit = defineEmits<{
 }>();
 
 const $q = useQuasar();
+const store = useOlimpubStore();
 const saving = ref(false);
 const saveError = ref('');
 const previewOpen = ref(false);
 const mediaOpen = ref(false);
-const previewMode = ref<'quizmaster' | 'player'>('player');
+const previewMode = ref<'quizmaster' | 'player' | 'display'>('player');
 const draftImageKey = ref<string | null>(null);
 const draftImageUrl = ref<string | null>(null);
 const draftAudioKey = ref<string | null>(null);
 const draftAudioUrl = ref<string | null>(null);
+let hydrateToken = 0;
 const canEdit = computed(() => isOpQuestionEditable(props.question?.StatusCode || ''));
 const statusLabel = computed(() => opQuestionStatusLabel(props.question?.StatusCode || ''));
 const draft = reactive<Draft>({
@@ -255,6 +276,11 @@ const previewModel = computed<OpQuestionPreviewModel>(() => ({
   prompt: draft.prompt,
   timeSec: Number(draft.timeSec) || 20,
   sortIndex: props.question?.SortIndex,
+  topic: opQuestionTopic(
+    props.question,
+    props.question ? store.getGame(props.question.EventID) : null,
+    store.topics
+  ),
   answers: draft.type === 'freetext' ? [] : draft.answers,
   matches: draft.type === 'category' ? draft.itemCats : draft.matches,
   categories:
@@ -264,9 +290,10 @@ const previewModel = computed<OpQuestionPreviewModel>(() => ({
   isCorrect: draft.isCorrect,
   synonyms: draft.synonyms,
   mediaUrl: draftImageUrl.value,
+  audioUrl: draftAudioUrl.value,
 }));
 
-function openPreview(mode: 'quizmaster' | 'player') {
+function openPreview(mode: 'quizmaster' | 'player' | 'display') {
   previewMode.value = mode;
   previewOpen.value = true;
 }
@@ -332,14 +359,28 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
+async function fillMediaUrls(row: OpEventQuestion, token: number) {
+  const eventId = row.EventID;
+  if (!eventId) return;
+  const [image, audio] = await Promise.all([
+    draftImageUrl.value ? Promise.resolve(draftImageUrl.value) : resolveOpMediaUrl(eventId, row.ImageKey, null),
+    draftAudioUrl.value ? Promise.resolve(draftAudioUrl.value) : resolveOpMediaUrl(eventId, row.AudioKey, row.AudioUrl),
+  ]);
+  if (token !== hydrateToken) return;
+  if (image) draftImageUrl.value = image;
+  if (audio) draftAudioUrl.value = audio;
+}
+
 function hydrate(row: OpEventQuestion) {
   draft.type = row.TypeCode || 'single';
   draft.prompt = row.Prompt || '';
-  draft.timeSec = row.TimeSec || 20;
+  draft.timeSec = row.TimeSec > 0 ? row.TimeSec : opDefaultTimeSec(row.TypeCode || 'single');
   draftImageKey.value = row.ImageKey;
   draftImageUrl.value = row.ImageUrl || (row.MediaUrl && /^https?:\/\//i.test(row.MediaUrl) ? row.MediaUrl : null);
   draftAudioKey.value = row.AudioKey;
   draftAudioUrl.value = row.AudioUrl;
+  const token = ++hydrateToken;
+  void fillMediaUrls(row, token);
   const extracted = extractOpQuestionOptions(row as unknown as Record<string, unknown>);
   const answers = (Array.isArray(row.Answers) && row.Answers.some(Boolean) ? row.Answers : extracted.answers).map(
     (item) => String(item ?? '')

@@ -139,6 +139,7 @@ BEGIN
         -- RS12: résztvevő nevek — szervező ÉS játékmester asztalokhoz kell (nem csak DataSheetType=1)
         SELECT
             eu.*,
+            usr.Nickname AS UserNickname,
             usr.FirstName,
             usr.LastName,
             usr.EmailAddress,

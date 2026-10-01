@@ -424,7 +424,6 @@ function ensurePtaDefaults() {
 function ensureOpDefaults() {
   if (!isOp.value) return;
   void olimpubStore.loadMaster().catch(() => undefined);
-  if (props.mode !== 'create') return;
   ensureOpStarterRolesAndTickets(
     basics,
     masterDataStore.roles,

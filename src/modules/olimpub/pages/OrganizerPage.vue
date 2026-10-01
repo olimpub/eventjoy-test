@@ -53,6 +53,16 @@
             <q-icon name="sym_r_undo" size="16px" />
             <span>Visszavonás</span>
           </button>
+          <button
+            type="button"
+            class="manage-current-btn"
+            :class="{ 'is-on': isCurrentEvent }"
+            :disabled="currentBusy || numericEventId == null"
+            @click="onToggleCurrent"
+          >
+            <q-icon :name="isCurrentEvent ? 'sym_r_check_circle' : 'sym_r_qr_code_2'" size="16px" />
+            <span>Élő</span>
+          </button>
           <span v-if="pendingApprovalId" class="manage-pending-chip">
             <q-icon name="sym_r_hourglass_top" size="14px" />
             Jóváhagyásra vár
@@ -204,6 +214,8 @@ import { useMasterDataStore } from 'src/stores/masterData';
 import { findEventStatus, type EventStatusTransition } from 'src/utils/eventFlow';
 import { nullableNumericId, readAxiosErrorMessage } from 'src/utils/apiPayload';
 import { setEventStatus } from 'src/utils/eventChange';
+import { setOpCurrent } from 'src/modules/olimpub/opApi';
+import { fetchOpCurrent, type OpCurrentEvent } from 'src/modules/olimpub/opDevice';
 import AppConfirmDialog from 'src/components/ui/AppConfirmDialog.vue';
 import '../theme.css';
 
@@ -215,7 +227,7 @@ const masterDataStore = useMasterDataStore();
 const olimpubStore = useOlimpubStore();
 const communicationStore = useCommunicationStore();
 const olimpubMark = OLIMPUB_BRAND.iconTransparent;
-const olimpubLogo = OLIMPUB_BRAND.logoDark;
+const olimpubLogo = OLIMPUB_BRAND.wordmark;
 const olimpubTagline = OLIMPUB_BRAND.tagline;
 const wizardVisible = ref(false);
 const isSoonOpen = ref(false);
@@ -224,6 +236,9 @@ const soonIcon = ref('sym_r_schedule');
 const isStatusSheetOpen = ref(false);
 const isProgramEditorOpen = ref(false);
 const transitioning = ref(false);
+const currentBusy = ref(false);
+const currentRemote = ref<OpCurrentEvent | null>(null);
+const currentFlag = ref<boolean | null>(null);
 const isConfirmOpen = ref(false);
 const confirmTitle = ref('Megerősítés');
 const confirmMessage = ref('');
@@ -233,6 +248,13 @@ const confirmIsUndo = ref(false);
 let confirmResolver: ((ok: boolean) => void) | null = null;
 
 const eventId = computed(() => String(route.params.id));
+const numericEventId = computed(() => nullableNumericId(eventId.value));
+
+const isCurrentEvent = computed(() => {
+  if (currentFlag.value != null) return currentFlag.value;
+  if (currentRemote.value && currentRemote.value.eventId === numericEventId.value) return true;
+  return !!olimpubStore.getSettingsForEvent(eventId.value)?.CurrentFlg;
+});
 
 const sheetEventUserId = computed(() => {
   const q = route.query.eventUserId;
@@ -535,12 +557,63 @@ function closePanel() {
   void router.push({ name: 'my_events' });
 }
 
+async function refreshCurrent() {
+  try {
+    const remote = await fetchOpCurrent();
+    currentRemote.value = remote;
+    const id = numericEventId.value;
+    if (remote && id != null) currentFlag.value = remote.eventId === id;
+  } catch {
+    currentRemote.value = null;
+  }
+}
+
+async function onToggleCurrent() {
+  const id = numericEventId.value;
+  if (id == null || currentBusy.value) return;
+  const next = !isCurrentEvent.value;
+  const otherTitle = currentRemote.value && currentRemote.value.eventId !== id ? currentRemote.value.title : '';
+  const ok = await askConfirm({
+    title: next ? 'Élő' : 'Élő levétele',
+    message: next
+      ? otherTitle
+        ? `A nyomtatott QR ettől az estétől ide hozza a játékosokat. Az élő jelölés lekerül: ${otherTitle}.`
+        : 'A nyomtatott QR ettől az estétől ide hozza a játékosokat. A többi Olimpub esemény élő jelölése lekerül.'
+      : 'A QR oldal addig Nincs aktuális játékot mutat, amíg másik estét be nem kapcsolsz.',
+    okLabel: next ? 'Beállítom' : 'Leveszem',
+  });
+  if (!ok) return;
+  currentBusy.value = true;
+  try {
+    await setOpCurrent(id, next);
+    currentFlag.value = next;
+    await refreshCurrent();
+    $q.notify({
+      type: 'positive',
+      message: next ? 'Ez az élő este. A játékosok a /olimpub/join címen ide csatlakoznak.' : 'Az élő jelölés lekerült.',
+      position: 'top',
+      timeout: 2200,
+    });
+  } catch (error) {
+    $q.notify({
+      message: readAxiosErrorMessage(error, 'Az aktuális este nem állítható.'),
+      color: 'dark',
+      textColor: 'red-4',
+      position: 'top',
+      timeout: 2400,
+    });
+  } finally {
+    currentBusy.value = false;
+  }
+}
+
 async function loadDataSheet() {
   const id = sheetEventUserId.value;
   if (id == null) return;
   try {
     await eventStore.loadEventUserDataSheet(id);
     await olimpubStore.loadEvent(eventId.value).catch(() => undefined);
+    await refreshCurrent();
   } catch (error) {
     $q.notify({
       message: error instanceof Error ? error.message : 'Adatlap betöltése sikertelen',
@@ -588,8 +661,8 @@ function openQuizmaster() {
 
 function openResults() {
   router.push({
-    path: `/olimpub/event/${eventId.value}/results`,
-    query: route.query,
+    path: `/olimpub/event/${eventId.value}/quizmaster`,
+    query: { ...route.query, area: 'results' },
   });
 }
 
@@ -768,10 +841,11 @@ function comingSoon(label: string, icon = 'sym_r_schedule') {
 }
 
 .manage-panel__brand img {
-  height: 56px;
+  height: 72px;
   width: auto;
-  max-width: 260px;
+  max-width: 380px;
   object-fit: contain;
+  background: transparent;
 }
 
 .manage-panel__tagline {
@@ -840,6 +914,33 @@ function comingSoon(label: string, icon = 'sym_r_schedule') {
 }
 
 .manage-undo-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.manage-current-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 9999px;
+  border: 1px solid rgba(245, 185, 66, 0.35);
+  background: rgba(245, 185, 66, 0.08);
+  color: var(--op-gold);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.manage-current-btn.is-on {
+  background: rgba(245, 185, 66, 0.22);
+  border-color: var(--op-gold);
+  color: #fff6e8;
+}
+
+.manage-current-btn:disabled {
   opacity: 0.45;
   cursor: default;
 }

@@ -137,6 +137,16 @@ function isCheckInStatusName(name: string): boolean {
   return foldStatusLabel(name).includes('bejelentkez');
 }
 
+/** Gyors belépés (Olimpub /join és EventUID QR): Bejelentkezés és Folyamatban. */
+export function eventStatusAllowsQuickJoin(statusName: string | null | undefined): boolean {
+  const hay = foldStatusLabel(String(statusName || ''));
+  if (!hay) return false;
+  const code = hay.replace(/[_-\s]/g, '');
+  if (code === 'checkin' || hay.includes('bejelentkez')) return true;
+  if (code === 'inprogress' || hay.includes('folyamat')) return true;
+  return false;
+}
+
 export type EventPlayPhase = 'before' | 'checkin' | 'draw' | 'game' | 'ceremony' | 'ended';
 
 /** EventStatus név → játékos-adatlap fázis. */
@@ -154,7 +164,7 @@ export function eventPlayPhase(
   if (hay.includes('lezar')) return 'ended';
   if (hay.includes('sorsol')) return 'draw';
   if (hay.includes('bejelentkez')) return 'checkin';
-  if (hay.includes('jatek')) return 'game';
+  if (hay.includes('jatek') || hay.includes('folyamat')) return 'game';
   return 'before';
 }
 
@@ -344,14 +354,60 @@ export function normalizeEventFlowStatusRoles(rows: unknown[]): EventFlowStatusR
     );
 }
 
+function isPlanningEventStatus(eventStatuses: unknown[], statusId: number): boolean {
+  const row = findEventStatus(eventStatuses, statusId);
+  const code = String(row?.Code ?? row?.code ?? '')
+    .trim()
+    .toLowerCase();
+  if (code === 'planning') return true;
+  return foldStatusLabel(eventStatusName(row)) === 'tervezes';
+}
+
+function flowHasFromStatus(
+  flowStatuses: EventFlowStatus[],
+  eventFlowId: number,
+  fromStatusId: number
+): boolean {
+  return flowStatuses.some(
+    (row) =>
+      Number(row.EventFlowID) === eventFlowId && Number(row.FromStatusID) === fromStatusId
+  );
+}
+
+/**
+ * From=null = folyamatkezdet. Az Alap flow-ban ez Szervezés, az esemény viszont Tervezésen
+ * indul — ha a flow-nak nincs Tervezés From-sora, a Tervezés a null-From lépést kapja.
+ */
 function fromStatusMatches(
-  fromStatusId: number | null,
-  currentStatusId: number | null | undefined
+  row: EventFlowStatus,
+  currentStatusId: number | null | undefined,
+  flowStatuses: EventFlowStatus[],
+  eventStatuses: unknown[]
 ): boolean {
   const current = currentStatusId == null ? null : nullableNumericId(currentStatusId);
-  if (fromStatusId == null && current == null) return true;
-  if (fromStatusId == null || current == null) return false;
-  return Number(fromStatusId) === Number(current);
+  if (row.FromStatusID == null) {
+    if (current == null) return true;
+    return (
+      isPlanningEventStatus(eventStatuses, current) &&
+      !flowHasFromStatus(flowStatuses, row.EventFlowID, current)
+    );
+  }
+  if (current == null) return false;
+  return Number(row.FromStatusID) === Number(current);
+}
+
+function isImplicitPlanningStart(
+  row: EventFlowStatus,
+  currentStatusId: number | null | undefined,
+  flowStatuses: EventFlowStatus[],
+  eventStatuses: unknown[]
+): boolean {
+  const current = nullableNumericId(currentStatusId);
+  if (row.FromStatusID != null || current == null) return false;
+  return (
+    isPlanningEventStatus(eventStatuses, current) &&
+    !flowHasFromStatus(flowStatuses, row.EventFlowID, current)
+  );
 }
 
 function roleAllowedIds(
@@ -424,12 +480,15 @@ export function listAllowedEventStatusTransitions(args: {
     .filter(
       (row) =>
         Number(row.EventFlowID) === flowId &&
-        fromStatusMatches(row.FromStatusID, args.currentStatusId) &&
+        fromStatusMatches(row, args.currentStatusId, rows, args.eventStatuses) &&
         isRowAllowed(Number(row.id), allowedIds, skipRoleFilter)
     )
     .map((row) =>
       toTransition(row, args.eventStatuses, {
         canUndo: false,
+        canRecordPrev:
+          row.CanUndoFlg ||
+          isImplicitPlanningStart(row, args.currentStatusId, rows, args.eventStatuses),
         requiresApproval: row.ApprovalID != null,
       })
     );

@@ -1,8 +1,47 @@
 import axios from 'axios';
-import type { OpMediaItem } from './opMedia';
-import { hashOpFile } from './opMedia';
+import { fetchOpMediaManifest, hashOpFile, type OpMediaItem } from './opMedia';
 
 const CACHE_NAME = 'op-media-v1';
+const manifestByEvent = new Map<string, Promise<OpMediaItem[]>>();
+
+export function invalidateOpMediaManifest(eventId: number | string) {
+  manifestByEvent.delete(String(eventId));
+}
+
+function loadManifest(eventId: number | string): Promise<OpMediaItem[]> {
+  const key = String(eventId);
+  const cached = manifestByEvent.get(key);
+  if (cached) return cached;
+  const pending = fetchOpMediaManifest(eventId).catch((error) => {
+    manifestByEvent.delete(key);
+    throw error;
+  });
+  manifestByEvent.set(key, pending);
+  return pending;
+}
+
+function isPlayableUrl(url: string | null | undefined): url is string {
+  return Boolean(url && (/^https?:\/\//i.test(url) || url.startsWith('blob:') || url.startsWith('data:')));
+}
+
+/** Kulcsból cím: a kérdés GET gyakran csak ImageKey / AudioKey-t ad, URL nélkül. */
+export async function resolveOpMediaUrl(
+  eventId: number | string,
+  mediaKey: string | null | undefined,
+  remoteUrl?: string | null
+): Promise<string | null> {
+  if (isPlayableUrl(remoteUrl)) return remoteUrl;
+  if (!mediaKey || !eventId) return null;
+  try {
+    const items = await loadManifest(eventId);
+    const hit = items.find((item) => item.MediaKey === mediaKey);
+    if (isPlayableUrl(hit?.BlobUrl)) return hit.BlobUrl;
+  } catch {
+    /* a helyi cache még megmaradhat */
+  }
+  const local = await getLocalMedia(eventId, mediaKey);
+  return local ? URL.createObjectURL(local) : null;
+}
 
 function cacheUrl(eventId: number | string, mediaKey: string) {
   return `https://op-media.local/${eventId}/${encodeURIComponent(mediaKey)}`;
@@ -76,16 +115,26 @@ export async function resolvePlayableUrl(
     const local = await getLocalMedia(eventId, mediaKey, expectedHash);
     if (local) return URL.createObjectURL(local);
   }
-  if (remoteUrl) {
+  let remote = isPlayableUrl(remoteUrl) ? remoteUrl : null;
+  if (!remote && mediaKey) {
     try {
-      const response = await axios.get(remoteUrl, { responseType: 'blob' });
+      const items = await loadManifest(eventId);
+      const hit = items.find((item) => item.MediaKey === mediaKey);
+      if (isPlayableUrl(hit?.BlobUrl)) remote = hit.BlobUrl;
+    } catch {
+      remote = null;
+    }
+  }
+  if (remote) {
+    try {
+      const response = await axios.get(remote, { responseType: 'blob' });
       const blob = response.data as Blob;
       if (mediaKey) {
         await putLocalMedia(eventId, { MediaKey: mediaKey, ContentHash: expectedHash || '', Mime: blob.type }, blob);
       }
       return URL.createObjectURL(blob);
     } catch {
-      return remoteUrl;
+      return remote;
     }
   }
   return null;

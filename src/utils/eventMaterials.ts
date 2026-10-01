@@ -109,43 +109,6 @@ function readUploadUrls(raw: unknown): { sasUrl: string; blobUrl: string } {
   return { sasUrl, blobUrl };
 }
 
-function readDownloadSasUrl(raw: unknown): string {
-  const data = unwrapApiPayload(raw);
-  const nested = asRecord(data.Data) ?? data;
-  return readString(
-    nested.SasUrl,
-    nested.sasUrl,
-    nested.SASUrl,
-    nested.DownloadUrl,
-    nested.downloadUrl,
-    nested.DownloadSasUrl,
-    data.SasUrl,
-    data.sasUrl,
-    data.DownloadUrl,
-    data.downloadUrl
-  );
-}
-
-function hasSasToken(url: string): boolean {
-  return /[?&]sig=/i.test(url);
-}
-
-function isReadSasUrl(url: string): boolean {
-  if (!hasSasToken(url)) return false;
-  try {
-    const sp = new URL(url).searchParams.get('sp') || '';
-    if (!sp) return true;
-    return /r/i.test(sp);
-  } catch {
-    return true;
-  }
-}
-
-function httpStatus(error: unknown): number | null {
-  const status = (error as { response?: { status?: number } } | null)?.response?.status;
-  return typeof status === 'number' ? status : null;
-}
-
 async function looksLikeAzureXmlError(blob: Blob): Promise<boolean> {
   const type = String(blob.type || '').toLowerCase();
   if (type.includes('xml') || type.includes('text') || type.includes('octet-stream') || !type) {
@@ -179,7 +142,7 @@ export function materialRolesLabel(item: EventMaterial): string {
 }
 
 export function materialFileUrl(item: EventMaterial): string {
-  return item.downloadUrl || item.blobUrl;
+  return item.blobUrl || item.downloadUrl;
 }
 
 function triggerBrowserDownload(blob: Blob, filename: string) {
@@ -194,12 +157,12 @@ function triggerBrowserDownload(blob: Blob, filename: string) {
   window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1500);
 }
 
-async function downloadFromAzureSas(sasUrl: string, filename: string, contentType: string): Promise<void> {
+async function downloadFromPublicBlob(blobUrl: string, filename: string, contentType: string): Promise<void> {
   try {
-    const response = await fetch(sasUrl, {
+    const response = await fetch(blobUrl, {
       method: 'GET',
       credentials: 'omit',
-      cache: 'no-store',
+      cache: 'force-cache',
     });
     if (response.ok) {
       const blob = await response.blob();
@@ -212,108 +175,9 @@ async function downloadFromAzureSas(sasUrl: string, filename: string, contentTyp
       }
     }
   } catch {
-    /* CORS / hálózati hiba: SAS URL-t nyitjuk, JWT nélkül */
+    /* CORS: a publikus URL-t nyitjuk, JWT nélkül */
   }
-  triggerAnchorOpen(sasUrl, filename);
-}
-
-async function fetchMaterialDownloadSasUrl(eventId: number, item: EventMaterial): Promise<string> {
-  const attempts = [
-    () => api.get(`/event/${eventId}/materials/${item.eventMaterialId}/download-url`),
-    () =>
-      api.get(`/event/${eventId}/materials/download-url`, {
-        params: {
-          eventMaterialId: item.eventMaterialId,
-          materialId: item.materialId || undefined,
-          fileName: item.fileName || undefined,
-        },
-      }),
-  ];
-  let lastError: unknown;
-  for (const run of attempts) {
-    try {
-      const response = await run();
-      throwIfApiFailed(response.data, 'A letöltési URL nem kérhető.');
-      const sasUrl = readDownloadSasUrl(response.data);
-      if (!sasUrl) throw new Error('A letöltési URL hiányos.');
-      return sasUrl;
-    } catch (error) {
-      lastError = error;
-      const status = httpStatus(error);
-      if (status === 401 || status === 403) throw error;
-    }
-  }
-  throw lastError || new Error('A letöltési URL nem kérhető.');
-}
-
-const readableBlobCache = new Map<string, string>();
-const readableBlobInflight = new Map<string, Promise<string>>();
-
-function materialMatchesBlob(row: EventMaterial, url: string, fileName: string): boolean {
-  return row.blobUrl === url || (!!fileName && (row.fileName === fileName || row.blobUrl.endsWith(`/${fileName}`)));
-}
-
-async function registerUploadedBlob(
-  eventId: number,
-  blobUrl: string,
-  fileName: string,
-  materialTypeId: number
-): Promise<EventMaterial | null> {
-  const response = await api.post(`/event/${eventId}/materials`, {
-    FileName: fileName || 'desk.jpg',
-    BlobUrl: blobUrl,
-    ContentType: 'image/jpeg',
-    SizeInBytes: 1,
-    PublicName: fileName || 'Asztalfotó',
-    MaterialTypeID: materialTypeId,
-  });
-  throwIfApiFailed(response.data, 'A fotó mentése sikertelen.');
-  const materials = await fetchEventMaterials(eventId);
-  return materials.find((row) => materialMatchesBlob(row, blobUrl, fileName)) ?? null;
-}
-
-/** Már feltöltött, privát materials blob → read SAS az <img> számára. */
-export async function resolveReadableBlobUrl(
-  eventId: number,
-  blobUrl: string,
-  materialTypeId?: number | null
-): Promise<string> {
-  const url = String(blobUrl || '').trim();
-  if (!url || url.startsWith('blob:') || url.startsWith('data:') || isReadSasUrl(url)) return url;
-  const cached = readableBlobCache.get(url);
-  if (cached) return cached;
-  const pending = readableBlobInflight.get(url);
-  if (pending) return pending;
-
-  const task = (async () => {
-    const fileName = decodeURIComponent(url.split('?')[0].split('/').pop() || '');
-    let item =
-      (await fetchEventMaterials(eventId)).find((row) => materialMatchesBlob(row, url, fileName)) ?? null;
-    if (!item && materialTypeId != null) {
-      item = await registerUploadedBlob(eventId, url, fileName, materialTypeId);
-    }
-    if (!item) return '';
-    const objectUrl = await fetchMaterialFileObjectUrl(eventId, item);
-    if (!objectUrl) return '';
-    readableBlobCache.set(url, objectUrl);
-    return objectUrl;
-  })().finally(() => {
-    readableBlobInflight.delete(url);
-  });
-
-  readableBlobInflight.set(url, task);
-  return task;
-}
-
-async function fetchMaterialFileObjectUrl(eventId: number, item: EventMaterial): Promise<string> {
-  const response = await api.get(`/event/${eventId}/materials/${item.eventMaterialId}/file`, {
-    responseType: 'blob',
-  });
-  const contentType = String(response.headers['content-type'] || '');
-  if (contentType.includes('json')) return '';
-  const blob = response.data as Blob;
-  if (!blob?.size || (await looksLikeAzureXmlError(blob))) return '';
-  return URL.createObjectURL(new Blob([blob], { type: contentType || blob.type || 'image/jpeg' }));
+  triggerAnchorOpen(blobUrl, filename);
 }
 
 async function downloadFromApiStream(eventId: number, item: EventMaterial, filename: string): Promise<void> {
@@ -330,26 +194,12 @@ async function downloadFromApiStream(eventId: number, item: EventMaterial, filen
 export async function downloadEventMaterialFile(eventId: number, item: EventMaterial): Promise<void> {
   if (!Number.isFinite(eventId) || eventId <= 0) throw new Error('Ehhez az anyaghoz nincs fájl.');
   const filename = item.fileName || item.publicName || 'anyag';
-  const existingSas = [item.downloadUrl, item.blobUrl].find((url) => url && isReadSasUrl(url));
-  if (existingSas) {
-    await downloadFromAzureSas(existingSas, filename, item.contentType);
+  const direct = materialFileUrl(item);
+  if (/^https?:\/\//i.test(direct)) {
+    await downloadFromPublicBlob(direct, filename, item.contentType);
     return;
   }
-
-  try {
-    const sasUrl = await fetchMaterialDownloadSasUrl(eventId, item);
-    await downloadFromAzureSas(sasUrl, filename, item.contentType);
-    return;
-  } catch (error) {
-    const status = httpStatus(error);
-    if (status === 401 || status === 403) throw error;
-    try {
-      await downloadFromApiStream(eventId, item, filename);
-      return;
-    } catch {
-      throw error;
-    }
-  }
+  await downloadFromApiStream(eventId, item, filename);
 }
 
 export async function fetchEventMaterials(eventId: number): Promise<EventMaterial[]> {

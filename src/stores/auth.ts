@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import { api } from 'src/boot/axios';
+import { applyFetchedOpCurrent, clearOpDeviceSession, deviceUserFromSession, fetchOpCurrent, readOpDeviceSession, writeOpDeviceSession } from 'src/modules/olimpub/opDevice';
 import { hasDatasetKey, isTruthyFlag, pickDataset, readIsSysadmin, readIsSysadminFromJwt, throwIfApiFailed, unwrapApiPayload, warnIfDatasetMissing } from 'src/utils/apiPayload';
 import { normalizeOwnedEventTypeIds } from 'src/utils/eventTypeAccess';
 import { useMasterDataStore } from './masterData';
@@ -88,7 +89,7 @@ function normalizeUserOrganizations(rows: unknown): UserOrganization[] {
 
 export const useAuthStore = defineStore('auth', {
   state: () => ({
-    user: null as any,
+    user: deviceUserFromSession() as any,
     settings: null as any,
     billingAddress: null as any,
     eventTypePreferences: [] as any[],
@@ -120,7 +121,8 @@ export const useAuthStore = defineStore('auth', {
       const last = String(user.LastName ?? user.lastName ?? '').trim();
       const first = String(user.FirstName ?? user.firstName ?? '').trim();
       const name = `${last} ${first}`.trim();
-      return name || String(user.EmailAddress ?? user.Email ?? user.email ?? 'felhasználó').trim();
+      const nickname = String(user.Nickname ?? user.nickname ?? '').trim();
+      return name || nickname || String(user.EmailAddress ?? user.Email ?? user.email ?? 'felhasználó').trim();
     },
     primaryUserOrganization: (state) =>
       state.userOrganizations.find((uo) => uo.IsPrimary) || state.userOrganizations[0] || null,
@@ -314,6 +316,12 @@ export const useAuthStore = defineStore('auth', {
     // HIDEGINDÍTÁS (BOOT DATA) - A Kétágú betöltés
     // -------------------------------------------------------------------------
     async fetchBootData() {
+      if (deviceUserFromSession()) {
+        this.user = deviceUserFromSession();
+        const session = readOpDeviceSession();
+        if (session) useEventStore().rememberOpDeviceEvent(session);
+        return true;
+      }
       try {
         // 1. Lépés: A felhasználó saját mikro-környezete
         const userRes = await api.get('/user/data');
@@ -430,8 +438,39 @@ export const useAuthStore = defineStore('auth', {
       localStorage.removeItem('originalAdminToken');
     },
     beginFreshSession(token: string) {
+      clearOpDeviceSession();
+      this.user = null;
       this.clearOriginalAdminToken();
       this.setToken(token);
+    },
+    beginOpDeviceSession(session: {
+      token: string;
+      eventId: number;
+      eventUserId: number;
+      nickname: string;
+      eventTitle: string;
+    }) {
+      this.clearOriginalAdminToken();
+      this.setToken(session.token);
+      writeOpDeviceSession({
+        eventId: session.eventId,
+        eventUserId: session.eventUserId,
+        nickname: session.nickname,
+        eventTitle: session.eventTitle,
+      });
+      this.user = deviceUserFromSession();
+      useEventStore().rememberOpDeviceEvent({
+        eventId: session.eventId,
+        eventUserId: session.eventUserId,
+        eventTitle: session.eventTitle,
+      });
+      void fetchOpCurrent()
+        .then((current) => {
+          if (current && current.eventId === session.eventId) return applyFetchedOpCurrent(current);
+        })
+        .catch(() => {
+          /* a stub marad, az adatlap később lekéri */
+        });
     },
     resetSessionData() {
       this.user = null;
@@ -514,9 +553,13 @@ export const useAuthStore = defineStore('auth', {
             return 'logout' as const;
           }
         }
+        const backToJoin = this.user?.TokenKind === 'OpDevice';
         this.logout();
-        if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
-          window.location.replace('/login');
+        if (typeof window !== 'undefined') {
+          const target = backToJoin ? '/olimpub/join' : '/login';
+          const here = window.location.pathname;
+          const alreadyThere = backToJoin ? here.startsWith('/olimpub/join') : here.startsWith('/login');
+          if (!alreadyThere) window.location.replace(target);
         }
         return 'logout' as const;
       })().finally(() => {
@@ -525,6 +568,7 @@ export const useAuthStore = defineStore('auth', {
       return unauthorizedInFlight;
     },
     logout() {
+      clearOpDeviceSession();
       this.resetSessionData();
       this.token = '';
       this.clearOriginalAdminToken();

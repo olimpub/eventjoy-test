@@ -61,7 +61,7 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { OP_AUDIO_ACCEPT, OP_IMAGE_ACCEPT, uploadOpMedia, type OpMediaKind } from '../opMedia';
-import { putLocalMedia } from '../opMediaCache';
+import { invalidateOpMediaManifest, putLocalMedia, resolveOpMediaUrl } from '../opMediaCache';
 import { readAxiosErrorMessage } from 'src/utils/apiPayload';
 
 const props = defineProps<{
@@ -86,6 +86,7 @@ const busy = ref(false);
 const error = ref('');
 const imageSrc = ref<string | null>(null);
 const audioSrc = ref<string | null>(null);
+let loadToken = 0;
 
 const imageLabel = computed(() => {
   if (busy.value) return 'Feltöltés…';
@@ -103,20 +104,39 @@ function revoke(url: string | null) {
 }
 
 watch(
-  () => [props.modelValue, props.imageUrl, props.audioUrl] as const,
-  ([open, image, audio]) => {
+  () => [props.modelValue, props.imageKey, props.imageUrl, props.audioKey, props.audioUrl] as const,
+  ([open, imageKey, image, audioKey, audio]) => {
     if (!open) return;
     error.value = '';
-    if (imageSrc.value !== image) {
-      revoke(imageSrc.value);
-      imageSrc.value = image;
-    }
-    if (audioSrc.value !== audio) {
-      revoke(audioSrc.value);
-      audioSrc.value = audio;
-    }
+    const token = ++loadToken;
+    void applySources(token, imageKey, image, audioKey, audio);
   }
 );
+
+async function applySources(
+  token: number,
+  imageKey: string | null,
+  image: string | null,
+  audioKey: string | null,
+  audio: string | null
+) {
+  const [nextImage, nextAudio] = await Promise.all([
+    resolveOpMediaUrl(props.eventId, imageKey, image),
+    resolveOpMediaUrl(props.eventId, audioKey, audio),
+  ]);
+  if (token !== loadToken) return;
+  if (imageSrc.value !== nextImage) {
+    revoke(imageSrc.value);
+    imageSrc.value = nextImage;
+  }
+  if (audioSrc.value !== nextAudio) {
+    revoke(audioSrc.value);
+    audioSrc.value = nextAudio;
+  }
+  if ((imageKey && !nextImage) || (audioKey && !nextAudio)) {
+    error.value = 'A fájl kulcsa megvan, a címe nem jött le a média listából.';
+  }
+}
 
 onUnmounted(() => {
   revoke(imageSrc.value);
@@ -136,14 +156,15 @@ async function onFile(kind: OpMediaKind, event: Event) {
   busy.value = true;
   error.value = '';
   try {
-    const item = await uploadOpMedia({
+    const { item, storedFile } = await uploadOpMedia({
       eventId: props.eventId,
       file,
       kind,
       questionId: props.questionId,
     });
-    await putLocalMedia(props.eventId, item, file);
-    const local = URL.createObjectURL(file);
+    await putLocalMedia(props.eventId, item, storedFile);
+    invalidateOpMediaManifest(props.eventId);
+    const local = URL.createObjectURL(storedFile);
     if (kind === 'image') {
       revoke(imageSrc.value);
       imageSrc.value = local;

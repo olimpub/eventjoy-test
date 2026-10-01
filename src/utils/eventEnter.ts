@@ -8,6 +8,8 @@ import {
   type SignalRLiveRole,
 } from 'src/utils/eventRoleNav';
 import { connectToEventLive, type EventLiveJoin } from 'src/services/signalrService';
+import { isOlimpubEventType } from 'src/modules/olimpub/constants';
+import { readOpDeviceSession } from 'src/modules/olimpub/opDevice';
 
 function routeNameToKind(name: unknown): EventDatasheetKind | null {
   switch (String(name || '')) {
@@ -70,23 +72,58 @@ export function resolveEventLiveJoin(
   }
   if (!picked) picked = roles[0] || null;
 
+  const device = readOpDeviceSession();
   const eventUserId =
-    nullableNumericId(picked?.eventUserId) ?? store.getMyEventUserStatus(id)?.eventUserId ?? null;
+    nullableNumericId(picked?.eventUserId) ??
+    store.getMyEventUserStatus(id)?.eventUserId ??
+    (device && device.eventId === id ? device.eventUserId : null);
 
-  let roleName: SignalRLiveRole = 'participant';
-  if (picked) {
-    roleName = signalRRoleFromDatasheetKind(eventDatasheetKind(picked, id));
-  } else if (route) {
-    const kind = routeNameToKind(route.name);
-    if (kind) roleName = signalRRoleFromDatasheetKind(kind);
+  const ev =
+    store.events?.find((row: { id?: number | string }) => String(row.id) === String(id)) ||
+    store.myEvents?.find((row: { id?: number | string }) => String(row.id) === String(id));
+  const op =
+    String(route?.name || '').startsWith('olimpub-') ||
+    isOlimpubEventType(ev?.EventTypeID ?? ev?.eventTypeId) ||
+    Boolean(store.getOpSettingsForEvent(id));
+
+  const routeKind = route ? routeNameToKind(route.name) : null;
+  const pickedKind = picked ? eventDatasheetKind(picked, id) : routeKind;
+  let roleName: SignalRLiveRole = op ? 'gamer' : 'participant';
+  let includeGamemaster = false;
+
+  if (op) {
+    if (routeKind === 'gamemaster') {
+      if (pickedKind === 'organizer') {
+        roleName = 'organizer';
+        includeGamemaster = true;
+      } else {
+        roleName = 'gamemaster';
+      }
+    } else if (routeKind === 'player') {
+      roleName = 'gamer';
+    } else if (routeKind === 'organizer' || pickedKind === 'organizer') {
+      roleName = 'organizer';
+    } else if (pickedKind) {
+      roleName = signalRRoleFromDatasheetKind(pickedKind, true);
+    }
+  } else if (pickedKind) {
+    roleName = signalRRoleFromDatasheetKind(pickedKind);
+  } else if (routeKind) {
+    roleName = signalRRoleFromDatasheetKind(routeKind);
   }
 
-  return { eventId: id, eventUserId, roleName };
+  return {
+    eventId: id,
+    eventUserId,
+    roleName,
+    opChannels: op,
+    includeGamemaster,
+  };
 }
 
 /**
  * Esemény adatlap Belépés: státusz nem változik.
- * SignalR: role csoport + event_{id}_gamer + privát event_{id}_user_{eventUserId}.
+ * Olimpub: organizer / gamemaster / gamer. PTA: role + gamer + user_*.
  */
 export async function enterEventSession(
   eventId: number | string,

@@ -538,7 +538,7 @@ import { useQuasar } from 'quasar';
 import { eventDatasheetKind, eventRolePath, eventRoleQuery } from 'src/utils/eventRoleNav';
 import { nullableNumericId, readAxiosErrorMessage, readAxiosHttpStatus } from 'src/utils/apiPayload';
 import { claimPtaDesk, closePtaRound, patchPtaDesk, publishPtaRound, replacePtaDraw, setPtaDeskResults, setPtaRoundStatus } from 'src/utils/eventChange';
-import { resolveReadableBlobUrl, uploadPtaDeskPhoto } from 'src/utils/eventMaterials';
+import { uploadPtaDeskPhoto } from 'src/utils/eventMaterials';
 import { pingPtaLiveRoundDisplay } from 'src/modules/profitability/ptaDisplayApi';
 import {
   fetchPtaRoundAvailableStatuses,
@@ -650,7 +650,6 @@ const photoPreviewSrc = ref('');
 const photoUploading = ref(false);
 const pendingPhotoUrl = ref('');
 const localPhotoByDesk = ref<Record<number, string>>({});
-const readablePhotoByDesk = ref<Record<number, string>>({});
 const cameraInput = ref<HTMLInputElement | null>(null);
 const sheetSeats = ref<GameSeatRow[]>([]);
 const sheetManualOrder = ref(false);
@@ -975,7 +974,6 @@ const statusSheetNextStatuses = computed<PtaRoundAvailableStatus[]>(
 
 const statusSheetCanUndo = computed(() => !!roundStatusAvailability.value?.canUndoCurrent);
 
-const photoMaterialTypeId = computed(() => masterDataStore.materialTypes[0]?.id ?? null);
 const ptaSettings = computed(() => eventStore.getPtaSettingsForEvent(eventId.value));
 const photoMandatory = computed(() => !!ptaSettings.value?.PhotoUploadMadatoryFlg);
 
@@ -994,11 +992,7 @@ function deskPhotoUrl(table: { id: number; photoUrl: string } | null | undefined
   if (!table) return '';
   const local = localPhotoByDesk.value[table.id];
   if (local) return local;
-  const readable = readablePhotoByDesk.value[table.id];
-  if (readable) return readable;
-  const raw = table.photoUrl || '';
-  if (raw.startsWith('blob:') || raw.startsWith('data:') || /[?&]sig=/i.test(raw)) return raw;
-  return '';
+  return table.photoUrl || '';
 }
 
 const shownPhotoUrl = computed(
@@ -1009,26 +1003,6 @@ const sheetHasPhoto = computed(() => {
   if (!table) return false;
   return !!(pendingPhotoUrl.value || localPhotoByDesk.value[table.id] || table.photoUrl);
 });
-
-watch(
-  () =>
-    `${photoMaterialTypeId.value}|${currentTables.value.map((table) => `${table.id}:${table.photoUrl}`).join('|')}`,
-  () => {
-    const id = nullableNumericId(eventId.value);
-    if (id == null) return;
-    for (const table of currentTables.value) {
-      const raw = table.photoUrl;
-      if (!raw || localPhotoByDesk.value[table.id] || readablePhotoByDesk.value[table.id]) continue;
-      void resolveReadableBlobUrl(id, raw, photoMaterialTypeId.value)
-        .then((url) => {
-          if (!url || url === raw) return;
-          readablePhotoByDesk.value = { ...readablePhotoByDesk.value, [table.id]: url };
-        })
-        .catch(() => undefined);
-    }
-  },
-  { immediate: true }
-);
 
 function clearScoreDrafts() {
   amountDrafts.value = {};

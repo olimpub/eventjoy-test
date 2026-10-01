@@ -1,3 +1,4 @@
+import axios from 'axios';
 import { api } from 'src/boot/axios';
 import {
   isTruthyFlag,
@@ -23,6 +24,10 @@ import type {
   SysadminAppVersion,
   SysadminAppVersionItem,
   SysadminAppVersionSave,
+  KabalaAssetSlot,
+  SysadminKabala,
+  SysadminKabalaAsset,
+  SysadminKabalaSave,
   SysadminUser,
   SysadminUserEdit,
   TicketMasterData,
@@ -31,6 +36,7 @@ import type {
 } from './types';
 import { TICKET_STATUS_OPTIONS, isClosedTicketStatus, USER_STATUS_OPTIONS } from './types';
 import { decodeDisplayText } from 'src/utils/appVersions';
+import { compressOpQuestionImage, opMediaKindOfFile, validateOpMediaFile } from 'src/modules/olimpub/opMedia';
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -661,4 +667,136 @@ export async function saveSysadminVersion(input: SysadminAppVersionSave): Promis
   };
   const response = await api.post('/sysadmin/versions', payload);
   assertOk(response.data, 'A verzió mentése sikertelen.');
+}
+
+function parseKabalaAsset(row: unknown): SysadminKabalaAsset | null {
+  const rec = asRecord(row);
+  if (!rec) return null;
+  const slot = readString(rec.Slot, rec.slot).toLowerCase();
+  if (slot !== 'profile' && slot !== 'full') return null;
+  if (rec.ActiveFlg != null || rec.activeFlg != null) {
+    if (!isTruthyFlag(rec.ActiveFlg ?? rec.activeFlg)) return null;
+  }
+  const blob = readString(rec.BlobUrl, rec.blobUrl);
+  const kind = readString(rec.Kind, rec.kind).toLowerCase() === 'animation' ? 'animation' : 'image';
+  return {
+    slot,
+    kind,
+    blobUrl: blob || null,
+    mime: readString(rec.Mime, rec.mime) || null,
+    sizeInBytes: nullableNumericId(rec.SizeInBytes ?? rec.sizeInBytes),
+  };
+}
+
+function kabalaAssetList(row: Record<string, unknown>, loose: unknown[]): SysadminKabalaAsset[] {
+  const nested = Array.isArray(row.Assets) ? row.Assets : Array.isArray(row.assets) ? row.assets : [];
+  const bySlot = new Map<KabalaAssetSlot, SysadminKabalaAsset>();
+  for (const raw of [...nested, ...loose]) {
+    const asset = parseKabalaAsset(raw);
+    if (!asset || bySlot.has(asset.slot)) continue;
+    bySlot.set(asset.slot, asset);
+  }
+  return [...bySlot.values()];
+}
+
+function parseKabala(row: unknown, assetsByKabala: Map<number, unknown[]>): SysadminKabala | null {
+  const rec = asRecord(row);
+  if (!rec) return null;
+  const id = nullableNumericId(rec.id ?? rec.ID ?? rec.Id ?? rec.KabalaID ?? rec.KabalaId);
+  if (id == null) return null;
+  return {
+    id,
+    name: readString(rec.Name, rec.name) || `Kabala ${id}`,
+    activeFlg: rec.ActiveFlg == null && rec.activeFlg == null ? true : isTruthyFlag(rec.ActiveFlg ?? rec.activeFlg),
+    teamCount: readCount(rec.TeamCount, rec.teamCount),
+    assets: kabalaAssetList(rec, assetsByKabala.get(id) ?? []),
+  };
+}
+
+function groupKabalaAssets(rows: unknown[]): Map<number, unknown[]> {
+  const grouped = new Map<number, unknown[]>();
+  for (const raw of rows) {
+    const rec = asRecord(raw);
+    if (!rec) continue;
+    const kabalaId = nullableNumericId(rec.KabalaID ?? rec.KabalaId ?? rec.kabalaId);
+    if (kabalaId == null) continue;
+    const list = grouped.get(kabalaId) ?? [];
+    list.push(raw);
+    grouped.set(kabalaId, list);
+  }
+  return grouped;
+}
+
+export async function fetchSysadminKabalas(): Promise<SysadminKabala[]> {
+  const response = await api.get('/sysadmin/olimpub/kabalas');
+  throwIfApiFailed(response.data, 'A kabalák nem tölthetők.');
+  const unwrapped = unwrapApiPayload(response.data);
+  const rows = Array.isArray(unwrapped)
+    ? unwrapped
+    : pickDataset(unwrapped, 'Data', 'data', 'OpKabalas', 'opKabalas', 'Kabalas', 'kabalas');
+  const loose = Array.isArray(unwrapped)
+    ? []
+    : pickDataset(unwrapped, 'OpKabalaAssets', 'opKabalaAssets', 'KabalaAssets', 'kabalaAssets');
+  const assetsByKabala = groupKabalaAssets(loose);
+  return rows
+    .map((row) => parseKabala(row, assetsByKabala))
+    .filter((row): row is SysadminKabala => row != null)
+    .sort((a, b) => a.name.localeCompare(b.name, 'hu'));
+}
+
+function assetSavePayload(asset: SysadminKabalaAsset): Record<string, unknown> {
+  return {
+    Slot: asset.slot,
+    Kind: asset.kind === 'animation' ? 'animation' : 'image',
+    BlobUrl: asset.blobUrl,
+    Mime: asset.mime,
+    SizeInBytes: asset.sizeInBytes,
+  };
+}
+
+export async function saveSysadminKabala(input: SysadminKabalaSave): Promise<void> {
+  const response = await api.post('/sysadmin/olimpub/kabalas', {
+    id: input.id > 0 ? input.id : 0,
+    Name: input.name.trim(),
+    ActiveFlg: input.activeFlg,
+    Assets: input.assets.map(assetSavePayload),
+  });
+  assertOk(response.data, 'A kabala mentése sikertelen.');
+}
+
+export async function uploadSysadminKabalaImage(
+  file: File,
+  slot: KabalaAssetSlot
+): Promise<Pick<SysadminKabalaAsset, 'blobUrl' | 'mime' | 'sizeInBytes'>> {
+  if (opMediaKindOfFile(file) !== 'image') {
+    throw new Error('Csak JPEG, PNG vagy WebP kép tölthető fel.');
+  }
+  const stored = await compressOpQuestionImage(file);
+  const invalid = validateOpMediaFile(stored, 'image');
+  if (invalid) throw new Error(invalid);
+  const response = await api.get('/sysadmin/olimpub/kabalas/upload-url', {
+    params: {
+      slot,
+      fileName: stored.name,
+      contentType: stored.type || 'image/webp',
+      sizeInBytes: stored.size,
+    },
+  });
+  throwIfApiFailed(response.data, 'A feltöltési URL nem kérhető.');
+  const data = unwrapApiPayload(response.data);
+  const nested = asRecord(Array.isArray(data.Data) ? data.Data[0] : data.Data) ?? data;
+  const sasUrl = readString(nested.SasUrl, nested.sasUrl, nested.SASUrl, data.SasUrl);
+  const blobUrl = readString(nested.BlobUrl, nested.blobUrl, data.BlobUrl);
+  if (!sasUrl || !blobUrl) throw new Error('A feltöltési URL hiányos.');
+  await axios.put(sasUrl, stored, {
+    headers: {
+      'Content-Type': stored.type || 'image/webp',
+      'x-ms-blob-type': 'BlockBlob',
+    },
+  });
+  return {
+    blobUrl,
+    mime: stored.type || 'image/webp',
+    sizeInBytes: stored.size,
+  };
 }

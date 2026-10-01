@@ -2,6 +2,12 @@ import { RouteRecordRaw } from 'vue-router';
 
 const routes: RouteRecordRaw[] = [
   {
+    path: '/olimpub/join',
+    name: 'olimpub-join',
+    component: () => import('src/modules/olimpub/pages/JoinPage.vue'),
+    meta: { public: true },
+  },
+  {
     path: '/olimpub/event/:id/display',
     name: 'olimpub-display',
     component: () => import('src/modules/olimpub/pages/DisplayPage.vue'),

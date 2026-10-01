@@ -9,11 +9,15 @@ import { nullableNumericId } from 'src/utils/apiPayload';
 
 export type EventDatasheetKind = 'organizer' | 'gamemaster' | 'contributor' | 'player';
 
-/** SignalR role group: event_{id}_{role} */
-export type SignalRLiveRole = 'organizer' | 'contributor' | 'participant';
+/** SignalR role group: event_{id}_{role}. OP: organizer | gamemaster | gamer. PTA: organizer | contributor | participant. */
+export type SignalRLiveRole = 'organizer' | 'contributor' | 'participant' | 'gamemaster' | 'gamer';
 
-export function signalRRoleFromDatasheetKind(kind: EventDatasheetKind): SignalRLiveRole {
+export function signalRRoleFromDatasheetKind(kind: EventDatasheetKind, op = false): SignalRLiveRole {
   if (kind === 'organizer') return 'organizer';
+  if (op) {
+    if (kind === 'gamemaster') return 'gamemaster';
+    return 'gamer';
+  }
   if (kind === 'player') return 'participant';
   return 'contributor';
 }
@@ -47,6 +51,9 @@ export function eventDatasheetKind(
     isGameMasterRole(role.masterRoleId, role.name, role.roleTypeName)
   ) {
     return 'gamemaster';
+  }
+  if (isOpDatasheetEvent(eventId) || isOlimpubEventType(resolveEventTypeId(eventId))) {
+    return 'player';
   }
   const hay = foldLabel(`${role?.roleTypeName || ''} ${role?.name || ''}`);
   if (hay.includes('jatekos')) return 'player';
@@ -207,11 +214,17 @@ export function gameMasterEnterBlocked(
   return 'A játékmesteri adatlap a bejelentkezés státusztól érhető el.';
 }
 
+function isOpPlayerEvent(eventId: string | number): boolean {
+  return isOlimpubEventType(resolveEventTypeId(eventId)) || isOpDatasheetEvent(eventId);
+}
+
 export function playerEnterBlocked(
   eventId: string | number,
   role: EnterableEventRole | null | undefined
 ): string | null {
   if (eventDatasheetKind(role, eventId) !== 'player') return null;
+  // Olimpub: a Belépés a váróterembe visz. A jegyolvasás és a hiányzó státusznév nem kapu.
+  if (isOpPlayerEvent(eventId)) return null;
   if (!eventReachedCheckIn(eventId)) {
     return 'A játékos adatlap a bejelentkezés státusztól érhető el.';
   }
@@ -225,6 +238,7 @@ export function isPlayerWaitingForTicketScan(
   eventId: string | number,
   roles?: EnterableEventRole[]
 ): boolean {
+  if (isOpPlayerEvent(eventId)) return false;
   const list = roles ?? useEventStore().getEnterableRolesForEvent(eventId);
   return list.some((role) => {
     if (eventDatasheetKind(role, eventId) !== 'player') return false;
