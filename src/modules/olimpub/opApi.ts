@@ -15,7 +15,6 @@ import {
   mergeOpExtraPool,
   extraCatalogFromRepo,
   enrichOpExtraMedia,
-  reconcileOpExtraCatalog,
   filterOpLeaderboardRows,
   normalizeOpLeaderboardRows,
   normalizeOpLive,
@@ -288,24 +287,18 @@ export async function fetchOpEvent(eventId: number | string): Promise<OpEventPay
   throwIfApiFailed(data, 'Az Olimpub esemény betöltése sikertelen.');
   const questionRows = pickDataset(data, 'OpEventQuestions', 'opEventQuestions', 'EventQuestions');
   const questions = normalizeOpEventQuestions(questionRows, eventId);
+  const extraPool = mergeOpExtraPool(
+    normalizeOpExtraPool(pickOpExtraPoolRows(data), eventId),
+    normalizeOpExtraPool(pickOpExtraLiveRows(data), eventId),
+    questions
+  );
   const repoQuestions = normalizeOpRepoQuestions(
     pickFilledDataset(data, 'OpQuestions', 'opQuestions', 'OpRepoQuestions', 'tblQuestion')
   );
-  const extraPool = reconcileOpExtraCatalog(
-    mergeOpExtraPool(
-      normalizeOpExtraPool(pickOpExtraPoolRows(data), eventId),
-      normalizeOpExtraPool(pickOpExtraLiveRows(data), eventId),
-      questions
-    ),
-    repoQuestions
-  );
-  const extraCatalog = reconcileOpExtraCatalog(
-    mergeOpExtraPool(
-      normalizeOpExtraPool(pickOpExtraCatalogRows(data), eventId),
-      extraCatalogFromRepo(repoQuestions, eventId),
-      questions
-    ),
-    repoQuestions
+  const extraCatalog = mergeOpExtraPool(
+    normalizeOpExtraPool(pickOpExtraCatalogRows(data), eventId),
+    extraCatalogFromRepo(repoQuestions, eventId),
+    questions
   );
   enrichOpExtraMedia(extraCatalog, extraPool);
   enrichOpExtraMedia(extraPool, extraCatalog);

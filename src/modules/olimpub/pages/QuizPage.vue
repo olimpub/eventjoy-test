@@ -163,9 +163,8 @@ const extraGroups = computed(() => {
         .slice()
         .sort((a, b) => a.SortIndex - b.SortIndex || a.id - b.id)
         .filter((row) => {
-          const key = row.QuestionID ?? row.id;
-          if (seen.has(key)) return false;
-          seen.add(key);
+          if (seen.has(row.id)) return false;
+          seen.add(row.id);
           return true;
         });
       return { id, title: named?.title || id, rows };

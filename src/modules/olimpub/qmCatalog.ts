@@ -183,9 +183,8 @@ function extraQuestionRows(pool: OpExtraPoolItem[], extraId: string) {
     .filter((row) => (matchOpExtraGame(row.ExtraGameId)?.id || row.ExtraGameId) === key)
     .sort((a, b) => a.SortIndex - b.SortIndex || a.id - b.id)
     .filter((row) => {
-      const idKey = row.QuestionID ?? row.id;
-      if (seen.has(idKey)) return false;
-      seen.add(idKey);
+      if (seen.has(row.id)) return false;
+      seen.add(row.id);
       return true;
     });
 }

@@ -8,7 +8,6 @@ import {
   extraCatalogFromRepo,
   emptyOpLive,
   mergeOpExtraPool,
-  reconcileOpExtraCatalog,
   opLiveQuestionStatus,
   sameOpLiveQuestion,
   type OpCatalogItem,
@@ -573,14 +572,13 @@ export const useOlimpubStore = defineStore('olimpub', {
         const rows = await fetchOpQuestions(eventId);
         if (rows.length) this.replaceRepoQuestions(eventId, rows);
         const extras = extraCatalogFromRepo(this.getGame(eventId).repoQuestions, eventId);
-        const prev = this.getGame(eventId);
-        this.games[String(eventId)] = {
-          ...prev,
-          extraCatalog: reconcileOpExtraCatalog(
-            extras.length ? mergeOpExtraPool(prev.extraCatalog, extras, []) : prev.extraCatalog,
-            this.getGame(eventId).repoQuestions
-          ),
-        };
+        if (extras.length) {
+          const prev = this.getGame(eventId);
+          this.games[String(eventId)] = {
+            ...prev,
+            extraCatalog: mergeOpExtraPool(prev.extraCatalog, extras, []),
+          };
+        }
         return this.getGame(eventId).repoQuestions;
       } catch {
         return this.getGame(eventId).repoQuestions;

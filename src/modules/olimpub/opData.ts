@@ -1,11 +1,5 @@
 import { isTruthyFlag, nullableNumericId } from 'src/utils/apiPayload';
-import {
-  explicitOpExtraGameId,
-  matchOpExtraGame,
-  normalizeOpTypeCode,
-  opDefaultTimeSec,
-  topicOpExtraGameId,
-} from './constants';
+import { matchOpExtraGame, normalizeOpTypeCode, opDefaultTimeSec } from './constants';
 
 export function eventTypeHasOpFlag(eventType: Record<string, unknown> | null | undefined): boolean {
   if (!eventType) return false;
@@ -240,8 +234,6 @@ export interface OpExtraPoolItem {
   AudioKey: string | null;
   AudioUrl: string | null;
   MediaUrl: string | null;
-  /** TopicName-ből került a játékba, nem ExtraGameId-ből. */
-  topicOnly?: boolean;
 }
 
 export interface OpQuestionPreviewModel {
@@ -1376,10 +1368,10 @@ export function normalizeOpEventQuestions(
     const id = nullableNumericId(row.id ?? row.ID ?? row.EventQuestionID);
     const EventID = nullableNumericId(row.EventID ?? row.eventID) ?? nullableNumericId(eventId);
     const RoundID = nullableNumericId(row.RoundID ?? row.roundID);
-    const TopicName = String(row.TopicName ?? row.topicName ?? row.Topic ?? '').trim();
-    const ExtraGameId = explicitOpExtraGameId(
-      String(row.ExtraGameId ?? row.extraGameId ?? row.ExtraGameID ?? row.Game ?? '').trim() || null
-    );
+    const ExtraGameId =
+      matchOpExtraGame(row.ExtraGameId ?? row.extraGameId ?? row.ExtraGameID ?? row.Game)?.id ||
+      String(row.ExtraGameId ?? row.extraGameId ?? row.ExtraGameID ?? row.Game ?? '').trim().toUpperCase() ||
+      null;
     if (id == null || EventID == null) continue;
     if (RoundID == null && !ExtraGameId) continue;
     const options = row.OptionsJson ?? row.optionsJson ?? row.Options ?? row.options;
@@ -1414,7 +1406,7 @@ export function normalizeOpEventQuestions(
       TypeCode,
       OptionsJson,
       CorrectJson,
-      TopicName,
+      TopicName: String(row.TopicName ?? row.topicName ?? row.Topic ?? '').trim(),
       ExtraGameId,
       Answers:
         TypeCode === 'freetext'
@@ -1651,14 +1643,7 @@ function hydrateOpExtraPoolItem(existing: OpExtraPoolItem, row: OpExtraPoolItem)
   }
   if (!existing.StartedAtUtc && row.StartedAtUtc) existing.StartedAtUtc = row.StartedAtUtc;
   if (!existing.TopicName && row.TopicName) existing.TopicName = row.TopicName;
-  if (!row.topicOnly) existing.topicOnly = false;
   fillExtraMedia(existing, row);
-}
-
-function keepExplicitExtraRows(rows: OpExtraPoolItem[]): OpExtraPoolItem[] {
-  const explicitGames = new Set(rows.filter((row) => !row.topicOnly).map((row) => row.ExtraGameId));
-  if (!explicitGames.size) return rows;
-  return rows.filter((row) => !row.topicOnly || !explicitGames.has(row.ExtraGameId));
 }
 
 function collapseOpExtraPool(rows: OpExtraPoolItem[]): OpExtraPoolItem[] {
@@ -1678,36 +1663,20 @@ function collapseOpExtraPool(rows: OpExtraPoolItem[]): OpExtraPoolItem[] {
       IsCorrect: [...(row.IsCorrect || [])],
     });
   }
-  const byQuestion = new Map<string, OpExtraPoolItem>();
-  const collapsed: OpExtraPoolItem[] = [];
+  const byQuestion = new Map<number, OpExtraPoolItem>();
   for (const row of list) {
-    if (row.QuestionID == null) {
-      collapsed.push(row);
-      continue;
-    }
-    const qkey = `${row.ExtraGameId}:${row.QuestionID}`;
-    const hit = byQuestion.get(qkey);
-    if (hit) {
-      hydrateOpExtraPoolItem(hit, row);
-      continue;
-    }
-    byQuestion.set(qkey, row);
-    collapsed.push(row);
-  }
-  const withAnswers = new Map<number, OpExtraPoolItem>();
-  for (const row of collapsed) {
     if (row.QuestionID == null || !row.Answers.length) continue;
-    const hit = withAnswers.get(row.QuestionID);
-    if (!hit || row.Answers.length > hit.Answers.length) withAnswers.set(row.QuestionID, row);
+    const hit = byQuestion.get(row.QuestionID);
+    if (!hit || row.Answers.length > hit.Answers.length) byQuestion.set(row.QuestionID, row);
   }
-  for (const row of collapsed) {
+  for (const row of list) {
     if (row.Answers.length || row.QuestionID == null) continue;
-    const src = withAnswers.get(row.QuestionID);
+    const src = byQuestion.get(row.QuestionID);
     if (!src) continue;
     row.Answers = [...src.Answers];
     row.IsCorrect = [...src.IsCorrect];
   }
-  return keepExplicitExtraRows(collapsed).sort(
+  return list.sort(
     (a, b) =>
       a.ExtraGameId.localeCompare(b.ExtraGameId) || a.SortIndex - b.SortIndex || a.id - b.id
   );
@@ -1721,11 +1690,11 @@ export function normalizeOpExtraPool(
   for (const raw of rows || []) {
     const row = asRecord(raw);
     if (!row) continue;
-    const explicit = explicitOpExtraGameId(
-      String(row.ExtraGameId ?? row.extraGameId ?? row.ExtraGameID ?? row.Game ?? '').trim() || null
-    );
-    const topicName = String(row.TopicName ?? row.topicName ?? row.Topic ?? '').trim();
-    const ExtraGameId = explicit || topicOpExtraGameId(topicName);
+    const ExtraGameId =
+      matchOpExtraGame(row.ExtraGameId ?? row.extraGameId ?? row.ExtraGameID ?? row.Game)?.id ||
+      String(row.ExtraGameId ?? row.extraGameId ?? row.ExtraGameID ?? row.Game ?? '')
+        .trim()
+        .toUpperCase();
     if (!ExtraGameId) continue;
     const EventID = nullableNumericId(row.EventID ?? row.eventID) ?? nullableNumericId(eventId);
     if (EventID == null) continue;
@@ -1745,16 +1714,15 @@ export function normalizeOpExtraPool(
     list.push({
       id,
       EventID,
-      QuestionID: nullableNumericId(row.QuestionID ?? row.questionID ?? row.QuestionId),
+      QuestionID: nullableNumericId(row.QuestionID ?? row.questionID),
       ExtraGameId,
       SortIndex: nullableNumericId(row.SortIndex ?? row.sortIndex) ?? list.length + 1,
       StatusCode: normalizeStatus(row.StatusCode ?? row.statusCode ?? row.Status),
       TypeCode,
       Prompt,
-      TopicName: topicName,
+      TopicName: String(row.TopicName ?? row.topicName ?? row.Topic ?? '').trim(),
       TimeSec: nullableNumericId(row.TimeSec ?? row.timeSec) ?? 0,
       StartedAtUtc: row.StartedAtUtc != null && row.StartedAtUtc !== '' ? String(row.StartedAtUtc) : null,
-      topicOnly: !explicit,
       Answers: TypeCode === 'freetext' ? extraFreetextAnswers(row, fromJson.answers) : fromJson.answers,
       IsCorrect: readCorrectFlags(row, fromJson.optionItems),
       ...extraMediaOf(row),
@@ -1764,15 +1732,12 @@ export function normalizeOpExtraPool(
 }
 
 function extraPoolFromQuestion(row: OpEventQuestion): OpExtraPoolItem | null {
-  const explicit = explicitOpExtraGameId(row.ExtraGameId);
-  const ExtraGameId = explicit || topicOpExtraGameId(row.TopicName);
-  if (!ExtraGameId || isDroppedOpExtraPrompt(row.Prompt)) return null;
+  if (!row.ExtraGameId || isDroppedOpExtraPrompt(row.Prompt)) return null;
   return {
     id: row.id,
     EventID: row.EventID,
     QuestionID: row.QuestionID,
-    ExtraGameId,
-    topicOnly: !explicit,
+    ExtraGameId: row.ExtraGameId,
     SortIndex: row.SortIndex,
     StatusCode: row.StatusCode,
     TypeCode: row.TypeCode,
@@ -1794,15 +1759,13 @@ export function extraCatalogFromRepo(
   if (EventID == null) return [];
   const list: OpExtraPoolItem[] = [];
   for (const row of rows) {
-    const explicit = explicitOpExtraGameId(row.ExtraGameId);
-    const ExtraGameId = explicit || topicOpExtraGameId(row.TopicName);
+    const ExtraGameId = matchOpExtraGame(row.ExtraGameId, row.TopicName)?.id;
     if (!ExtraGameId || isDroppedOpExtraPrompt(row.Prompt)) continue;
     list.push({
       id: row.id,
       EventID,
       QuestionID: row.id,
       ExtraGameId,
-      topicOnly: !explicit,
       SortIndex: row.SortIndex ?? list.length + 1,
       StatusCode: 'pending',
       TypeCode: row.TypeCode,
@@ -1852,31 +1815,7 @@ export function mergeOpExtraPool(
     const mapped = extraPoolFromQuestion(row);
     if (mapped) push(mapped);
   }
-  return reconcileOpExtraCatalog(collapseOpExtraPool(list));
-}
-
-export function reconcileOpExtraCatalog(
-  rows: OpExtraPoolItem[],
-  repo: OpRepoQuestion[] = []
-): OpExtraPoolItem[] {
-  const byId = new Map(repo.map((row) => [row.id, row]));
-  const out: OpExtraPoolItem[] = [];
-  for (const row of rows || []) {
-    const repoRow =
-      (row.QuestionID != null ? byId.get(row.QuestionID) : undefined) || byId.get(row.id);
-    const topic = row.TopicName || repoRow?.TopicName || '';
-    const explicit = explicitOpExtraGameId(row.ExtraGameId);
-    const extraId = explicit || topicOpExtraGameId(topic);
-    if (!extraId) continue;
-    out.push({
-      ...row,
-      TopicName: topic || row.TopicName,
-      ExtraGameId: extraId,
-      topicOnly: explicit ? false : row.topicOnly !== false,
-      QuestionID: row.QuestionID ?? repoRow?.id ?? null,
-    });
-  }
-  return collapseOpExtraPool(out);
+  return collapseOpExtraPool(list);
 }
 
 export function uniqueOpExtraGameIds(...groups: Array<string[] | undefined>): string[] {
@@ -1905,9 +1844,11 @@ export function normalizeOpRepoQuestions(rows: unknown[]): OpRepoQuestion[] {
     if (!prompt && id < 0) continue;
     seen.add(id);
     const fromJson = extractOpQuestionOptions(row);
-    const ExtraGameId = explicitOpExtraGameId(
-      String(row.ExtraGameId ?? row.extraGameId ?? row.ExtraGameID ?? row.Game ?? '').trim() || null
-    );
+    const ExtraGameId =
+      matchOpExtraGame(
+        row.ExtraGameId ?? row.extraGameId ?? row.ExtraGameID ?? row.Game,
+        row.TopicName ?? row.topicName ?? row.Topic
+      )?.id || null;
     const TypeCode = normalizeOpTypeCode(String(row.TypeCode ?? row.typeCode ?? row.Type ?? 'single')) || 'single';
     list.push({
       id,
