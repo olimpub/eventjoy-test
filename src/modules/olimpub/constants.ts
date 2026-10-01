@@ -73,6 +73,38 @@ export function matchOpExtraGame(
   return null;
 }
 
+const EXTRA_TOPIC_ALIASES: Record<string, (typeof OP_EXTRA_GAMES)[number]['id']> = {
+  vissza: 'EG4',
+  reverse: 'EG4',
+};
+
+/** Játékkód a mezőből. A TopicName nem írja felül. */
+export function explicitOpExtraGameId(value?: string | null): string | null {
+  return matchOpExtraGame(value)?.id || null;
+}
+
+/** TopicName → játék, ha nincs ExtraGameId. Vissza/Reverse = Fordított. */
+export function topicOpExtraGameId(topicName?: string | null): string | null {
+  const folded = foldExtraKey(String(topicName || ''));
+  if (!folded) return null;
+  if (EXTRA_TOPIC_ALIASES[folded]) return EXTRA_TOPIC_ALIASES[folded];
+  return matchOpExtraGame(topicName)?.id || null;
+}
+
+export function resolveOpExtraGameId(
+  extraGameId?: string | null,
+  topicName?: string | null
+): string | null {
+  return explicitOpExtraGameId(extraGameId) || topicOpExtraGameId(topicName);
+}
+
+export function extraRowMatchesGame(
+  row: { ExtraGameId?: string | null; TopicName?: string | null },
+  extraGameId: string
+): boolean {
+  return (explicitOpExtraGameId(row.ExtraGameId) || row.ExtraGameId) === extraGameId;
+}
+
 export function eventTypeIdOf(event: Record<string, unknown> | null | undefined): number | null {
   return typeIdOf(event);
 }
