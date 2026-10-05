@@ -3,7 +3,7 @@ import { Notify } from 'quasar';
 import { nullableNumericId, throwIfApiFailed } from 'src/utils/apiPayload';
 import { useEventStore } from 'src/stores/event';
 import { useMasterDataStore } from 'src/stores/masterData';
-import { findPtaPlayerForEventUser, ptaDeskNumber, ptaEventPlayerId, ptaEventRoundId, ptaRoundDeskId, ptaSchedulePlayerId, ptaScheduleRoundDeskId } from 'src/modules/profitability/ptaData';
+import { findPtaPlayerForEventUser, pickGroupingText, ptaDeskNumber, ptaEventPlayerId, ptaEventRoundId, ptaRoundDeskId, ptaSchedulePlayerId, ptaScheduleRoundDeskId } from 'src/modules/profitability/ptaData';
 import { findEventStatusIdByNameHints } from 'src/utils/eventFlow';
 import type { SignalRLiveRole } from 'src/utils/eventRoleNav';
 import { recordSignalRInbound } from 'src/utils/signalrDebug';
@@ -171,10 +171,10 @@ export async function replacePtaDraw(eventId: number): Promise<void> {
           UserID: nullableNumericId(row.UserID),
           ReserveFlg: row.ReserveFlg === true || row.ReserveFlg === 1,
           Name: String(row.Name ?? row.DisplayName ?? ''),
-          TeamName: row.TeamName ?? null,
-          CompanyName: row.CompanyName ?? null,
-          OrganizationName: row.OrganizationName ?? null,
-          RegionName: row.RegionName ?? null,
+          TeamName: pickGroupingText(row, 'team') || null,
+          CompanyName: pickGroupingText(row, 'company') || null,
+          OrganizationName: pickGroupingText(row, 'organization') || null,
+          RegionName: pickGroupingText(row, 'region') || null,
           ActiveFlg: true,
         };
       }),
