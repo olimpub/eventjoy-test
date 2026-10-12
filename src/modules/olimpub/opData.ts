@@ -182,6 +182,7 @@ export interface OpRound {
   Mode: string;
   Kind: string;
   ExtraGameId: string | null;
+  RoundTypeCode: string;
   StatusCode: string;
   SortIndex: number;
   VisibleFlg: boolean | null;
@@ -557,6 +558,7 @@ export interface OpPenalty {
   id: number;
   TeamID: number;
   Points: number;
+  PenaltyTypeCode: string;
   UndoOfID: number | null;
   CreatedAtUtc: string;
 }
@@ -577,6 +579,7 @@ export function normalizeOpPenalties(rows: unknown[]): OpPenalty[] {
       id,
       TeamID,
       Points,
+      PenaltyTypeCode: String(row.PenaltyTypeCode ?? row.penaltyTypeCode ?? '').trim().toLowerCase(),
       UndoOfID: undo,
       CreatedAtUtc: String(row.CreatedAtUtc ?? row.createdAtUtc ?? ''),
     });
@@ -786,7 +789,7 @@ export function emptyOpLive(): OpLiveState {
 }
 
 function liveQuestionStatusOf(live: OpLiveState): string {
-  return String((live.ExtraGameId ? live.ExtraQuestionStatus : live.QuestionStatus) || '').toLowerCase();
+  return String(live.QuestionStatus || '').toLowerCase();
 }
 
 export function isOpLiveQuestionRunning(live: OpLiveState | null | undefined): boolean {
@@ -795,14 +798,6 @@ export function isOpLiveQuestionRunning(live: OpLiveState | null | undefined): b
 
 export function sameOpLiveQuestion(a: OpLiveState | null | undefined, b: OpLiveState | null | undefined): boolean {
   if (!a || !b) return false;
-  if (a.ExtraGameId || b.ExtraGameId) {
-    return (
-      Boolean(a.ExtraGameId) &&
-      a.ExtraGameId === b.ExtraGameId &&
-      a.ActiveExtraQuestionID != null &&
-      a.ActiveExtraQuestionID === b.ActiveExtraQuestionID
-    );
-  }
   return a.ActiveEventQuestionID != null && a.ActiveEventQuestionID === b.ActiveEventQuestionID;
 }
 
@@ -818,9 +813,8 @@ export function liveAnswerCountFor(
   if (!live) return Math.max(0, pingCount ?? 0);
   const status = liveQuestionStatusOf(live);
   if (status === 'pending') return 0;
-  const extra = Boolean(live.ExtraGameId);
-  const liveId = extra ? live.ActiveExtraQuestionID : live.ActiveEventQuestionID;
-  const want = extra ? target?.extraQuestionId : target?.eventQuestionId;
+  const liveId = live.ActiveEventQuestionID;
+  const want = target?.eventQuestionId;
   if (want != null && liveId != null && Number(want) !== Number(liveId) && status !== 'active') {
     return 0;
   }
@@ -1342,6 +1336,7 @@ export function normalizeOpRounds(rows: unknown[], eventId?: number | string | n
       TopicName: String(row.TopicName ?? row.topicName ?? row.Topic ?? row.Name ?? '').trim(),
       Mode: String(row.Mode ?? row.mode ?? 'mixed').trim() || 'mixed',
       Kind: String(row.Kind ?? row.kind ?? '').trim().toLowerCase(),
+      RoundTypeCode: String(row.RoundTypeCode ?? row.roundTypeCode ?? '').trim().toLowerCase(),
       ExtraGameId:
         matchOpExtraGame(row.ExtraGameId ?? row.extraGameId ?? row.ExtraGameID)?.id ||
         String(row.ExtraGameId ?? row.extraGameId ?? row.ExtraGameID ?? '').trim().toUpperCase() ||

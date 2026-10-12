@@ -20,7 +20,7 @@
     :round-id="openItem.roundId ?? null"
     :question-index="openItem.index"
     :question-total="openItem.total"
-    :extra-game-id="openItem.extraGameId || ''"
+    :extra-game-id="stageMarkForRound(openItem.roundTypeCode || '', openItem.title)"
     :extra-question-id="liveExtraQuestionId"
     :extra-run-id="liveExtraRunId"
     :result-rows="roundScoreRows"
@@ -256,8 +256,8 @@ import { useQuasar } from 'quasar';
 import { useEventStore } from 'src/stores/event';
 import { useOlimpubStore } from 'src/stores/olimpub';
 import { readAxiosErrorMessage } from 'src/utils/apiPayload';
-import { closeOpRound, castOpDisplay, fetchOpLeaderboard, resetOpExtra, resetOpRound, showOpLeaderboard, startOpExtra, stopOpExtra, stopOpExtraQuestion, stopOpQuestion } from '../opApi';
-import { opDefaultTimeSec, opJoinAbsoluteUrl, opReactGlyph } from '../constants';
+import { closeOpRound, castOpDisplay, fetchOpLeaderboard, resetOpRound, showOpLeaderboard, startOpRound, stopOpQuestion } from '../opApi';
+import { opDefaultTimeSec, opJoinAbsoluteUrl, opReactGlyph, stageMarkForRound } from '../constants';
 import {
   extraPoolToQuestion,
   opExtraQuestionTimeSec,
@@ -330,14 +330,14 @@ const SAMPLE_ITEMS: CatalogItem[] = [
   { id: 'r2', kind: 'quiz', title: 'Albumok', total: 8, index: 1, status: 'wait', prompt: 'Melyik lemezen van a Black?', correct: 'Ten' },
   { id: 'r3', kind: 'quiz', title: 'Műfajok', total: 8, index: 8, status: 'closed', prompt: 'Melyik műfaj a grunge?', correct: 'Grunge' },
   { id: 'r4', kind: 'quiz', title: 'Filmek', total: 8, index: 1, status: 'wait', prompt: 'Ki rendezte a Ponyvaregényt?', correct: 'Tarantino' },
-  { id: 'g1', kind: 'game', title: 'Párbaj', total: 5, index: 2, status: 'live', prompt: 'Melyik együttes adta ki a Nevermindot?', correct: 'Nirvana' },
-  { id: 'g2', kind: 'game', title: 'Mozaik', total: 6, index: 1, status: 'wait', prompt: 'Melyik szám szól?', correct: 'Smells Like Teen Spirit' },
-  { id: 'g3', kind: 'game', title: 'Karaoke', total: null, index: 0, status: 'wait', prompt: 'Karaoke', correct: '' },
-  { id: 'g4', kind: 'game', title: 'Fordított', total: 5, index: 5, status: 'closed', prompt: 'Mondd vissza a sorst.', correct: 'Sor' },
-  { id: 'g5', kind: 'game', title: 'Generációk', total: 5, index: 1, status: 'wait', prompt: 'Melyik évjárat?', correct: '1991' },
-  { id: 'g6', kind: 'game', title: 'Műsorvezető', total: 5, index: 1, status: 'wait', prompt: 'Ki a műsorvezető?', correct: 'Név' },
-  { id: 'g7', kind: 'game', title: 'Filmguru', total: 5, index: 1, status: 'wait', prompt: 'Melyik film?', correct: 'Film' },
-  { id: 'g8', kind: 'game', title: 'Ki beszél?', total: 5, index: 1, status: 'wait', prompt: 'Kié a hang?', correct: 'Hang' },
+  { id: 'g1', kind: 'game', title: 'Párbaj', roundTypeCode: 'duel_speed', total: 5, index: 2, status: 'live', prompt: 'Melyik együttes adta ki a Nevermindot?', correct: 'Nirvana' },
+  { id: 'g2', kind: 'game', title: 'Mozaik', roundTypeCode: 'manual_display', total: 6, index: 1, status: 'wait', prompt: 'Melyik szám szól?', correct: 'Smells Like Teen Spirit' },
+  { id: 'g3', kind: 'game', title: 'Karaoke', roundTypeCode: 'manual_display', total: null, index: 0, status: 'wait', prompt: 'Karaoke', correct: '' },
+  { id: 'g4', kind: 'game', title: 'Fordított', roundTypeCode: 'fast_5', total: 5, index: 5, status: 'closed', prompt: 'Mondd vissza a sorst.', correct: 'Sor' },
+  { id: 'g5', kind: 'game', title: 'Generációk', roundTypeCode: 'fast_5', total: 5, index: 1, status: 'wait', prompt: 'Melyik évjárat?', correct: '1991' },
+  { id: 'g6', kind: 'game', title: 'Műsorvezető', roundTypeCode: 'fast_5', total: 5, index: 1, status: 'wait', prompt: 'Ki a műsorvezető?', correct: 'Név' },
+  { id: 'g7', kind: 'game', title: 'Filmguru', roundTypeCode: 'fast_5', total: 5, index: 1, status: 'wait', prompt: 'Melyik film?', correct: 'Film' },
+  { id: 'g8', kind: 'game', title: 'Ki beszél?', roundTypeCode: 'fast_5', total: 5, index: 1, status: 'wait', prompt: 'Kié a hang?', correct: 'Hang' },
 ];
 
 const liveItems = computed(() => {
@@ -418,7 +418,7 @@ const liveQuestionId = computed(() => {
   if (!props.eventId || row.roundId == null) return null;
   const qs = store
     .getGame(props.eventId)
-    .questions.filter((item) => item.RoundID === row.roundId && !item.ExtraGameId)
+    .questions.filter((item) => item.RoundID === row.roundId)
     .sort((a, b) => a.SortIndex - b.SortIndex || a.id - b.id);
   return (
     qs.find((item) => item.SortIndex === row.index)?.id ??
@@ -737,7 +737,7 @@ function quizQuestionsOf(roundId: number) {
   if (!props.eventId) return [];
   return store
     .getGame(props.eventId)
-    .questions.filter((row) => row.RoundID === roundId && !row.ExtraGameId);
+    .questions.filter((row) => row.RoundID === roundId);
 }
 
 function quizRoundOf(row: CatalogItem) {
@@ -880,30 +880,6 @@ async function onCloseRoundRow(row: CatalogItem) {
   if (!ok) return;
   busyKey.value = row.id;
   try {
-    if (isGame) {
-      if (fromLive.value && props.eventId && row.extraGameId) {
-        const live = store.getGame(props.eventId).live;
-        if (live.ExtraGameId === row.extraGameId) {
-          const extraStatus = String(live.ExtraQuestionStatus || '').toLowerCase();
-          if (extraStatus === 'active' && live.ActiveExtraQuestionID != null) {
-            await stopOpExtraQuestion(props.eventId, live.ActiveExtraQuestionID);
-          }
-        }
-        await stopOpExtra(props.eventId, {
-          extraRunId: extraRunIdOf(row),
-          extraGameId: row.extraGameId,
-        });
-        markExtraClosed(row.extraGameId, true);
-        await reloadLive();
-        void reloadLeaderboards();
-        $q.notify({ type: 'positive', message: 'Játék lezárva — ExtraScore kész.', position: 'top', timeout: 1800 });
-        return;
-      }
-      row.status = 'closed';
-      markExtraClosed(row.extraGameId, true);
-      $q.notify({ type: 'positive', message: 'Játék lezárva — ExtraScore kész.', position: 'top', timeout: 1800 });
-      return;
-    }
     if (fromLive.value && props.eventId && row.roundId != null) {
       const active = quizQuestionsOf(row.roundId).find(
         (item) => String(item.StatusCode || '').toLowerCase() === 'active'
@@ -912,26 +888,33 @@ async function onCloseRoundRow(row: CatalogItem) {
       await closeOpRound(props.eventId, { roundId: row.roundId });
       await reloadLive();
       void reloadLeaderboards();
-      let hasF = false;
+      const board = isGame ? 'games' : 'quiz';
+      let hasPoints = false;
       try {
-        const rows = await fetchOpLeaderboard(props.eventId, 'quiz', { roundId: row.roundId });
-        hasF = rows.some((item) => item.points > 0);
+        const rows = await fetchOpLeaderboard(props.eventId, board, { roundId: row.roundId });
+        hasPoints = rows.some((item) => item.points > 0);
       } catch {
-        hasF = false;
+        hasPoints = false;
       }
       $q.notify({
-        type: hasF ? 'positive' : 'warning',
-        message: hasF
-          ? 'Forduló lezárva — F pontok kész.'
-          : 'A forduló lezárt, de a GET /op/leaderboard?board=quiz&RoundId= 0 F-et ad.',
+        type: hasPoints ? 'positive' : 'warning',
+        message: hasPoints
+          ? isGame
+            ? 'Játék lezárva.'
+            : 'Forduló lezárva — F pontok kész.'
+          : 'A forduló lezárt, a tabella még 0 pontot ad.',
         position: 'top',
-        timeout: hasF ? 1800 : 3600,
+        timeout: hasPoints ? 1800 : 3600,
       });
       return;
-    } else {
-      row.status = 'closed';
     }
-    $q.notify({ type: 'positive', message: 'Forduló lezárva — F pontok kész.', position: 'top', timeout: 1800 });
+    row.status = 'closed';
+    $q.notify({
+      type: 'positive',
+      message: isGame ? 'Játék lezárva.' : 'Forduló lezárva — F pontok kész.',
+      position: 'top',
+      timeout: 1800,
+    });
   } catch (error) {
     $q.notify({
       type: 'negative',
@@ -957,24 +940,6 @@ async function onResetRoundRow(row: CatalogItem) {
   if (!ok) return;
   busyKey.value = row.id;
   try {
-    if (isGame) {
-      if (fromLive.value && props.eventId && row.extraGameId) {
-        await resetOpExtra(props.eventId, {
-          extraRunId: extraRunIdOf(row),
-          extraGameId: row.extraGameId,
-        });
-        await reloadLive();
-        store.resetExtraLocalState(props.eventId, row.extraGameId);
-      } else {
-        row.status = 'wait';
-        row.index = 1;
-      }
-      markExtraClosed(row.extraGameId, false);
-      if (openItem.value?.id === row.id) openItem.value = null;
-      resetProjectedPoints();
-      $q.notify({ type: 'positive', message: 'Játék resetelve.', position: 'top', timeout: 1800 });
-      return;
-    }
     if (fromLive.value && props.eventId && row.roundId != null) {
       await resetOpRound(props.eventId, { roundId: row.roundId });
       await reloadLive();
@@ -984,14 +949,19 @@ async function onResetRoundRow(row: CatalogItem) {
     }
     if (openItem.value?.id === row.id) openItem.value = null;
     resetProjectedPoints();
-    $q.notify({ type: 'positive', message: 'Forduló resetelve.', position: 'top', timeout: 1800 });
+    $q.notify({
+      type: 'positive',
+      message: isGame ? 'Játék resetelve.' : 'Forduló resetelve.',
+      position: 'top',
+      timeout: 1800,
+    });
   } catch (error) {
     $q.notify({
       type: 'negative',
       message: readAxiosErrorMessage(
         error,
         isGame
-          ? 'A játék reset nem sikerült. A szerver Op.ResetExtra-t vár ExtraGameId-val.'
+          ? 'A játék reset nem sikerült.'
           : 'A reset nem sikerült.'
       ),
       position: 'top',
@@ -1063,7 +1033,7 @@ async function onProjectClosedRow(row: CatalogItem) {
     if (fromLive.value && props.eventId) {
       try {
         apiRows = isGame
-          ? await fetchOpLeaderboard(props.eventId, 'games', { extraGameId: row.extraGameId })
+          ? await fetchOpLeaderboard(props.eventId, 'games', { roundId: row.roundId })
           : await fetchOpLeaderboard(props.eventId, 'quiz', { roundId: row.roundId });
       } catch (error) {
         $q.notify({
@@ -1354,7 +1324,7 @@ function eventQuestionOf(row: CatalogItem): OpEventQuestion | null {
   }
   if (row.roundId == null) return null;
   const qs = game.questions
-    .filter((item) => item.RoundID === row.roundId && !item.ExtraGameId)
+    .filter((item) => item.RoundID === row.roundId)
     .sort((a, b) => a.SortIndex - b.SortIndex || a.id - b.id);
   return (
     qs.find((item) => item.SortIndex === row.index) ||
@@ -1414,7 +1384,7 @@ watch(
   async () => {
     const token = ++imageToken;
     const row = openItem.value;
-    if (!row || row.extraGameId === 'EG2') {
+    if (!row || isMosaicRow(row)) {
       if (token === imageToken) stageImageUrl.value = row?.kind === 'quiz' ? props.mediaUrl || null : null;
       return;
     }
@@ -1473,7 +1443,7 @@ function questionCast(
 ): Partial<OpDisplayCommand> {
   const q = eventQuestionOf(row);
   const live = props.eventId ? store.getGame(props.eventId).live : null;
-  const mosaic = row.extraGameId === 'EG2';
+  const mosaic = isMosaicRow(row);
   const type = String(q?.TypeCode || '').toLowerCase();
   const freetext = type === 'freetext' || mosaic;
   return {
@@ -1626,7 +1596,7 @@ function projectQuestion(
   extra?: { reactGlyph?: string; reactAt?: number; showCorrect?: boolean; tipName?: string; tipTeam?: string; mosaicOutTeamIds?: number[] }
 ) {
   const used = clock || lastClock;
-  const mosaic = row.extraGameId === 'EG2';
+  const mosaic = isMosaicRow(row);
   publish({
     face: 'question',
     kind: row.kind,
@@ -1857,16 +1827,15 @@ function projectLobby(row: CatalogItem) {
   });
 }
 
+function isMosaicRow(row: CatalogItem | null) {
+  if (!row) return false;
+  return stageMarkForRound(row.roundTypeCode || '', row.title) === 'EG2';
+}
+
 function rowQuestionActive(row: CatalogItem) {
   if (!props.eventId) return false;
   const live = store.getGame(props.eventId).live;
-  if (row.extraGameId === 'EG2') return false;
-  if (row.extraGameId) {
-    return (
-      live.ExtraGameId === row.extraGameId &&
-      String(live.ExtraQuestionStatus || '').toLowerCase() === 'active'
-    );
-  }
+  if (isMosaicRow(row)) return false;
   return (
     live.ActiveRoundID === row.roundId &&
     String(live.QuestionStatus || '').toLowerCase() === 'active'
@@ -1881,16 +1850,14 @@ function enter(row: CatalogItem) {
 async function onBegin(row: CatalogItem | null) {
   if (!row) return;
   resetProjectedPoints();
-  if (fromLive.value && props.eventId && row.extraGameId) {
+  if (fromLive.value && props.eventId && row.roundId != null) {
     try {
-      store.reviveExtraGame(props.eventId, row.extraGameId);
-      await startOpExtra(props.eventId, row.extraGameId);
-      markExtraClosed(row.extraGameId, false);
+      await startOpRound(props.eventId, row.roundId);
       await reloadLive();
       const next = liveItems.value.find((item) => item.id === row.id);
       if (next) openItem.value = { ...next };
     } catch (error) {
-      const message = readAxiosErrorMessage(error, 'A játék nem indult.');
+      const message = readAxiosErrorMessage(error, 'A forduló nem indult.');
       if (!/már|active|folyamat/i.test(message)) {
         $q.notify({ type: 'negative', message, position: 'top' });
         return;
@@ -1913,13 +1880,24 @@ async function onAdvance(row: CatalogItem | null) {
     return;
   }
   await reloadLive();
-  const next = liveItems.value.find((item) => item.id === row.id);
-  if (next) {
-    const stayAtEnd =
-      row.total != null && row.index >= row.total && next.index < row.index;
-    openItem.value = stayAtEnd
-      ? { ...next, index: row.total as number, prompt: row.prompt, correct: row.correct, eventQuestionId: row.eventQuestionId }
-      : { ...next };
+  const game = props.eventId ? store.getGame(props.eventId) : null;
+  const qs = (game?.questions || [])
+    .filter((item) => item.RoundID === row.roundId)
+    .sort((a, b) => a.SortIndex - b.SortIndex || a.id - b.id);
+  const at = qs.findIndex((item) => item.id === row.eventQuestionId);
+  const nextQ = at >= 0 ? qs[at + 1] : undefined;
+  if (nextQ) {
+    openItem.value = {
+      ...row,
+      index: nextQ.SortIndex,
+      prompt: nextQ.Prompt,
+      correct: formatOpQuestionCorrect(nextQ),
+      eventQuestionId: nextQ.id,
+      status: 'live',
+    };
+  } else {
+    const next = liveItems.value.find((item) => item.id === row.id);
+    if (next) openItem.value = { ...next, index: row.total as number };
   }
   projectLobby(openItem.value || row);
 }
@@ -1954,8 +1932,7 @@ function castMosaicClock(
   }
 ) {
   if (!props.eventId) return;
-  const mosaic =
-    row.extraGameId === 'EG2' || store.getGame(props.eventId).live.ExtraGameId === 'EG2';
+  const mosaic = isMosaicRow(row);
   if (!mosaic) return;
   const hold = Boolean(clock.hold) || clock.phase === 'paused';
   if (!hold && clock.phase !== 'play') return;

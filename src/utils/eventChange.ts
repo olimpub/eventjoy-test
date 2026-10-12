@@ -321,6 +321,8 @@ export const SIGNALR_LIVE_ACTIONS = [
   'Pta.Reset',
   'Pta.ShowDisplay',
   'Op.StartQuestion',
+  'Op.StartClock',
+  'Op.StartRound',
   'Op.StopQuestion',
   'Op.ReopenQuestion',
   'Op.PauseQuestion',
@@ -363,7 +365,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 }
 
 const OP_ACTION_BARE =
-  /^(SubmitAnswer|React|StartQuestion|StopQuestion|NextQuestion|ReopenQuestion|PauseQuestion|StartExtra|StopExtra|StartExtraQuestion|StopExtraQuestion|JoinTeam|LeaveTeam|MosaicBuzz|MosaicJudge|ShowLeaderboard|CastDisplay|CloseRound|ResetRound|ResetExtra|PublishRound|SetCurrent|AdjustTeam|Penalty)$/i;
+  /^(SubmitAnswer|React|StartQuestion|StartClock|StartRound|StopQuestion|NextQuestion|ReopenQuestion|PauseQuestion|StartExtra|StopExtra|StartExtraQuestion|StopExtraQuestion|JoinTeam|LeaveTeam|MosaicBuzz|MosaicJudge|ShowLeaderboard|CastDisplay|CloseRound|ResetRound|ResetExtra|PublishRound|SetCurrent|AdjustTeam|Penalty)$/i;
 
 function asOpAction(action: string) {
   const text = String(action || '').trim();

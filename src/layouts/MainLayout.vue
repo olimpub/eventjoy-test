@@ -1,7 +1,6 @@
 <template>
-  <q-layout view="lHh Lpr lff" class="ej-shell" :class="$q.dark.isActive ? 'bg-[#0F172A] text-white' : 'bg-[#F8FAFC] text-slate-900'">
-    <!-- Header: Left side logo, right side Event name + Messages + Notifications -->
-    <q-header elevated :class="$q.dark.isActive ? 'bg-[#0F172A]/95 shadow-[0_4px_20px_rgba(0,0,0,0.5)] border-b border-slate-800 text-white' : 'bg-white/95 border-b border-slate-200 text-slate-800'">
+  <q-layout view="lHh Lpr lff" class="ej-shell" :class="[$q.dark.isActive ? 'bg-[#0F172A] text-white' : 'bg-[#F8FAFC] text-slate-900', { 'is-immersive': immersive }]">
+    <q-header v-if="!immersive" elevated :class="$q.dark.isActive ? 'bg-[#0F172A]/95 shadow-[0_4px_20px_rgba(0,0,0,0.5)] border-b border-slate-800 text-white' : 'bg-white/95 border-b border-slate-200 text-slate-800'">
       <q-toolbar class="justify-between q-px-md" style="height: 64px;">
         <!-- Left side: Brand Logo -->
         <div class="flex items-center gap-2">
@@ -61,11 +60,32 @@
           >
             <q-tooltip>Üzenetek</q-tooltip>
           </q-btn>
+          <q-btn
+            flat
+            round
+            dense
+            icon="sym_r_fullscreen"
+            :class="inEvent ? 'ej-immersive-enter text-sky-300' : 'text-slate-400 hover:text-white'"
+            size="20px"
+            aria-label="Teljes képernyő"
+            @click="toggleImmersive"
+          >
+            <q-tooltip>Teljes képernyő</q-tooltip>
+          </q-btn>
         </div>
       </q-toolbar>
     </q-header>
 
-    <NowPlayingBar :footer-visible="true" />
+    <NowPlayingBar v-if="!immersive" :footer-visible="true" />
+    <button
+      v-if="immersive"
+      type="button"
+      class="ej-immersive-exit"
+      aria-label="Kilépés a teljes képernyőből"
+      @click="toggleImmersive"
+    >
+      <q-icon name="sym_r_fullscreen_exit" size="34px" />
+    </button>
 
     <q-page-container :class="$q.dark.isActive ? 'bg-[#0F172A]' : 'bg-[#F8FAFC]'">
       <router-view />
@@ -153,7 +173,7 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useQuasar } from 'quasar';
 import { useRoute, useRouter } from 'vue-router';
 import { EVENTJOY_BRAND } from 'src/assets/brand/eventjoy';
@@ -163,6 +183,7 @@ import { useHelpStore } from 'src/stores/help';
 import EventLiveDot from 'src/components/layout/EventLiveDot.vue';
 import RestoreAdminButton from 'src/components/layout/RestoreAdminButton.vue';
 import { installEventCatalogRefresh } from 'src/utils/eventCatalogRefresh';
+import { useImmersiveChrome } from 'src/composables/useImmersiveChrome';
 
 const headerLogo = EVENTJOY_BRAND.logoDark;
 
@@ -170,6 +191,8 @@ const $q = useQuasar();
 const route = useRoute();
 const router = useRouter();
 const helpStore = useHelpStore();
+const { immersive, toggle: toggleImmersive } = useImmersiveChrome();
+const inEvent = computed(() => /\/event\/\d+/.test(route.path));
 
 function openScreenHelp() {
   const names = [route.name, ...route.matched.map((record) => record.name)]

@@ -17,7 +17,7 @@ import {
   aggregateStandings,
   buildStandings,
   deskHasRecordedResults,
-  isSettledRoundStatus,
+  isProjectableRoundStatus,
   pickLatestReleasedRoundId,
   pickLatestSettledRoundId,
   pickOpenRoundId,
@@ -31,6 +31,7 @@ export interface PtaStandingsRoundRow {
   order: number;
   label: string;
   status: string;
+  statusId: number | null;
   deskCount: number;
   closedDeskCount: number;
 }
@@ -193,12 +194,14 @@ export function usePtaStandings(options?: { publishedOnly?: boolean; feed?: 'sto
       const order = Number(row.OrderIndex ?? index + 1);
       const name = String(row.RName || '').trim();
       const status = roundStatusName(row);
+      const statusId = nullableNumericId(row.EventRoundStatusID);
       const desks = roundDesks.filter((desk) => ptaEventRoundId(desk) === id);
       return {
         id,
         order,
         label: name || `${order}. forduló`,
         status,
+        statusId,
         deskCount: desks.length,
         closedDeskCount: desks.filter((desk) => deskHasRecordedResults(desk, status, schedules, desks)).length,
       };
@@ -209,8 +212,10 @@ export function usePtaStandings(options?: { publishedOnly?: boolean; feed?: 'sto
 
   const visibleRounds = computed(() => {
     if (publishedOnly || !isStaffView.value) {
-      const allow = onDisplay ? isSettledRoundStatus : roundResultsReleased;
-      return rounds.value.filter((round) => allow(round.status));
+      const allow = onDisplay
+        ? (round: PtaStandingsRoundRow) => isProjectableRoundStatus(round.status, round.statusId)
+        : (round: PtaStandingsRoundRow) => roundResultsReleased(round.status);
+      return rounds.value.filter((round) => allow(round));
     }
     return rounds.value;
   });

@@ -396,16 +396,17 @@ export async function fetchOpLeaderboard(
   opts?: { roundId?: number | null; extraGameId?: string | null }
 ): Promise<OpLeaderboardRow[]> {
   const raw = board === 'raw';
-  const extraGameId = String(opts?.extraGameId || '').trim().toUpperCase() || undefined;
-  const roundId = extraGameId ? undefined : opts?.roundId != null && opts.roundId > 0 ? opts.roundId : undefined;
-  const params: Record<string, string | number> = extraGameId
-    ? { board: 'games', ExtraGameId: extraGameId }
-    : roundId != null
-      ? { board: raw ? 'raw' : 'quiz', RoundId: roundId }
-      : { board: raw ? 'quiz' : board };
+  const roundId = opts?.roundId != null && opts.roundId > 0 ? opts.roundId : undefined;
+  const games = board === 'games';
+  const params: Record<string, string | number> =
+    games && roundId != null
+      ? { board: 'games', RoundID: roundId, RoundId: roundId }
+      : roundId != null
+        ? { board: raw ? 'raw' : 'quiz', RoundId: roundId }
+        : { board: raw ? 'quiz' : board };
   const pointMode: 'f' | 'raw' | 'extra' | 'points' = raw
     ? 'raw'
-    : extraGameId || board === 'games'
+    : games
       ? 'extra'
       : board === 'main'
         ? 'points'
@@ -418,7 +419,7 @@ export async function fetchOpLeaderboard(
         throwIfApiFailed(data, 'Az eredmények betöltése sikertelen.');
         return normalizeOpLeaderboardRows(pickLeaderboardRows(data), pointMode);
       })();
-  return filterOpLeaderboardRows(rows, { extraGameId, roundId });
+  return filterOpLeaderboardRows(rows, { roundId });
 }
 
 export async function showOpLeaderboard(
@@ -426,17 +427,18 @@ export async function showOpLeaderboard(
   board: OpLeaderboardBoard,
   opts?: { roundId?: number | null; extraGameId?: string | null }
 ): Promise<unknown> {
-  const extraGameId = String(opts?.extraGameId || '').trim().toUpperCase() || undefined;
-  const roundId = extraGameId ? undefined : opts?.roundId != null && opts.roundId > 0 ? opts.roundId : undefined;
+  const roundId = opts?.roundId != null && opts.roundId > 0 ? opts.roundId : undefined;
   const raw = board === 'raw';
+  const games = board === 'games';
   return postOpGameChange({
     EventID: eventId,
     Action: 'Op.ShowLeaderboard',
-    Payload: extraGameId
-      ? { Board: 'games', ExtraGameId: extraGameId }
-      : roundId != null
-        ? { Board: raw ? 'raw' : 'quiz', RoundId: roundId }
-        : { Board: raw ? 'quiz' : board },
+    Payload:
+      games && roundId != null
+        ? { Board: 'games', RoundID: roundId, RoundId: roundId }
+        : roundId != null
+          ? { Board: raw ? 'raw' : 'quiz', RoundId: roundId }
+          : { Board: raw ? 'quiz' : board },
   });
 }
 
@@ -700,6 +702,22 @@ export async function resetOpExtra(
       ExtraRunID: input.extraRunId,
       ExtraGameId: input.extraGameId,
     },
+  });
+}
+
+export async function startOpRound(eventId: number, roundId: number): Promise<unknown> {
+  return postOpGameChange({
+    EventID: eventId,
+    Action: 'Op.StartRound',
+    Payload: { RoundID: roundId, RoundId: roundId },
+  });
+}
+
+export async function startOpClock(eventId: number, eventQuestionId: number): Promise<unknown> {
+  return postOpGameChange({
+    EventID: eventId,
+    Action: 'Op.StartClock',
+    Payload: { EventQuestionID: eventQuestionId, EventQuestionId: eventQuestionId },
   });
 }
 

@@ -1,5 +1,6 @@
 import { nullableNumericId } from 'src/utils/apiPayload';
 import { useEventStore } from 'src/stores/event';
+import { PLAYERS_PER_DESK } from 'src/modules/profitability/drawEngine';
 import {
   collectGroupingValues,
   listEnabledGroupingAttrs,
@@ -17,6 +18,10 @@ export interface PtaDrawQuality {
   roundCount: number;
   playerCount: number;
   reserveCount: number;
+  checkedInCount: number;
+  expectedDeskCount: number;
+  deskMismatch: boolean;
+  deskMismatchMessage: string | null;
   playerRepeats: number;
   groupHits: number;
   deskRepeats: number;
@@ -151,12 +156,23 @@ export function summarizePtaDraw(eventId: number | string): PtaDrawQuality | nul
 
   const dup = scoreDrawDuplicates(seats, playerGroupsFromRows(players, settings));
   const seatedIds = new Set(seats.map((s) => s.playerId));
+  const checkedInCount = store.getPtaCheckedInDrawPlayers(eventId).drafts.length;
+  const expectedDeskCount = Math.floor(checkedInCount / PLAYERS_PER_DESK);
+  const expectedSeated = expectedDeskCount * PLAYERS_PER_DESK;
+  const deskMismatch = desks.length !== expectedDeskCount || seatedIds.size !== expectedSeated;
+  const deskMismatchMessage = deskMismatch
+    ? `${checkedInCount} belépett játékosból ${expectedDeskCount} asztal kellene (${expectedSeated} fő). A sorsolás ${desks.length} asztalt és ${seatedIds.size} főt tervezett. Így nem menthető, sorsolj újra.`
+    : null;
 
   return {
     deskCount: desks.length,
     roundCount: rounds.length,
     playerCount: seatedIds.size,
     reserveCount: players.filter((row) => row.ReserveFlg === true || row.ReserveFlg === 1).length,
+    checkedInCount,
+    expectedDeskCount,
+    deskMismatch,
+    deskMismatchMessage,
     ...dup,
   };
 }

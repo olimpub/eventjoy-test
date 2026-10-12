@@ -60,7 +60,17 @@ export function deskHasRecordedResults(
 
 export function isPublishedStatus(status: string) {
   const hay = foldText(status);
-  return hay.includes('publikal') || hay.includes('kozze');
+  return hay.includes('publik') || hay.includes('kozze');
+}
+
+/** Lezárt (4) és Publikus (5). A kivetítő ezeket vetítheti, a nevetől függetlenül is. */
+export const PTA_PROJECTABLE_ROUND_STATUS_IDS = [4, 5] as const;
+
+export function isProjectableRoundStatus(status: string, statusId?: number | null): boolean {
+  if (statusId != null && (PTA_PROJECTABLE_ROUND_STATUS_IDS as readonly number[]).includes(statusId)) {
+    return true;
+  }
+  return isSettledRoundStatus(status);
 }
 
 /** Lezárt vagy Publikált — ezeket a betöltés kihagyja a forduló-választáskor. */
@@ -122,10 +132,10 @@ export function pickOpenRoundId(
 }
 
 function pickLatestMatchingRoundId(
-  rounds: Array<{ id: number; status: string; order?: number }>,
-  include: (status: string) => boolean
+  rounds: Array<{ id: number; status: string; order?: number; statusId?: number | null }>,
+  include: (round: { status: string; statusId?: number | null }) => boolean
 ): number | null {
-  const released = rounds.filter((round) => include(round.status));
+  const released = rounds.filter((round) => include(round));
   if (!released.length) return null;
   released.sort((a, b) => {
     const byOrder = Number(b.order ?? 0) - Number(a.order ?? 0);
@@ -139,14 +149,16 @@ function pickLatestMatchingRoundId(
 export function pickLatestReleasedRoundId(
   rounds: Array<{ id: number; status: string; order?: number }>
 ): number | null {
-  return pickLatestMatchingRoundId(rounds, roundResultsReleased);
+  return pickLatestMatchingRoundId(rounds, (round) => roundResultsReleased(round.status));
 }
 
-/** Kivetítés: lezárt vagy publikált, a legmagasabb sorszám. */
+/** Kivetítés: Lezárt (4) vagy Publikus (5), a legmagasabb sorszám. */
 export function pickLatestSettledRoundId(
-  rounds: Array<{ id: number; status: string; order?: number }>
+  rounds: Array<{ id: number; status: string; order?: number; statusId?: number | null }>
 ): number | null {
-  return pickLatestMatchingRoundId(rounds, isSettledRoundStatus);
+  return pickLatestMatchingRoundId(rounds, (round) =>
+    isProjectableRoundStatus(round.status, round.statusId)
+  );
 }
 
 export function catalogHasPublishedStatus(

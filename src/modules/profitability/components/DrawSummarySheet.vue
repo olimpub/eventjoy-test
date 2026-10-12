@@ -19,6 +19,9 @@
           · <strong>{{ summary.reserveCount }}</strong> tartalék
         </template>
       </p>
+      <p v-if="summary?.deskMismatchMessage" class="draw-summary__error">
+        {{ summary.deskMismatchMessage }}
+      </p>
 
       <div class="draw-summary__block">
         <div class="draw-summary__block-title">Duplikációk</div>
@@ -52,7 +55,7 @@
         <button
           type="button"
           class="draw-summary__btn draw-summary__btn--primary"
-          :disabled="busy"
+          :disabled="busy || summary?.deskMismatch === true"
           @click="$emit('finalize')"
         >
           {{ busy ? 'Mentés…' : 'Véglegesítés' }}
@@ -125,6 +128,19 @@ defineEmits<{
 .draw-summary__meta strong {
   color: #f8fafc;
   font-weight: 800;
+}
+
+.draw-summary__error {
+  margin: -4px 0 16px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(248, 113, 113, 0.12);
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  color: #fecaca;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.45;
+  text-align: center;
 }
 
 .draw-summary__block {

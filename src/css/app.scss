@@ -47,6 +47,61 @@ body {
   overflow: hidden;
 }
 
+.ej-shell.is-immersive .q-page-container {
+  padding-top: 0 !important;
+}
+
+.ej-immersive-enter {
+  animation: ej-immersive-pulse 1.15s ease-in-out infinite;
+}
+
+.ej-immersive-exit {
+  position: fixed;
+  z-index: 80;
+  right: 14px;
+  bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+  width: 64px;
+  height: 64px;
+  border: 2px solid rgba(56, 189, 248, 0.85);
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #e0f2fe;
+  background: rgba(14, 165, 233, 0.92);
+  box-shadow: 0 10px 28px rgba(14, 165, 233, 0.45);
+  cursor: pointer;
+}
+
+@keyframes ej-immersive-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    color: #7dd3fc;
+    filter: drop-shadow(0 0 0 rgba(56, 189, 248, 0));
+  }
+  35% {
+    transform: scale(1.22) rotate(-8deg);
+    color: #fff;
+    filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.95));
+  }
+  55% {
+    transform: scale(1.08) rotate(8deg);
+  }
+  70% {
+    transform: scale(1.18) rotate(-4deg);
+    color: #fff;
+    filter: drop-shadow(0 0 10px rgba(56, 189, 248, 0.9));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ej-immersive-enter {
+    animation: none;
+    color: #38bdf8;
+  }
+}
+
 .ej-bottom-nav {
   position: relative;
   z-index: 40;

@@ -6,7 +6,7 @@ import {
   readApiReturnDescription,
   unwrapApiPayload,
 } from 'src/utils/apiPayload';
-import { normalizeOpTypeCode, opDefaultTimeSec, type OpQuestionTypeCode } from './constants';
+import { normalizeOpTypeCode, opDefaultTimeSec, roundTypeFromImportGame, type OpQuestionTypeCode } from './constants';
 
 export interface OpImportQuestion {
   Topic: string;
@@ -177,7 +177,7 @@ function toPayloadRow(q: OpImportQuestion): Record<string, unknown> {
     TimeSec: q.TimeSec,
   };
   if (q.SortIndex != null) row.SortIndex = q.SortIndex;
-  if (q.Game) row.ExtraGameId = q.Game;
+  if (q.Game) row.RoundTypeCode = roundTypeFromImportGame(String(q.Game));
   if (q.TimeSec == null) delete row.TimeSec;
   if (q.MediaUrl) {
     if (/^https?:\/\//i.test(q.MediaUrl)) row.MediaUrl = q.MediaUrl;

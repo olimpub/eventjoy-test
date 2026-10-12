@@ -858,6 +858,15 @@ async function onRedrawDraw() {
 
 async function onFinalizeDraw() {
   if (drawSaving.value) return;
+  if (drawSummary.value?.deskMismatch) {
+    $q.notify({
+      message: drawSummary.value.deskMismatchMessage || 'Az asztalszám nem egyezik a belépettekkel.',
+      color: 'dark',
+      textColor: 'red-4',
+      position: 'top',
+    });
+    return;
+  }
   const id = nullableNumericId(eventId.value);
   if (id == null) return;
   workLabel.value = 'Mentés…';

@@ -20,7 +20,9 @@
         :skip-intro="skipQuizRead"
         :intro-ms="QUIZ_READ_MS"
         :paused="clockPaused"
-        :face="focusedQuestion?.ExtraGameId ? 'game' : 'quiz'"
+        :face="manualStage ? 'game' : 'quiz'"
+        :listen-only="manualStage"
+        :accepting="!game.live.ClockPaused"
         phase="play"
         @ready="onStageReady"
         @submitted="onSubmitted"
@@ -99,7 +101,6 @@ import {
   kabalaImageOf,
   opQuestionImageUrl,
   opQuestionTopic,
-  extraPoolToQuestion,
   opExtraQuestionTimeSec,
   parseOpUtcMs,
   previewModelFromQuestion,
@@ -347,9 +348,7 @@ function qmOnCatalog() {
 }
 
 function questionIsActive() {
-  const live = game.value.live;
-  if (live.ExtraGameId) return String(live.ExtraQuestionStatus || '').toLowerCase() === 'active';
-  return String(live.QuestionStatus || '').toLowerCase() === 'active';
+  return String(game.value.live.QuestionStatus || '').toLowerCase() === 'active';
 }
 
 const showBreak = computed(() => {
@@ -401,15 +400,9 @@ const waitingMemberCount = computed(() =>
   Math.max(myTeam.value?.MemberCount ?? 0, teammates.value.length)
 );
 
-function questionStatusOf(row: { id?: number; StatusCode?: string; ExtraGameId?: string | null } | null) {
+function questionStatusOf(row: { id?: number; StatusCode?: string } | null) {
   const own = String(row?.StatusCode || '').toLowerCase();
   const live = game.value.live;
-  if (row?.ExtraGameId) {
-    if (live.ActiveExtraQuestionID != null && row.id != null && row.id !== live.ActiveExtraQuestionID) {
-      return own || 'pending';
-    }
-    return own || String(live.ExtraQuestionStatus || '').toLowerCase();
-  }
   if (row?.id != null && live.ActiveEventQuestionID != null && row.id !== live.ActiveEventQuestionID) {
     return own || 'pending';
   }
@@ -418,19 +411,6 @@ function questionStatusOf(row: { id?: number; StatusCode?: string; ExtraGameId?:
 
 const focusedQuestion = computed(() => {
   const live = game.value.live;
-  if (live.ExtraGameId) {
-    const extraId = live.ActiveExtraQuestionID;
-    if (extraId == null) return null;
-    const pool = game.value.extraPool.find((row) => row.id === extraId);
-    if (pool) {
-      return extraPoolToQuestion({
-        ...pool,
-        StatusCode: live.ExtraQuestionStatus || pool.StatusCode || 'active',
-        StartedAtUtc: live.StartedAtUtc || pool.StartedAtUtc,
-      });
-    }
-    return null;
-  }
   const running = String(live.QuestionStatus || '').toLowerCase() === 'active' && live.ActiveEventQuestionID != null;
   const id = running
     ? live.ActiveEventQuestionID
@@ -517,6 +497,13 @@ function resolvePingTeamId() {
 const showQuestionStage = computed(
   () => questionStatusOf(focusedQuestion.value) === 'active' && !mosaicOut.value
 );
+
+const manualStage = computed(() => {
+  const row = focusedQuestion.value;
+  if (!row) return false;
+  const round = game.value.rounds.find((item) => item.id === row.RoundID);
+  return String(round?.RoundTypeCode || '') === 'manual_display';
+});
 
 const stageQuestion = computed(() => {
   const row = focusedQuestion.value;
@@ -653,6 +640,14 @@ const mosaicHold = computed(
       Boolean(game.value.live.MosaicTipName))
 );
 const mosaicOut = computed(() => {
+  if (
+    myTeamId.value != null &&
+    game.value.penalties.some(
+      (row) => row.TeamID === myTeamId.value && row.PenaltyTypeCode === 'mozaik_wrong' && row.UndoOfID == null
+    )
+  ) {
+    return true;
+  }
   if (myTeamId.value != null && mosaicOutTeamIds.value.includes(myTeamId.value)) return true;
   const name = String(myTeam.value?.Name || '').trim().toLowerCase();
   return Boolean(name && mosaicOutTeamNames.value.includes(name));

@@ -4,10 +4,10 @@
     v-if="!isSplashVisible"
     class="ej-app"
     :class="{
-      'ej-app--admin': isAdminRoute,
+      'ej-app--admin': isAdminRoute || immersive,
     }"
   >
-    <div class="ej-app__main" :class="{ 'ej-app__main--flush': !showBottomNav && (route.path.includes('/display') || isAdminRoute || isOlimpubJoin) }">
+    <div class="ej-app__main" :class="{ 'ej-app__main--flush': !showBottomNav && (route.path.includes('/display') || isAdminRoute || isOlimpubJoin || immersive) }">
       <router-view />
     </div>
     <AppBottomNav v-if="showBottomNav" />
@@ -19,12 +19,14 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
+import { useImmersiveChrome } from 'src/composables/useImmersiveChrome'
 import SplashScreen from 'components/SplashScreen.vue'
 import AppBottomNav from 'src/components/layout/AppBottomNav.vue'
 import HelpSheet from 'src/components/help/HelpSheet.vue'
 import NetworkStatusBanner from 'src/components/layout/NetworkStatusBanner.vue'
 
 const route = useRoute()
+const { immersive } = useImmersiveChrome()
 const isSplashVisible = ref(true)
 
 const isAdminRoute = computed(() => {
@@ -43,7 +45,8 @@ const showBottomNav = computed(() => {
     path !== '/join' &&
     !isOlimpubJoin.value &&
     !path.startsWith('/admin') &&
-    !path.includes('/display')
+    !path.includes('/display') &&
+    !immersive.value
   )
 })
 

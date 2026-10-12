@@ -20,6 +20,7 @@
 
     <header v-if="!intro && !verdict && phase !== 'wait'" class="op-play__top">
       <button
+        v-if="!listenOnly"
         type="button"
         class="op-play__send"
         :class="{ 'is-ready': canSend && !locked, 'is-done': locked }"
@@ -78,6 +79,8 @@
       <div class="op-play__stage">
         <div class="op-play__answers">
           <p class="op-play__prompt">{{ question?.prompt }}</p>
+          <p v-if="listenOnly" class="op-play__listen">Szóban válaszoltok.</p>
+          <template v-else>
           <div v-if="type === 'freetext'" class="op-play__free">
             <input
               ref="freeInput"
@@ -176,6 +179,7 @@
               {{ row.text }}
             </button>
           </div>
+          </template>
         </div>
 
         <div class="op-play__media" :class="{ 'is-logo': !hasQuestionMedia }">
@@ -206,6 +210,8 @@ const props = withDefaults(
     questionTotal?: number;
     skipIntro?: boolean;
     introMs?: number;
+    listenOnly?: boolean;
+    accepting?: boolean;
     paused?: boolean;
   }>(),
   {
@@ -219,6 +225,8 @@ const props = withDefaults(
     questionTotal: 8,
     skipIntro: false,
     introMs: 3000,
+    listenOnly: false,
+    accepting: true,
     paused: false,
   }
 );
@@ -378,6 +386,7 @@ const orderRows = computed(() => {
 });
 
 const canSend = computed(() => {
+  if (!props.accepting || props.listenOnly) return false;
   if (type.value === 'freetext') return Boolean(freeText.value.trim());
   if (type.value === 'category') {
     return options.value.length > 0 && options.value.every((row) => itemCat[row.i]);

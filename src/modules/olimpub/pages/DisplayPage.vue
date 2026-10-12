@@ -458,10 +458,9 @@ function mapBoardRows(rows: { name: string; teamName?: string; points: number; p
 async function scopedResultRows(next: OpDisplayCommand) {
   if (!eventId.value) return null;
   const scope = displayScoreScope(next);
-  if (scope === 'game' || next.extraGameId) {
-    const extraGameId = next.extraGameId || undefined;
-    if (!extraGameId) return null;
-    const rows = await fetchOpLeaderboard(eventId.value, 'games', { extraGameId });
+  if (scope === 'game' || next.kind === 'game') {
+    if (next.roundId == null) return null;
+    const rows = await fetchOpLeaderboard(eventId.value, 'games', { roundId: next.roundId });
     return mapBoardRows(rows);
   }
   if (scope === 'round' || next.roundId) {

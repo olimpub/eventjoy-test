@@ -49,6 +49,62 @@ function foldExtraKey(raw: string): string {
     .replace(/[^a-z0-9]+/g, '');
 }
 
+export const OP_ROUND_TYPES = [
+  { code: 'main_quiz', title: 'Fő kvíz', kind: 'quiz' },
+  { code: 'duel_speed', title: 'Párbaj', kind: 'game' },
+  { code: 'fast_5', title: 'Gyorsasági', kind: 'game' },
+  { code: 'manual_display', title: 'Színpad', kind: 'game' },
+] as const;
+
+export type OpRoundTypeCode = (typeof OP_ROUND_TYPES)[number]['code'];
+
+export const OP_PENALTY_LABELS: Record<string, string> = {
+  mozaik_correct: 'Mozaik helyes válasz',
+  mozaik_wrong: 'Mozaik kiesés',
+  karaoke_pro: 'Karaoke',
+  cheat: 'Csalás',
+  manual_plus: 'Kézi plusz',
+  manual_minus: 'Kézi mínusz',
+};
+
+export function normalizeRoundTypeCode(raw: unknown): OpRoundTypeCode | '' {
+  const key = String(raw || '').trim().toLowerCase();
+  const hit = OP_ROUND_TYPES.find((row) => row.code === key);
+  return hit ? hit.code : '';
+}
+
+export function roundTypeTitle(code: string): string {
+  return OP_ROUND_TYPES.find((row) => row.code === code)?.title || 'Forduló';
+}
+
+export function roundTypeKind(code: string): 'quiz' | 'game' {
+  return code && code !== 'main_quiz' ? 'game' : 'quiz';
+}
+
+/** A színpadi felület régi jelzése. A szervernek nem megy ki. */
+export function stageMarkForRound(code: string, title = ''): string {
+  if (code === 'manual_display') return /karaoke/i.test(title) ? 'EG3' : 'EG2';
+  if (code === 'duel_speed') return 'EG1';
+  return '';
+}
+
+export function roundTypeFromImportGame(raw: string): OpRoundTypeCode {
+  const folded = foldExtraKey(raw);
+  if (!folded) return 'main_quiz';
+  if (folded === 'eg1' || folded.includes('parbaj') || folded.includes('duel')) return 'duel_speed';
+  if (
+    folded === 'eg2' ||
+    folded === 'eg3' ||
+    folded.includes('mozaik') ||
+    folded.includes('karaoke') ||
+    folded.includes('manual')
+  ) {
+    return 'manual_display';
+  }
+  if (folded === 'mainquiz' || folded.includes('fokviz') || folded === 'quiz') return 'main_quiz';
+  return 'fast_5';
+}
+
 export function matchOpExtraGame(
   ...values: Array<string | null | undefined>
 ): (typeof OP_EXTRA_GAMES)[number] | null {

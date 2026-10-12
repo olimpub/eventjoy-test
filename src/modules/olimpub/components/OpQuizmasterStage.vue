@@ -219,13 +219,11 @@ import { readAxiosErrorMessage } from 'src/utils/apiPayload';
 import { opReactGlyph } from '../constants';
 import { countOpPenaltiesByTeam, formatOpPenaltySum, liveAnswerCountFor, parseOpUtcMs, sumOpPenaltiesByTeam } from '../opData';
 import {
-  nextOpQuestion,
   postOpGameChange,
   reopenOpQuestion,
   pauseOpQuestion,
-  startOpExtraQuestion,
+  startOpClock,
   startOpQuestion,
-  stopOpExtraQuestion,
   stopOpQuestion,
 } from '../opApi';
 import OpResultsBoard from './OpResultsBoard.vue';
@@ -358,7 +356,7 @@ const SAMPLE_TEAMS: QmTeam[] = [
 
 const phase = ref<Phase>('ready');
 const pausedFrom = ref<'read' | 'play' | null>(null);
-const readLeft = ref(0);
+const clockArmed = ref(false);
 const playLeft = ref(0);
 const jumped = ref(false);
 let wantMosaicContinue = false;
@@ -454,7 +452,10 @@ const clockCaption = computed(() => {
   return 'Válaszidő';
 });
 
-const playLabel = computed(() => (phase.value === 'paused' ? 'Folytatás' : 'Indítás'));
+const playLabel = computed(() => {
+  if (clockArmed.value) return 'Óra';
+  return phase.value === 'paused' ? 'Folytatás' : 'Indítás';
+});
 const shownTime = computed(() => (scrubbing.value ? scrub.value : audioNow.value));
 const seekPct = computed(() => (audioDur.value > 0 ? Math.min(100, (shownTime.value / audioDur.value) * 100) : 0));
 const showSound = computed(() => Boolean(props.audioUrl || props.hasAudio));
@@ -551,6 +552,7 @@ function syncPause(hold: boolean) {
 }
 
 function begin(from: 'read' | 'play') {
+  clockArmed.value = false;
   jumped.value = false;
   demoSubmitted.value = 0;
   answerGap = 0;
@@ -568,6 +570,10 @@ function begin(from: 'read' | 'play') {
     return;
   }
   playLeft.value = answerMs.value;
+  if (from === 'play') {
+    armClock();
+    return;
+  }
   if (from === 'read') {
     readLeft.value = readMs;
     phase.value = 'read';
@@ -591,11 +597,7 @@ function tick() {
   if (phase.value === 'read') {
     readLeft.value = Math.max(0, runUntil - now);
     if (readLeft.value <= 0) {
-      readLeft.value = 0;
-      phase.value = 'play';
-      playLeft.value = answerMs.value;
-      runUntil = now + answerMs.value;
-      emitClock();
+      armClock();
     }
     return;
   }
@@ -699,18 +701,20 @@ function isExtra() {
   return Boolean(props.extraGameId);
 }
 
+function armClock() {
+  clockArmed.value = true;
+  readLeft.value = 0;
+  playLeft.value = answerMs.value;
+  phase.value = 'paused';
+  pausedFrom.value = 'play';
+  stopTick();
+  emitClock();
+}
+
 function liveIsThisQuestion() {
-  if (!props.eventId || props.extraGameId === 'EG2') return false;
+  if (!props.eventId || props.eventQuestionId == null) return false;
   const live = store.getGame(props.eventId).live;
-  if (isExtra()) {
-    return (
-      props.extraQuestionId != null &&
-      live.ActiveExtraQuestionID === props.extraQuestionId &&
-      String(live.ExtraQuestionStatus || '').toLowerCase() === 'active'
-    );
-  }
   return (
-    props.eventQuestionId != null &&
     live.ActiveEventQuestionID === props.eventQuestionId &&
     String(live.QuestionStatus || '').toLowerCase() === 'active'
   );
@@ -742,6 +746,7 @@ function attachFromLive() {
     readLeft.value = 0;
     phase.value = 'paused';
     pausedFrom.value = 'play';
+    clockArmed.value = left >= answerMs.value - 500;
     pausedAt = Date.now();
     runUntil = 0;
     stopTick();
@@ -776,9 +781,7 @@ function tryAttachToLive() {
 }
 
 function canCallLive() {
-  if (props.eventId == null) return false;
-  if (isExtra()) return props.extraQuestionId != null && !props.ender;
-  return props.eventQuestionId != null;
+  return props.eventId != null && props.eventQuestionId != null;
 }
 
 async function runLive(fallback: string, fn: () => Promise<unknown>): Promise<string | null> {
@@ -803,13 +806,9 @@ async function stopLive() {
   if (stopInFlight) return stopInFlight;
   stopInFlight = (async () => {
     try {
-      if (isExtra() && props.extraQuestionId != null) {
-        await stopOpExtraQuestion(props.eventId as number, props.extraQuestionId);
-      } else {
-        await stopOpQuestion(props.eventId as number, {
-          eventQuestionId: props.eventQuestionId as number,
-        });
-      }
+      await stopOpQuestion(props.eventId as number, {
+        eventQuestionId: props.eventQuestionId as number,
+      });
       stoppedOnServer.value = true;
       return null;
     } catch (error) {
@@ -842,6 +841,17 @@ function resumeAfterHold() {
 
 async function start() {
   if (liveBusy.value) return;
+  if (clockArmed.value) {
+    if (canCallLive()) {
+      const error = await runLive('Az óra nem indult.', () =>
+        startOpClock(props.eventId as number, props.eventQuestionId as number)
+      );
+      if (error) return;
+    }
+    clockArmed.value = false;
+    resumeAfterHold();
+    return;
+  }
   if (phase.value === 'paused' && pausedFrom.value) {
     resumeAfterHold();
     if (props.extraGameId !== 'EG2') syncPause(false);
@@ -850,12 +860,10 @@ async function start() {
   if (phase.value !== 'ready' && phase.value !== 'done') return;
   if (canCallLive()) {
     const error = await runLive('A kérdés nem indult.', () =>
-      isExtra() && props.extraQuestionId != null
-        ? startOpExtraQuestion(props.eventId as number, props.extraQuestionId)
-        : startOpQuestion(props.eventId as number, {
-            eventQuestionId: props.eventQuestionId as number,
-            roundId: props.roundId,
-          })
+      startOpQuestion(props.eventId as number, {
+        eventQuestionId: props.eventQuestionId as number,
+        roundId: props.roundId,
+      })
     );
     if (error) return;
     stoppedOnServer.value = false;
@@ -929,10 +937,6 @@ function openResults() {
   emit('results');
 }
 
-function isRoundOver(message: string) {
-  return /véget ért|nincs több|nincs kovetkez|kérdéskör/i.test(message);
-}
-
 async function jump() {
   if (liveBusy.value || !canNext.value) return;
   stopTick();
@@ -943,21 +947,6 @@ async function jump() {
   } else if (props.eventId && props.roundId != null) {
     const stopError = await stopLive();
     if (stopError) return;
-    const atEnd =
-      props.questionTotal != null &&
-      props.questionTotal > 0 &&
-      props.questionIndex >= props.questionTotal;
-    if (!atEnd) {
-      const nextError = await runLive('A következő kérdés nem lépett.', () =>
-        nextOpQuestion(props.eventId as number, {
-          roundId: props.roundId as number,
-        })
-      );
-      if (nextError) {
-        if (isRoundOver(nextError)) emit('finish');
-        return;
-      }
-    }
   }
   jumped.value = true;
   if (props.extraGameId === 'EG2' && !atLastQuestion.value) wantMosaicContinue = true;
@@ -1061,7 +1050,7 @@ async function sendAdjust(team: QmTeam) {
       Action: 'Op.AdjustTeam',
       Payload: {
         TeamID: team.id,
-        Direction: adjust.value,
+        PenaltyTypeCode: adjust.value === 'minus' ? 'manual_minus' : 'manual_plus',
       },
     });
     try {
@@ -1116,12 +1105,14 @@ async function judge(correct: boolean) {
   try {
     await postOpGameChange({
       EventID: props.eventId,
-      Action: 'Op.MosaicJudge',
+      Action: 'Op.AdjustTeam',
       Payload: {
-        ExtraQuestionID: props.extraQuestionId,
         TeamID: who.teamId,
-        TeamName: who.team,
-        CorrectFlg: correct,
+        PenaltyTypeCode: correct
+          ? props.extraGameId === 'EG3'
+            ? 'karaoke_pro'
+            : 'mozaik_correct'
+          : 'mozaik_wrong',
       },
     });
     if (correct) {
@@ -1196,6 +1187,7 @@ watch(
     if (!started.value || !prev || next === prev) return;
     stopTick();
     phase.value = 'ready';
+    clockArmed.value = false;
     pausedFrom.value = null;
     readLeft.value = 0;
     playLeft.value = answerMs.value;

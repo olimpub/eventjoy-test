@@ -199,7 +199,7 @@ import { eventDatasheetKind, eventRolePath, eventRoleQuery } from 'src/utils/eve
 import { resolvePtaSeatName, type EventGroupingKey } from 'src/modules/profitability/ptaData';
 import {
   buildStandings,
-  isSettledRoundStatus,
+  isProjectableRoundStatus,
   pickLatestSettledRoundId,
   pickOpenRoundId,
   type ResultsScope,
@@ -241,7 +241,7 @@ const controlGroupKey = ref<EventGroupingKey | null>(null);
 const ceremonyPlace = ref(8);
 
 const publishedRounds = computed(() =>
-  rounds.value.filter((round) => isSettledRoundStatus(round.status))
+  rounds.value.filter((round) => isProjectableRoundStatus(round.status, round.statusId))
 );
 
 const controlRounds = computed(() =>

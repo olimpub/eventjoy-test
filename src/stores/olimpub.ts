@@ -217,7 +217,11 @@ export const useOlimpubStore = defineStore('olimpub', {
         ? 0
         : Math.max(prevGame?.live.AnswerCount || 0, this.lastPingAnswerCount ?? 0);
       const paused =
-        isOpStartAction(action) || action === 'Op.StartExtra'
+        action === 'Op.StartQuestion'
+          ? true
+          : action === 'Op.StartClock'
+            ? false
+            : isOpStartAction(action) || action === 'Op.StartExtra'
           ? false
           : action === 'Op.MosaicBuzz'
             ? true
@@ -452,13 +456,17 @@ export const useOlimpubStore = defineStore('olimpub', {
       const live = {
         ...payload.live,
         ClockPaused:
-          castPhase === 'paused' || castPhase === 'read'
+          samePing && this.lastPingAction === 'Op.StartQuestion'
             ? true
-            : castPhase === 'play' || castPhase === 'done'
+            : samePing && this.lastPingAction === 'Op.StartClock'
               ? false
-              : frozen
+              : castPhase === 'paused' || castPhase === 'read'
                 ? true
-                : payload.live.ClockPaused,
+                : castPhase === 'play' || castPhase === 'done'
+                  ? false
+                  : frozen
+                    ? true
+                    : payload.live.ClockPaused,
         ClockLeftMs:
           frozen || castPhase === 'paused'
             ? (this.lastPingLeftMs ?? payload.live.ClockLeftMs ?? prev?.live.ClockLeftMs)

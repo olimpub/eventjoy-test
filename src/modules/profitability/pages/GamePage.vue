@@ -1836,6 +1836,10 @@ function onRedrawDraw() {
 
 async function onFinalizeDraw() {
   if (drawSaving.value) return;
+  if (drawSummary.value?.deskMismatch) {
+    notifyDrawFail(drawSummary.value.deskMismatchMessage || 'Az asztalszám nem egyezik a belépettekkel.');
+    return;
+  }
   const id = nullableNumericId(eventId.value);
   if (id == null) return;
   workLabel.value = 'Mentés…';
