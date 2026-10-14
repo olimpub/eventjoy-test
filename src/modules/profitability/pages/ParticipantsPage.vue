@@ -271,6 +271,16 @@
           </div>
 
           <div class="part-sheet__list">
+            <button
+              v-if="selectedCanIssuePass"
+              type="button"
+              class="part-sheet__row is-btn"
+              @click="openPlayerPass"
+            >
+              <q-icon name="sym_r_qr_code_2" size="20px" />
+              <span>Belépő kód</span>
+              <q-icon name="chevron_right" size="18px" class="ml-auto text-slate-500" />
+            </button>
             <div v-if="selected.ticketName" class="part-sheet__row">
               <q-icon name="sym_r_confirmation_number" size="20px" />
               <span>{{ selected.ticketName }}</span>
@@ -461,6 +471,13 @@
       @saved="onContactSaved"
     />
 
+    <PlayerPassSheet
+      v-model="isPlayerPassOpen"
+      :event-id="nullableNumericId(eventId)"
+      :event-user-id="passEventUserId"
+      :player-name="passPlayerName"
+    />
+
     <JoinQrSheet
       v-model="isJoinQrOpen"
       :event="dbEvent"
@@ -494,13 +511,14 @@ import ComingSoonCube from 'src/components/event/ComingSoonCube.vue';
 import InviteExcelImport from 'src/components/event/InviteExcelImport.vue';
 import WalkInRegisterSheet from 'src/components/event/WalkInRegisterSheet.vue';
 import JoinQrSheet from 'src/components/event/JoinQrSheet.vue';
+import PlayerPassSheet from 'src/components/event/PlayerPassSheet.vue';
 import ParticipantContactSheet from 'src/components/event/ParticipantContactSheet.vue';
 import { useAuthStore } from 'src/stores/auth';
-import { useEventStore, type EventUser } from 'src/stores/event';
+import { useEventStore, isGameMasterRole, type EventUser } from 'src/stores/event';
 import { useMasterDataStore, ORGANIZER_ROLE_TYPE_ID } from 'src/stores/masterData';
 import { nullableNumericId, readAxiosErrorMessage } from 'src/utils/apiPayload';
 import { EVENT_USER_FLOW_TEMPLATE_CODE, type EventUserStatusTransition, withOrganizerDoorCheckInTransition } from 'src/utils/eventUserFlow';
-import { participantListRank } from 'src/utils/eventUserStatus';
+import { membershipRoleKind, participantListRank } from 'src/utils/eventUserStatus';
 import { setEventUserStatus } from 'src/utils/eventChange';
 import { downloadExcelSheet, excelFileBase } from 'src/utils/excelExport';
 import AppConfirmDialog from 'src/components/ui/AppConfirmDialog.vue';
@@ -552,6 +570,9 @@ const masterDataStore = useMasterDataStore();
 const isImportOpen = ref(false);
 const isWalkInOpen = ref(false);
 const isJoinQrOpen = ref(false);
+const isPlayerPassOpen = ref(false);
+const passEventUserId = ref<number | null>(null);
+const passPlayerName = ref('');
 const isContactEditOpen = ref(false);
 const searchQuery = ref('');
 const listFilter = ref<'registered' | 'checked' | 'absent'>('registered');
@@ -617,6 +638,25 @@ const isReadOnly = computed(() => {
 });
 
 const showJoinQr = computed(() => !isReadOnly.value && eventReachedCheckIn(eventId.value));
+
+const selectedCanIssuePass = computed(() => {
+  const row = selected.value;
+  if (!row) return false;
+  const roleTypeName =
+    row.masterRoleId != null ? masterDataStore.getRoleTypeNameByRoleId(row.masterRoleId) : '';
+  const isOrganizer =
+    row.masterRoleId != null &&
+    masterDataStore.getRoleTypeIdByRoleId(row.masterRoleId) === ORGANIZER_ROLE_TYPE_ID;
+  if (isOrganizer) return false;
+  if (isGameMasterRole(row.masterRoleId, row.roleName, roleTypeName)) return true;
+  return (
+    membershipRoleKind({
+      isOrganizer: false,
+      roleTypeName,
+      roleName: row.roleName,
+    }) === 'participant'
+  );
+});
 
 const eventIsPublic = computed(() => {
   const e = dbEvent.value as Record<string, unknown> | null;
@@ -995,6 +1035,14 @@ function onConfirmHide() {
   const resolve = confirmResolver;
   confirmResolver = null;
   resolve(false);
+}
+
+function openPlayerPass() {
+  const row = selected.value;
+  if (!row || !selectedCanIssuePass.value) return;
+  passEventUserId.value = row.id;
+  passPlayerName.value = row.name;
+  isPlayerPassOpen.value = true;
 }
 
 function onStatusClick() {

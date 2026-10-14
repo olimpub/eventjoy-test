@@ -73,6 +73,19 @@ export function isProjectableRoundStatus(status: string, statusId?: number | nul
   return isSettledRoundStatus(status);
 }
 
+/** Játékosok / Csoportok: Lezárt vagy Publikus, illetve ha minden asztal le van zárva. Publikálás nem kell. */
+export function roundCanProjectResults(round: {
+  status: string;
+  statusId?: number | null;
+  deskCount?: number;
+  closedDeskCount?: number;
+}): boolean {
+  if (isProjectableRoundStatus(round.status, round.statusId)) return true;
+  const desks = Number(round.deskCount ?? 0);
+  const closed = Number(round.closedDeskCount ?? 0);
+  return desks > 0 && closed >= desks;
+}
+
 /** Lezárt vagy Publikált — ezeket a betöltés kihagyja a forduló-választáskor. */
 export function isSettledRoundStatus(status: string) {
   return isClosedStatus(status) || isPublishedStatus(status);
@@ -131,9 +144,9 @@ export function pickOpenRoundId(
   return (open ?? sorted[0])?.id ?? null;
 }
 
-function pickLatestMatchingRoundId(
-  rounds: Array<{ id: number; status: string; order?: number; statusId?: number | null }>,
-  include: (round: { status: string; statusId?: number | null }) => boolean
+function pickLatestMatchingRoundId<T extends { id: number; status: string; order?: number; statusId?: number | null }>(
+  rounds: T[],
+  include: (round: T) => boolean
 ): number | null {
   const released = rounds.filter((round) => include(round));
   if (!released.length) return null;
@@ -152,13 +165,18 @@ export function pickLatestReleasedRoundId(
   return pickLatestMatchingRoundId(rounds, (round) => roundResultsReleased(round.status));
 }
 
-/** Kivetítés: Lezárt (4) vagy Publikus (5), a legmagasabb sorszám. */
+/** Kivetítés: Lezárt (4) vagy Publikus (5), illetve végig lezárt asztalok. A legmagasabb sorszám. */
 export function pickLatestSettledRoundId(
-  rounds: Array<{ id: number; status: string; order?: number; statusId?: number | null }>
+  rounds: Array<{
+    id: number;
+    status: string;
+    order?: number;
+    statusId?: number | null;
+    deskCount?: number;
+    closedDeskCount?: number;
+  }>
 ): number | null {
-  return pickLatestMatchingRoundId(rounds, (round) =>
-    isProjectableRoundStatus(round.status, round.statusId)
-  );
+  return pickLatestMatchingRoundId(rounds, (round) => roundCanProjectResults(round));
 }
 
 export function catalogHasPublishedStatus(

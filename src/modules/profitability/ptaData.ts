@@ -217,6 +217,18 @@ export function ptaEventRoundId(row: Record<string, unknown> | null | undefined)
   return nullableNumericId(row.EventRoundID ?? row.eventRoundID ?? row.EventRoundId);
 }
 
+export function ptaRoundStatusId(row: Record<string, unknown> | null | undefined): number | null {
+  if (!row) return null;
+  return nullableNumericId(
+    row.EventRoundStatusID ??
+      row.eventRoundStatusID ??
+      row.EventRoundStatusId ??
+      row.eventRoundStatusId ??
+      row.RoundStatusID ??
+      row.roundStatusID
+  );
+}
+
 export function ptaEventDeskId(row: Record<string, unknown> | null | undefined): number | null {
   if (!row) return null;
   return nullableNumericId(
@@ -850,11 +862,13 @@ export function normalizePtaEventRounds(rows: unknown[]): Record<string, unknown
   return normalizePtaRows(rows).map((row) => {
     const eventRoundId = nullableNumericId(row.EventRoundID ?? row.eventRoundID ?? row.id);
     const order = nullableNumericId(row.OrderIndex ?? row.Order ?? row.RoundID ?? row.roundID);
+    const statusId = ptaRoundStatusId(row);
     return {
       ...row,
       EventRoundID: eventRoundId,
       id: eventRoundId ?? row.id,
       OrderIndex: order ?? row.OrderIndex,
+      ...(statusId != null ? { EventRoundStatusID: statusId } : {}),
     };
   });
 }

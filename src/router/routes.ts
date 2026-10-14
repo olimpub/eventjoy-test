@@ -22,6 +22,12 @@ const routes: RouteRecordRaw[] = [
     meta: { public: true },
   },
   {
+    path: '/join/pass/:token',
+    name: 'player-pass',
+    component: () => import('pages/PlayerPassPage.vue'),
+    meta: { public: true },
+  },
+  {
     path: '/',
     component: () => import('layouts/MainLayout.vue'),
     children: [

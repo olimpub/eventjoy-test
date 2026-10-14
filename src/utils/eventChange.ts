@@ -501,6 +501,17 @@ function applyLiveDeskResults(eventId: number, payload: Record<string, unknown>)
   if (seats.length) {
     eventStore.applyDeskSeatResults(eventId, roundDeskId, seats);
   }
+  if (
+    'GameMasterUserID' in payload ||
+    'gameMasterUserID' in payload ||
+    'GameMasterID' in payload
+  ) {
+    eventStore.setDeskGameMaster(
+      eventId,
+      roundDeskId,
+      nullableNumericId(payload.GameMasterUserID ?? payload.gameMasterUserID ?? payload.GameMasterID)
+    );
+  }
   const sName = String(payload.SName ?? payload.sName ?? payload.DeskStatus ?? '').trim();
   if (sName) {
     eventStore.applyEventRoundDeskPatch(eventId, roundDeskId, { SName: sName });

@@ -10,7 +10,7 @@
         </div>
 
 
-        <!-- Right side: Help + Newsfeed + Notifications + Messages -->
+        <!-- Right side: Help + fullscreen. Hírfolyam, értesítés és chat ideiglenesen rejtve. -->
         <div class="flex items-center gap-2 sm:gap-4">
           <q-btn
             v-if="helpStore.headerEnabled"
@@ -26,6 +26,7 @@
             <q-tooltip>Súgó</q-tooltip>
           </q-btn>
           <q-btn
+            v-if="showHeaderInbox"
             flat
             round
             dense
@@ -38,6 +39,7 @@
           </q-btn>
 
           <q-btn
+            v-if="showHeaderInbox"
             flat
             round
             dense
@@ -50,6 +52,7 @@
           </q-btn>
 
           <q-btn
+            v-if="showHeaderInbox"
             flat
             round
             dense
@@ -186,6 +189,8 @@ import { installEventCatalogRefresh } from 'src/utils/eventCatalogRefresh';
 import { useImmersiveChrome } from 'src/composables/useImmersiveChrome';
 
 const headerLogo = EVENTJOY_BRAND.logoDark;
+/** Mobilon az öt ikon és a logó nem fér el. Visszakapcsolás: true. */
+const showHeaderInbox = false;
 
 const $q = useQuasar();
 const route = useRoute();

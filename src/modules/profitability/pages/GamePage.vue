@@ -1350,6 +1350,7 @@ function deskResultPayload(seats: GameSeatRow[]) {
 }
 
 async function ensureRoundInProgress() {
+  if (!isOrganizerView.value) return;
   const round = currentRound.value;
   if (!round) return;
   if (isRoundLiveStatus(round.status) || isSettledRoundStatus(round.status)) return;
@@ -1413,15 +1414,38 @@ function flushPendingRoundPromote() {
   void ensureRoundInProgress();
 }
 
+async function claimDeskForScore(tableId: number) {
+  if (!isGameMasterView.value || currentUserId.value == null) return;
+  const table = currentTables.value.find((row) => row.id === tableId);
+  if (!table || table.isMine || table.gameMasterUserId != null) return;
+  const id = nullableNumericId(eventId.value);
+  if (id == null) return;
+  eventStore.setDeskGameMaster(eventId.value, tableId, currentUserId.value);
+  try {
+    await claimPtaDesk({
+      eventId: id,
+      eventRoundDeskId: tableId,
+      gameMasterUserId: currentUserId.value,
+    });
+  } catch (error) {
+    eventStore.setDeskGameMaster(eventId.value, tableId, null);
+    throw error;
+  }
+}
+
 async function pushDeskResults(tableId: number, seats: GameSeatRow[]) {
   const id = nullableNumericId(eventId.value);
   if (id == null) return;
+  await claimDeskForScore(tableId);
   await ensureRoundInProgress();
   await setPtaDeskResults({
     eventId: id,
     eventRoundDeskId: tableId,
     seats: deskResultPayload(seats),
   });
+  if (isGameMasterView.value && currentUserId.value != null) {
+    eventStore.setDeskGameMaster(eventId.value, tableId, currentUserId.value);
+  }
 }
 
 function parseAmount(raw: string): number | null {

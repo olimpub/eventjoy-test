@@ -35,7 +35,7 @@
           type="button"
           class="vet-mode"
           :class="{ 'is-on': controlMode === 'players' }"
-          :disabled="tvBusy"
+          :disabled="tvBusy || !canProjectResults"
           @click="sendControl('players')"
         >
           Játékosok
@@ -45,7 +45,7 @@
           type="button"
           class="vet-mode"
           :class="{ 'is-on': controlMode === 'groups' }"
-          :disabled="tvBusy"
+          :disabled="tvBusy || !canProjectResults"
           @click="sendControl('groups')"
         >
           Csoportok
@@ -63,7 +63,7 @@
           type="button"
           class="vet-mode"
           :class="{ 'is-on': controlMode === 'ceremony' }"
-          :disabled="tvBusy"
+          :disabled="tvBusy || !canProjectResults"
           @click="enterCeremony()"
         >
           Dobogó
@@ -87,6 +87,12 @@
           Várakozás
         </button>
       </div>
+      <p v-if="!canProjectResults" class="vet-hint">
+        Még nincs lezárt vagy publikált forduló. Játékos, csoport és dobogó addig nem vetíthető.
+      </p>
+      <p v-else-if="!resultRoundChosen" class="vet-hint">
+        Nincs forduló kiválasztva. Válassz egyet: {{ settledRoundLabels }}. Utána mehet a játékos, a csoport vagy a dobogó.
+      </p>
       <p class="vet-hint">Forduló állás: lezárt / összes asztal, pont nélkül.</p>
 
       <div
@@ -184,6 +190,17 @@
         </div>
       </div>
     </div>
+
+    <AppConfirmDialog
+      v-model="projectionConfirmOpen"
+      :title="projectionConfirmTitle"
+      :message="projectionConfirmMessage"
+      :ok-label="projectionConfirmOk"
+      cancel-label="Mégsem"
+      variant="warning"
+      @confirm="finishProjectionConfirm(true)"
+      @cancel="finishProjectionConfirm(false)"
+    />
   </q-page>
 </template>
 
@@ -192,15 +209,16 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { Notify } from 'quasar';
 import QRCode from 'qrcode';
-import { nullableNumericId } from 'src/utils/apiPayload';
+import { nullableNumericId, readAxiosErrorMessage } from 'src/utils/apiPayload';
 import { useEventStore } from 'src/stores/event';
 import { useHelpStore } from 'src/stores/help';
 import { eventDatasheetKind, eventRolePath, eventRoleQuery } from 'src/utils/eventRoleNav';
 import { resolvePtaSeatName, type EventGroupingKey } from 'src/modules/profitability/ptaData';
+import AppConfirmDialog from 'src/components/ui/AppConfirmDialog.vue';
 import {
   buildStandings,
+  foldText,
   isProjectableRoundStatus,
-  pickLatestSettledRoundId,
   pickOpenRoundId,
   type ResultsScope,
 } from 'src/modules/profitability/standings';
@@ -234,20 +252,42 @@ const tvQr = ref('');
 const tvExpires = ref('');
 const tvBusy = ref(false);
 const tvError = ref('');
-const controlMode = ref<'players' | 'groups' | 'seating' | 'ceremony' | 'roundstand' | 'idle'>('players');
+const controlMode = ref<'players' | 'groups' | 'seating' | 'ceremony' | 'roundstand' | 'idle'>('idle');
 const controlScope = ref<ResultsScope>('total');
 const controlRoundId = ref<number | null>(null);
 const controlGroupKey = ref<EventGroupingKey | null>(null);
 const ceremonyPlace = ref(8);
+const roundPickedByUser = ref(false);
+const projectionConfirmOpen = ref(false);
+const projectionConfirmTitle = ref('Figyelmeztetés');
+const projectionConfirmMessage = ref('');
+const projectionConfirmOk = ref('Folytatom');
+let projectionConfirmResolver: ((ok: boolean) => void) | null = null;
 
-const publishedRounds = computed(() =>
-  rounds.value.filter((round) => isProjectableRoundStatus(round.status, round.statusId))
+const settledRounds = computed(() =>
+  rounds.value
+    .filter((round) => isClosedOrPublishedRound(round))
+    .slice()
+    .sort((a, b) => a.order - b.order || a.id - b.id)
+);
+
+const latestSettledRoundId = computed(() => settledRounds.value.at(-1)?.id ?? null);
+
+const canProjectResults = computed(() => latestSettledRoundId.value != null);
+
+const settledRoundLabels = computed(() => settledRounds.value.map((round) => round.label).join(', '));
+
+const resultRoundChosen = computed(
+  () =>
+    roundPickedByUser.value &&
+    controlRoundId.value != null &&
+    settledRounds.value.some((round) => round.id === controlRoundId.value)
 );
 
 const controlRounds = computed(() =>
   controlMode.value === 'seating' || controlMode.value === 'roundstand'
     ? rounds.value
-    : publishedRounds.value
+    : settledRounds.value
 );
 
 watch(groupingAttrs, (attrs) => {
@@ -255,13 +295,18 @@ watch(groupingAttrs, (attrs) => {
 });
 
 watch(
-  controlRounds,
-  (list) => {
-    if (controlRoundId.value != null && list.some((round) => round.id === controlRoundId.value)) return;
-    controlRoundId.value =
-      controlMode.value === 'seating' || controlMode.value === 'roundstand'
-        ? selectedRoundId.value ?? pickOpenRoundId(list)
-        : pickLatestSettledRoundId(list);
+  [settledRounds, latestSettledRoundId, () => controlMode.value],
+  () => {
+    const live = controlMode.value === 'seating' || controlMode.value === 'roundstand';
+    if (live) {
+      const list = rounds.value;
+      if (controlRoundId.value != null && list.some((round) => round.id === controlRoundId.value)) return;
+      controlRoundId.value = selectedRoundId.value ?? pickOpenRoundId(list);
+      return;
+    }
+    if (resultRoundChosen.value) return;
+    roundPickedByUser.value = false;
+    controlRoundId.value = null;
   },
   { immediate: true }
 );
@@ -291,8 +336,9 @@ function displayQuery(): Record<string, string> {
   return { ...eventRoleQuery(enteredRole.value) };
 }
 
-function openDisplayOnThisDevice() {
-  void sendControl(controlMode.value);
+async function openDisplayOnThisDevice() {
+  const sent = await sendControl(controlMode.value);
+  if (!sent) return;
   const wall = router.resolve({
     name: 'profitability-display',
     params: { id: eventId.value },
@@ -377,8 +423,56 @@ async function copyTvUrl() {
   }
 }
 
-function publishedRoundIdForTv(): number | null {
-  return pickLatestSettledRoundId(publishedRounds.value);
+function isClosedOrPublishedRound(round: { status: string; statusId?: number | null }) {
+  return isProjectableRoundStatus(round.status, round.statusId);
+}
+
+function askProjectionConfirm(opts: { title: string; message: string; okLabel: string }): Promise<boolean> {
+  projectionConfirmTitle.value = opts.title;
+  projectionConfirmMessage.value = opts.message;
+  projectionConfirmOk.value = opts.okLabel;
+  projectionConfirmOpen.value = true;
+  return new Promise((resolve) => {
+    projectionConfirmResolver = resolve;
+  });
+}
+
+function finishProjectionConfirm(ok: boolean) {
+  const resolve = projectionConfirmResolver;
+  projectionConfirmResolver = null;
+  projectionConfirmOpen.value = false;
+  resolve?.(ok);
+}
+
+async function confirmProjection(
+  mode: 'players' | 'groups' | 'seating' | 'ceremony' | 'roundstand' | 'idle',
+  roundId: number | null
+): Promise<boolean> {
+  const checksRound = mode === 'players' || mode === 'groups' || mode === 'ceremony';
+  if (checksRound && roundId != null && roundId !== latestSettledRoundId.value) {
+    const selected = rounds.value.find((round) => round.id === roundId);
+    const latest = settledRounds.value.at(-1);
+    const selectedLabel = selected?.label || 'a kiválasztott forduló';
+    const ok = await askProjectionConfirm({
+      title: 'Figyelmeztetés',
+      message: `A kiválasztott forduló: ${selectedLabel}. Az utoljára lezárt vagy publikált forduló: ${latest?.label || 'nincs'}. Folytatod így?`,
+      okLabel: 'Folytatom',
+    });
+    if (!ok) return false;
+  }
+  if (mode === 'ceremony') {
+    const openRounds = rounds.value.filter((round) => !isClosedOrPublishedRound(round));
+    if (openRounds.length) {
+      const names = openRounds.map((round) => round.label).join(', ');
+      const ok = await askProjectionConfirm({
+        title: 'Figyelem',
+        message: `Biztos, hogy vetíteni akarod a dobogót úgy, hogy nincs lezárva az összes forduló? Még nincs lezárva: ${names}.`,
+        okLabel: 'Igen, vetítem',
+      });
+      if (!ok) return false;
+    }
+  }
+  return true;
 }
 
 function playerName(playerId: number | null): string {
@@ -395,13 +489,13 @@ function playerName(playerId: number | null): string {
 }
 
 const ceremonyStandingCount = computed(() => {
-  const roundId = controlRoundId.value ?? publishedRoundIdForTv();
-  const current = publishedRounds.value.find((round) => round.id === roundId) || publishedRounds.value[0];
+  const roundId = controlRoundId.value ?? latestSettledRoundId.value;
+  const current = settledRounds.value.find((round) => round.id === roundId) || settledRounds.value.at(-1);
   if (!current) return 0;
   const roundIds =
     controlScope.value === 'round'
       ? [current.id]
-      : publishedRounds.value.filter((round) => round.order <= current.order).map((round) => round.id);
+      : settledRounds.value.filter((round) => round.order <= current.order).map((round) => round.id);
   return buildStandings({
     roundIds,
     rounds: rounds.value,
@@ -413,9 +507,12 @@ const ceremonyStandingCount = computed(() => {
 
 const ceremonyStartPlace = computed(() => Math.max(1, Math.min(8, ceremonyStandingCount.value)));
 
-async function sendControl(mode: 'players' | 'groups' | 'seating' | 'ceremony' | 'roundstand' | 'idle') {
+async function sendControl(
+  mode: 'players' | 'groups' | 'seating' | 'ceremony' | 'roundstand' | 'idle',
+  options?: { skipWarn?: boolean }
+): Promise<boolean> {
   const id = nullableNumericId(eventId.value);
-  if (id == null) return;
+  if (id == null) return false;
   const liveRound = mode === 'seating' || mode === 'roundstand';
   if (liveRound) {
     const list = rounds.value;
@@ -423,26 +520,43 @@ async function sendControl(mode: 'players' | 'groups' | 'seating' | 'ceremony' |
       controlRoundId.value = selectedRoundId.value ?? pickOpenRoundId(list);
     }
   }
-  if (mode === 'ceremony') {
-    const list = publishedRounds.value;
-    if (controlRoundId.value == null || !list.some((round) => round.id === controlRoundId.value)) {
-      controlRoundId.value = publishedRoundIdForTv();
-    }
+  const resultMode = mode === 'players' || mode === 'groups' || mode === 'ceremony';
+  if (resultMode && !canProjectResults.value) {
+    tvError.value = 'Még nincs lezárt vagy publikált forduló.';
+    return false;
+  }
+  if (resultMode && !resultRoundChosen.value) {
+    tvError.value = '';
+    await askProjectionConfirm({
+      title: 'Válassz fordulót',
+      message: `Nincs forduló kiválasztva. Ezek közül kell választanod: ${settledRoundLabels.value}.`,
+      okLabel: 'Értem',
+    });
+    return false;
   }
   const roundId = liveRound
     ? controlRoundId.value ?? selectedRoundId.value ?? pickOpenRoundId(rounds.value)
-    : controlRoundId.value ?? publishedRoundIdForTv();
+    : controlRoundId.value;
   if (liveRound && roundId == null) {
     tvError.value = 'Nincs kisorsolt forduló.';
-    return;
+    return false;
   }
-  if (mode !== 'idle' && !liveRound && roundId == null) {
-    tvError.value = 'Előbb zárd le vagy publikáld a fordulót.';
-    return;
+  if (resultMode && roundId == null) {
+    tvError.value = 'Még nincs lezárt vagy publikált forduló.';
+    return false;
+  }
+  const everyRoundSettled = rounds.value.every((round) => isClosedOrPublishedRound(round));
+  if (mode === 'ceremony' && ceremonyStandingCount.value <= 0 && everyRoundSettled) {
+    tvError.value = 'Ebben a fordulóban még nincs kivetíthető eredmény.';
+    return false;
+  }
+  if (!options?.skipWarn) {
+    const ok = await confirmProjection(mode, roundId);
+    if (!ok) return false;
   }
   if (mode === 'ceremony' && ceremonyStandingCount.value <= 0) {
-    tvError.value = 'Előbb zárd le vagy publikáld a fordulót.';
-    return;
+    tvError.value = 'Ebben a fordulóban még nincs kivetíthető eredmény.';
+    return false;
   }
   controlMode.value = mode;
   tvBusy.value = true;
@@ -467,11 +581,17 @@ async function sendControl(mode: 'players' | 'groups' | 'seating' | 'ceremony' |
       place: mode === 'ceremony' ? ceremonyPlace.value : null,
       paused: false,
     });
-  } catch {
-    if (!liveRound && mode !== 'ceremony') tvError.value = 'A kivetítés nem indult el.';
+  } catch (error) {
+    if (!liveRound && mode !== 'ceremony') {
+      const api = readAxiosErrorMessage(error, '');
+      tvError.value = foldText(api).includes('publik')
+        ? 'Ezen a gépen a lezárt forduló kimegy. A PIN-es TV nem vette át a parancsot.'
+        : api || 'A kivetítés nem indult el.';
+    }
   } finally {
     tvBusy.value = false;
   }
+  return true;
 }
 
 function enterCeremony() {
@@ -482,7 +602,7 @@ function enterCeremony() {
 function stepCeremony(delta: number) {
   const max = ceremonyStartPlace.value;
   ceremonyPlace.value = Math.min(max, Math.max(1, ceremonyPlace.value + delta));
-  void sendControl('ceremony');
+  void sendControl('ceremony', { skipWarn: true });
 }
 
 function setControlScope(next: ResultsScope) {
@@ -496,6 +616,9 @@ function setControlScope(next: ResultsScope) {
 }
 
 function setControlRound(roundId: number) {
+  if (controlMode.value !== 'seating' && controlMode.value !== 'roundstand') {
+    roundPickedByUser.value = true;
+  }
   controlRoundId.value = roundId;
   if (controlMode.value === 'idle') return;
   if (controlMode.value === 'ceremony') {

@@ -165,7 +165,7 @@
 
           <section v-else-if="isIdle" class="pta-wall__idle">
             <q-icon name="emoji_events" class="pta-wall__idle-icon" />
-            <p class="pta-wall__idle-title">Még nincs lezárt eredmény.</p>
+            <p class="pta-wall__idle-title">Még nincs lezárt eredmény a kivetítéshez.</p>
           </section>
 
           <section v-else ref="boardRef" class="pta-wall__board">
@@ -864,6 +864,24 @@ function applyLocalCommandHint() {
   applyRemoteDisplayState(local);
 }
 
+async function ensureStaffScores() {
+  if (kioskMode.value) return;
+  if (
+    eventStore.getPtaRoundsForEvent(eventId.value).length > 0 &&
+    eventStore.getPtaSchedulesForEvent(eventId.value).length > 0
+  ) {
+    return;
+  }
+  const eu =
+    nullableNumericId(route.query.eventUserId) ?? nullableNumericId(enteredRole.value?.eventUserId);
+  if (eu == null) return;
+  try {
+    await eventStore.loadEventUserDataSheet(eu);
+  } catch {
+    /* a fal a display feedből marad */
+  }
+}
+
 async function ensureLiveDraw() {
   if (kioskMode.value) return;
   const eu =
@@ -882,6 +900,7 @@ async function ensureLiveDraw() {
 }
 
 async function reloadDisplayFeed(applyRemoteState: boolean) {
+  if (!kioskMode.value) await ensureStaffScores();
   try {
     const data = await fetchPtaDisplay(eventId.value, { useDisplayToken: kioskMode.value });
     eventStore.applyPtaDisplayFeed(eventId.value, data);

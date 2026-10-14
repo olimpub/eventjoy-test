@@ -25,7 +25,13 @@
         <button
           type="button"
           class="app-confirm__btn"
-          :class="variant === 'danger' ? 'app-confirm__btn--danger' : 'app-confirm__btn--primary'"
+          :class="
+            variant === 'danger'
+              ? 'app-confirm__btn--danger'
+              : variant === 'warning'
+                ? 'app-confirm__btn--warning'
+                : 'app-confirm__btn--primary'
+          "
           :disabled="busy"
           @click="emit('confirm')"
         >
@@ -46,7 +52,7 @@ const props = withDefaults(
     message: string;
     okLabel?: string;
     cancelLabel?: string;
-    variant?: 'default' | 'undo' | 'danger';
+    variant?: 'default' | 'undo' | 'danger' | 'warning';
     icon?: string;
     busy?: boolean;
   }>(),
@@ -70,6 +76,7 @@ const resolvedIcon = computed(() => {
   if (props.icon) return props.icon;
   if (props.variant === 'danger') return 'sym_r_cancel';
   if (props.variant === 'undo') return 'sym_r_undo';
+  if (props.variant === 'warning') return 'sym_r_priority_high';
   return 'help';
 });
 
@@ -116,6 +123,11 @@ function onCancel() {
     background: rgba(244, 63, 94, 0.14);
     color: #fb7185;
   }
+
+  &.is-warning {
+    background: rgba(246, 139, 41, 0.16);
+    color: #f68b29;
+  }
 }
 
 .app-confirm__title {
@@ -134,6 +146,10 @@ function onCancel() {
 
 .app-confirm__icon.is-danger + .app-confirm__title {
   color: #fb7185;
+}
+
+.app-confirm__icon.is-warning + .app-confirm__title {
+  color: #f68b29;
 }
 
 .app-confirm__message {
@@ -184,5 +200,11 @@ function onCancel() {
   background: rgba(244, 63, 94, 0.18);
   border-color: rgba(244, 63, 94, 0.35);
   color: #fb7185;
+}
+
+.app-confirm__btn--warning {
+  background: rgba(246, 139, 41, 0.2);
+  border-color: rgba(246, 139, 41, 0.45);
+  color: #fdba74;
 }
 </style>

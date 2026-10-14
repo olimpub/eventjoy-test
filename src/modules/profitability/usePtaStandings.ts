@@ -10,6 +10,7 @@ import {
   listEnabledGroupingAttrs,
   pickGroupingText,
   ptaEventRoundId,
+  ptaRoundStatusId,
   resolvePtaSeatName,
   type EventGroupingKey,
 } from 'src/modules/profitability/ptaData';
@@ -17,10 +18,10 @@ import {
   aggregateStandings,
   buildStandings,
   deskHasRecordedResults,
-  isProjectableRoundStatus,
   pickLatestReleasedRoundId,
   pickLatestSettledRoundId,
   pickOpenRoundId,
+  roundCanProjectResults,
   roundResultsReleased,
   type ResultsScope,
   type StandingRow,
@@ -69,6 +70,10 @@ export function usePtaStandings(options?: { publishedOnly?: boolean; feed?: 'sto
   const groupKey = ref<EventGroupingKey | null>(null);
 
   const feed = computed(() => {
+    const storeHasScores =
+      eventStore.getPtaRoundsForEvent(eventId.value).length > 0 &&
+      eventStore.getPtaSchedulesForEvent(eventId.value).length > 0;
+    if (storeHasScores) return null;
     const row = eventStore.ptaDisplayFeed;
     if (!useDisplayFeed || !row || row.eventId !== eventId.value) return null;
     const hasDraw =
@@ -120,10 +125,13 @@ export function usePtaStandings(options?: { publishedOnly?: boolean; feed?: 'sto
   });
 
   function roundStatusName(row: Record<string, unknown>): string {
-    const statusId = nullableNumericId(row.EventRoundStatusID);
+    const statusId = ptaRoundStatusId(row);
     const fromMaster =
       statusId != null ? masterDataStore.getPtaEventRoundStatusById(statusId)?.SName : '';
-    return String(fromMaster || row.SName || 'Kisorsolva');
+    const named = String(
+      row.StatusName ?? row.statusName ?? row.RoundStatusName ?? row.roundStatusName ?? ''
+    ).trim();
+    return String(fromMaster || named || row.SName || 'Kisorsolva');
   }
 
   function playerRows() {
@@ -191,10 +199,11 @@ export function usePtaStandings(options?: { publishedOnly?: boolean; feed?: 'sto
     const schedules = scheduleRows();
     return roundRows().map((row, index) => {
       const id = ptaEventRoundId(row) ?? nullableNumericId(row.id) ?? index + 1;
-      const order = Number(row.OrderIndex ?? index + 1);
+      const rawOrder = Number(row.OrderIndex);
+      const order = Number.isFinite(rawOrder) && rawOrder > 0 ? rawOrder : index + 1;
       const name = String(row.RName || '').trim();
       const status = roundStatusName(row);
-      const statusId = nullableNumericId(row.EventRoundStatusID);
+      const statusId = ptaRoundStatusId(row);
       const desks = roundDesks.filter((desk) => ptaEventRoundId(desk) === id);
       return {
         id,
@@ -213,7 +222,7 @@ export function usePtaStandings(options?: { publishedOnly?: boolean; feed?: 'sto
   const visibleRounds = computed(() => {
     if (publishedOnly || !isStaffView.value) {
       const allow = onDisplay
-        ? (round: PtaStandingsRoundRow) => isProjectableRoundStatus(round.status, round.statusId)
+        ? (round: PtaStandingsRoundRow) => roundCanProjectResults(round)
         : (round: PtaStandingsRoundRow) => roundResultsReleased(round.status);
       return rounds.value.filter((round) => allow(round));
     }
@@ -226,6 +235,7 @@ export function usePtaStandings(options?: { publishedOnly?: boolean; feed?: 'sto
     visibleRounds,
     (list) => {
       if (selectedRoundId.value != null && list.some((round) => round.id === selectedRoundId.value)) return;
+      if (onDisplay && selectedRoundId.value != null) return;
       selectedRoundId.value = publishedOnly
         ? (onDisplay ? pickLatestSettledRoundId(list) : pickLatestReleasedRoundId(list))
         : pickOpenRoundId(list);
