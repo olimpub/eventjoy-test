@@ -42,9 +42,9 @@
 
 ---
 
-## 8. Még nem commitolt (helyi módosítások)
+## 8. Backend fájlok
 
-A tesztkörnyezetben jelenleg az alábbi tételek élnek még helyi (uncommitted) állapotban:
+Ezek az API repóban vannak, nem ebben a frontend kiadásban:
 
 ### Backend (`EventJoy.Api`):
 - `SQL/Procedures/EJ.spChangeEvent.sql`: Játékmesteri jogosultság és asztal hozzárendelés mentéskor (`Pta.SetDeskResults`).
@@ -53,11 +53,4 @@ A tesztkörnyezetben jelenleg az alábbi tételek élnek még helyi (uncommitted
 - `SQL/Procedures/EJ.spJoinPlayerDevicePass.sql`: Eszközkötés (`DeviceId`), státuszkezelés és eseményfázis ellenőrzés.
 - `PlayerPassEndpoints.cs`: Belépő kód és telefonos csatlakozási végpontok (`POST /auth/player-pass`, `POST /auth/player-device-join`).
 
-### Frontend (`eventjoy-test`):
-- `src/components/event/PlayerPassSheet.vue`: QR kód megjelenítő és rotáló lap a résztvevői adatlapon.
-- `src/pages/PlayerPassPage.vue`: Publikus eszközcsatlakozási oldal (`/join/pass/:token`).
-- `src/utils/playerDevicePass.ts`: Eszköz UUID generálás/tárolás és belépési API hívás.
-- `src/modules/profitability/pages/DisplayControlPage.vue` & `DisplayPage.vue`: Kivetítés vezérlés és lezárt fordulók kivetítése.
-- `src/modules/profitability/pages/GamePage.vue`: Játékmesteri pontozási szabályok és asztalvédelem.
-- `src/layouts/MainLayout.vue`: Fejléc optimalizálás mobilon és teljes képernyő gomb.
-- `package.json` & `src-capacitor/package.json`: Verziószám frissítés `1.0.3`-ra.
+A frontend tételek ebben az 1.0.3 kiadásban vannak.
