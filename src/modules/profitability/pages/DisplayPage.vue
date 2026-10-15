@@ -271,6 +271,8 @@ import scoreTruckIcon from '../assets/ScoreTruck.png';
 const PAGE_MS = 8000;
 const FEED_POLL_MS = 10000;
 const TWO_COL_MIN_WIDTH = 880;
+/** DPI-váltáskor a clientWidth pár pixelt ugrik. Ennél kisebbet nem írunk vissza. */
+const SIZE_SLOP = 16;
 const ROW_MIN = 58;
 const HEAD_H = 28;
 const PAGER_H = 28;
@@ -286,6 +288,7 @@ const boardRef = ref<HTMLElement | null>(null);
 const seatsRef = ref<HTMLElement | null>(null);
 const boardWidth = ref(1280);
 const boardHeight = ref(720);
+const wideBoard = ref(true);
 const pageIndex = ref(0);
 const kioskMode = ref(false);
 const wallState = ref<PtaDisplayWallState>('leaderboard');
@@ -545,7 +548,7 @@ const seatingList = computed(() => {
 const seatingColCount = computed(() => {
   const n = seatingList.value.length;
   if (n <= 16) return 1;
-  if (boardWidth.value < TWO_COL_MIN_WIDTH) return 1;
+  if (!wideBoard.value) return 1;
   if (n <= 36) return 2;
   return 3;
 });
@@ -673,7 +676,7 @@ const rowsPerCol = computed(() => {
 
 const colCount = computed(() => {
   if (displayRows.value.length <= rowsPerCol.value) return 1;
-  return boardWidth.value >= TWO_COL_MIN_WIDTH ? 2 : 1;
+  return wideBoard.value ? 2 : 1;
 });
 
 const pageSize = computed(() => Math.max(1, colCount.value * rowsPerCol.value));
@@ -1063,8 +1066,14 @@ let feedPollTimer: ReturnType<typeof setInterval> | null = null;
 function syncBoardSize() {
   const el = seatsRef.value || boardRef.value;
   if (!el) return;
-  boardWidth.value = el.clientWidth;
-  boardHeight.value = el.clientHeight;
+  const w = el.clientWidth;
+  const h = el.clientHeight;
+  if (w <= 0 || h <= 0) return;
+  if (Math.abs(w - boardWidth.value) >= SIZE_SLOP) boardWidth.value = w;
+  if (Math.abs(h - boardHeight.value) >= SIZE_SLOP) boardHeight.value = h;
+  const width = boardWidth.value;
+  if (width >= TWO_COL_MIN_WIDTH + SIZE_SLOP) wideBoard.value = true;
+  else if (width <= TWO_COL_MIN_WIDTH - SIZE_SLOP) wideBoard.value = false;
 }
 
 function observePanel(el: HTMLElement | null, prev: HTMLElement | null) {
@@ -1201,7 +1210,9 @@ onUnmounted(() => {
 
 <style scoped>
 .pta-wall {
-  height: 100%;
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
   background: var(--pta-page);
   color: #e2e8f0;
 }
@@ -1224,8 +1235,10 @@ onUnmounted(() => {
   position: relative;
   display: flex;
   flex-direction: column;
-  width: min(100%, calc(100dvh * 16 / 9));
-  height: min(100%, calc(100dvw * 9 / 16));
+  /* A szülő 100%-a. A dvw/dvh 16:9 kör monitorváltáskor pár pixelt csúszik,
+     a scrollbar megjelenik-eltűnik, és a Chrome layoutja beragad. */
+  width: 100%;
+  height: 100%;
   max-width: 100%;
   max-height: 100%;
   padding: clamp(16px, 2.4vw, 36px) clamp(20px, 3vw, 48px) clamp(12px, 2vw, 28px);

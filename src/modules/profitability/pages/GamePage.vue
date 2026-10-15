@@ -216,10 +216,10 @@
                 </button>
                 <span
                   class="game-table__status"
-                  :class="statusClass(table.deskStatus)"
+                  :class="deskShowsLock(table) ? 'is-done' : statusClass(table.deskStatus)"
                   :title="table.deskStatus"
                 >
-                  <q-icon :name="deskStatusIcon(table.deskStatus)" size="18px" />
+                  <q-icon :name="deskShowsLock(table) ? 'sym_r_lock' : deskStatusIcon(table.deskStatus)" size="18px" />
                 </span>
               </span>
             </div>
@@ -313,10 +313,10 @@
         <q-card-section class="game-desk__bar q-pt-sm q-pb-none px-5">
           <span
             class="game-desk__status"
-            :class="statusClass(selectedTable.deskStatus)"
+            :class="deskShowsLock(selectedTable) ? 'is-done' : statusClass(selectedTable.deskStatus)"
           >
-            <span class="game-table__status" :class="statusClass(selectedTable.deskStatus)">
-              <q-icon :name="deskStatusIcon(selectedTable.deskStatus)" size="18px" />
+            <span class="game-table__status" :class="deskShowsLock(selectedTable) ? 'is-done' : statusClass(selectedTable.deskStatus)">
+              <q-icon :name="deskShowsLock(selectedTable) ? 'sym_r_lock' : deskStatusIcon(selectedTable.deskStatus)" size="18px" />
             </span>
             <span class="game-desk__status-name">{{ selectedTable.deskStatus }}</span>
           </span>
@@ -1110,8 +1110,16 @@ function statusClass(status: string) {
 
 function deskStatusIcon(status: string) {
   if (isLiveStatus(status)) return 'bolt';
-  if (isClosedStatus(status)) return 'lock';
+  if (isClosedStatus(status)) return 'sym_r_lock';
   return 'casino';
+}
+
+/** A 15/15 ugyanerre igaz: lezárt státusz, vagy van már rögzített eredmény. */
+function deskShowsLock(table: { deskStatus: string; seats: GameSeatRow[] }) {
+  if (isClosedStatus(table.deskStatus)) return true;
+  return table.seats.some(
+    (seat) => seat.amount != null || seat.resultPoint != null || seat.position != null
+  );
 }
 
 function tableHasScores(table: GameTableRow) {
@@ -2404,8 +2412,6 @@ async function onFinalizeDraw() {
 }
 
 .game-table__status {
-  justify-self: end;
-  grid-column: 3;
   display: inline-flex;
   align-items: center;
   justify-content: center;
