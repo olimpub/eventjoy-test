@@ -18,17 +18,18 @@
     </div>
 
     <template v-else>
-      <section class="op-block">
+      <section v-for="group in roundGroups" :key="group.key" class="op-block">
         <div class="op-block__head">
-          <h2>Fordulók</h2>
-          <span>{{ rounds.length }}</span>
+          <h2>{{ group.title }}</h2>
+          <span>{{ group.rows.length }}</span>
         </div>
-        <article v-for="round in rounds" :key="round.id" class="op-acc">
+        <article v-for="round in group.rows" :key="round.id" class="op-acc">
           <button type="button" class="op-acc__head" @click="toggleRound(round.id)">
             <span class="op-idx">{{ round.SortIndex }}</span>
             <span class="min-w-0 flex-1">
               <span class="op-row__title">{{ roundTitle(round) }}</span>
               <span class="op-row__meta">
+                <template v-if="group.key === 'game'">{{ roundTypeLabel(round) }} · </template>
                 {{ questionsOf(round.id).length }} kérdés · {{ statusLabel(round.StatusCode) }}
               </span>
             </span>
@@ -51,47 +52,12 @@
             </li>
           </ol>
         </article>
-        <div v-if="!rounds.length && !extraGroups.length" class="op-empty op-empty--tight">
-          <p>Töltsd fel az Excelt — abból lesz a forduló és a játék készlet.</p>
+      </section>
+      <section v-if="!rounds.length" class="op-block">
+        <div class="op-empty op-empty--tight">
+          <p>Töltsd fel az Excelt — abból lesznek a fordulók (a Játék oszlop adja a forduló típusát).</p>
           <button type="button" class="op-btn is-gold" @click="isImportOpen = true">Excel feltöltés</button>
         </div>
-        <p v-else-if="liveExtraOnly" class="op-empty op-empty--tight">
-          Van élő Párbaj-futam, de a feltöltött játék-kérdések nem jöttek le a szerkesztőbe. Az Excel ExtraGameId
-          készletét kellene itt látni — ha üres, a backend nem adja a QuestionID-s extra sort.
-        </p>
-      </section>
-
-      <section v-if="extraGroups.length" class="op-block">
-        <div class="op-block__head">
-          <h2>Játékok</h2>
-          <span>{{ extraGroups.length }}</span>
-        </div>
-        <article v-for="group in extraGroups" :key="group.id" class="op-acc">
-          <button type="button" class="op-acc__head" @click="toggleExtra(group.id)">
-            <span class="op-idx">{{ group.id.replace('EG', '') }}</span>
-            <span class="min-w-0 flex-1">
-              <span class="op-row__title">{{ group.title }}</span>
-              <span class="op-row__meta">{{ group.rows.length }} kérdés · extra készlet</span>
-            </span>
-            <q-icon :name="openExtraId === group.id ? 'expand_less' : 'expand_more'" size="18px" />
-          </button>
-          <ol v-if="openExtraId === group.id" class="op-qlist">
-            <li v-for="row in group.rows" :key="row.id">
-              <button type="button" class="op-qrow" @click="openExtraEditor(row)">
-                <span class="op-idx">{{ row.SortIndex }}</span>
-                <q-icon :name="typeIcon(row.TypeCode)" size="18px" class="op-qrow__icon">
-                  <q-tooltip>{{ typeLabel(row.TypeCode) }}</q-tooltip>
-                </q-icon>
-                <span class="op-qrow__prompt">{{ row.Prompt || typeLabel(row.TypeCode) }}</span>
-                <span class="op-qrow__flags">
-                  <q-icon v-if="row.ImageKey || row.ImageUrl || extraHasImage(row)" name="sym_r_image" size="16px" />
-                  <q-icon v-if="extraHasAudio(row)" name="sym_r_music_note" size="16px" />
-                </span>
-                <q-icon name="chevron_right" size="18px" class="op-qrow__go" />
-              </button>
-            </li>
-          </ol>
-        </article>
       </section>
     </template>
 
@@ -110,16 +76,18 @@ import { computed, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { useEventStore } from 'src/stores/event';
 import { useOlimpubStore } from 'src/stores/olimpub';
-import { matchOpExtraGame, opRoundStatusLabel, opTypeIcon, opTypeLabel } from '../constants';
 import {
-  extraPoolToQuestion,
-  enrichOpExtraMedia,
-  opLooksAudioMedia,
+  normalizeRoundTypeCode,
+  opRoundStatusLabel,
+  opTypeIcon,
+  opTypeLabel,
+  roundTypeKind,
+  roundTypeTitle,
+} from '../constants';
+import {
   opQuestionHasAudio,
   opQuestionImageUrl,
-  uniqueOpExtraGameIds,
   type OpEventQuestion,
-  type OpExtraPoolItem,
   type OpRound,
 } from '../opData';
 import OpMediaPackButton from '../components/OpMediaPackButton.vue';
@@ -145,40 +113,33 @@ const eventName = computed(() => {
   return ev?.Title || ev?.EventName || ev?.Name || 'Esemény';
 });
 const openRoundId = ref<number | null>(null);
-const openExtraId = ref<string | null>(null);
 
 const game = computed(() => store.getGame(eventId.value));
 const rounds = computed(() => game.value.rounds);
-const extraGroups = computed(() => {
-  const ids = uniqueOpExtraGameIds(
-    game.value.extraCatalog.map((row) => row.ExtraGameId),
-    game.value.questions.map((row) => row.ExtraGameId || '')
-  );
-  return ids
-    .map((id) => {
-      const named = matchOpExtraGame(id);
-      const seen = new Set<number>();
-      const rows = game.value.extraCatalog
-        .filter((row) => row.ExtraGameId === id)
-        .slice()
-        .sort((a, b) => a.SortIndex - b.SortIndex || a.id - b.id)
-        .filter((row) => {
-          if (seen.has(row.id)) return false;
-          seen.add(row.id);
-          return true;
-        });
-      return { id, title: named?.title || id, rows };
-    })
-    .filter((group) => group.rows.length);
+
+function roundKind(round: OpRound) {
+  return roundTypeKind(normalizeRoundTypeCode(round.RoundTypeCode) || 'main_quiz');
+}
+
+function roundTypeLabel(round: OpRound) {
+  return roundTypeTitle(normalizeRoundTypeCode(round.RoundTypeCode) || 'main_quiz');
+}
+
+/** RoundTypeCode != main_quiz: játék. Mindkét csoport SortIndex szerint rendezett. */
+const roundGroups = computed(() => {
+  const sorted = rounds.value.slice().sort((a, b) => a.SortIndex - b.SortIndex || a.id - b.id);
+  const quiz = sorted.filter((round) => roundKind(round) === 'quiz');
+  const games = sorted.filter((round) => roundKind(round) === 'game');
+  const groups: Array<{ key: 'quiz' | 'game'; title: string; rows: OpRound[] }> = [];
+  if (quiz.length) groups.push({ key: 'quiz', title: 'Fordulók', rows: quiz });
+  if (games.length) groups.push({ key: 'game', title: 'Játékok', rows: games });
+  return groups;
 });
-const liveExtraOnly = computed(
-  () => !extraGroups.value.length && game.value.extraPool.some((row) => row.ExtraGameId)
-);
-const hasContent = computed(() => rounds.value.length > 0 || extraGroups.value.length > 0);
+const hasContent = computed(() => rounds.value.length > 0);
 
 function questionsOf(roundId: number) {
   return game.value.questions
-    .filter((q) => q.RoundID === roundId && !q.ExtraGameId)
+    .filter((q) => q.RoundID === roundId)
     .slice()
     .sort((a, b) => a.SortIndex - b.SortIndex);
 }
@@ -216,46 +177,6 @@ function roundTopic(round: OpRound): string {
 function roundTitle(round: OpRound): string {
   const topic = roundTopic(round);
   return topic || `${round.SortIndex}. forduló`;
-}
-
-function extraWithMedia(row: OpExtraPoolItem): OpExtraPoolItem {
-  const copy: OpExtraPoolItem = {
-    ...row,
-    Answers: [...(row.Answers || [])],
-    IsCorrect: [...(row.IsCorrect || [])],
-  };
-  enrichOpExtraMedia([copy], game.value.extraCatalog);
-  enrichOpExtraMedia([copy], game.value.extraPool);
-  const repo =
-    row.QuestionID != null ? game.value.repoQuestions.find((item) => item.id === row.QuestionID) : undefined;
-  if (repo) {
-    copy.AudioKey = copy.AudioKey || repo.AudioKey;
-    copy.AudioUrl = copy.AudioUrl || repo.AudioUrl;
-    copy.ImageKey = copy.ImageKey || repo.ImageKey;
-    copy.ImageUrl = copy.ImageUrl || repo.ImageUrl;
-    copy.MediaUrl = copy.MediaUrl || repo.MediaUrl;
-  }
-  return copy;
-}
-
-function extraHasImage(row: OpExtraPoolItem) {
-  const media = extraWithMedia(row);
-  if (media.ImageKey || media.ImageUrl) return true;
-  if (!media.MediaUrl || opLooksAudioMedia(media.MediaUrl)) return false;
-  return true;
-}
-
-function extraHasAudio(row: OpExtraPoolItem) {
-  return opQuestionHasAudio(extraWithMedia(row));
-}
-
-function openExtraEditor(row: OpExtraPoolItem) {
-  editing.value = { ...extraPoolToQuestion(extraWithMedia(row)), StatusCode: 'pending' };
-  isEditorOpen.value = true;
-}
-
-function toggleExtra(id: string) {
-  openExtraId.value = openExtraId.value === id ? null : id;
 }
 
 function toggleRound(id: number) {

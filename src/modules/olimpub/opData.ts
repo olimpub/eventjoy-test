@@ -198,6 +198,8 @@ export interface OpEventQuestion {
   StartedAtUtc: string | null;
   StoppedAtUtc: string | null;
   AnswerCount: number;
+  /** Jó választ beküldők száma (BE: tblAnswer.CorrectFlg). Amíg a BE nem küldi, hiányzik. */
+  CorrectCount?: number | null;
   TimeSec: number;
   Prompt: string;
   TypeCode: string;
@@ -214,27 +216,6 @@ export interface OpEventQuestion {
   ImageUrl: string | null;
   AudioKey: string | null;
   AudioUrl: string | null;
-}
-
-export interface OpExtraPoolItem {
-  id: number;
-  EventID: number;
-  QuestionID: number | null;
-  ExtraGameId: string;
-  SortIndex: number;
-  StatusCode: string;
-  TypeCode: string;
-  Prompt: string;
-  TopicName: string;
-  TimeSec: number;
-  StartedAtUtc: string | null;
-  Answers: string[];
-  IsCorrect: boolean[];
-  ImageKey: string | null;
-  ImageUrl: string | null;
-  AudioKey: string | null;
-  AudioUrl: string | null;
-  MediaUrl: string | null;
 }
 
 export interface OpQuestionPreviewModel {
@@ -287,97 +268,6 @@ export function previewModelFromQuestion(row: OpEventQuestion): OpQuestionPrevie
   };
 }
 
-function extraFreetextAnswers(row: Record<string, unknown>, fromJsonAnswers: string[]): string[] {
-  const synonyms = extractOpFreetextSynonyms(row);
-  if (synonyms.length) return synonyms;
-  return splitPipeTexts(fromJsonAnswers);
-}
-
-export function extraPoolToQuestion(row: OpExtraPoolItem): OpEventQuestion {
-  const freetext = String(row.TypeCode || '').toLowerCase() === 'freetext';
-  const answers = freetext ? splitPipeTexts(row.Answers || []) : row.Answers || [];
-  return {
-    id: row.id,
-    EventID: row.EventID,
-    RoundID: 0,
-    QuestionID: row.QuestionID,
-    SortIndex: row.SortIndex,
-    StatusCode: row.StatusCode,
-    StartedAtUtc: row.StartedAtUtc,
-    StoppedAtUtc: null,
-    AnswerCount: 0,
-    TimeSec: row.TimeSec > 0 ? row.TimeSec : 0,
-    Prompt: row.Prompt,
-    TypeCode: row.TypeCode,
-    OptionsJson: null,
-    CorrectJson: freetext && answers.length ? JSON.stringify({ Synonyms: answers }) : null,
-    TopicName: row.TopicName,
-    ExtraGameId: row.ExtraGameId,
-    Answers: freetext ? answers : row.Answers || [],
-    Matches: [],
-    Categories: [],
-    IsCorrect: row.IsCorrect || [],
-    MediaUrl: row.MediaUrl,
-    ImageKey: row.ImageKey,
-    ImageUrl: row.ImageUrl,
-    AudioKey: row.AudioKey,
-    AudioUrl: row.AudioUrl,
-  };
-}
-
-function sameOpPrompt(a?: string | null, b?: string | null) {
-  return String(a || '').trim() === String(b || '').trim() && Boolean(String(a || '').trim());
-}
-
-/** Extra idő: tblQuestion / extraCatalog. ExtraQuestion.id nem keverhető a katalógus id-val; OpLive.TimeSec nem használható. */
-export function opExtraQuestionTimeSec(input: {
-  extraGameId?: string | null;
-  extraQuestionId?: number | null;
-  question?: {
-    id?: number;
-    TimeSec?: number;
-    QuestionID?: number | null;
-    TypeCode?: string;
-    Prompt?: string;
-  } | null;
-  extraPool: OpExtraPoolItem[];
-  extraCatalog: OpExtraPoolItem[];
-  repoQuestions: Array<{ id: number; TimeSec: number }>;
-}): number {
-  const extraId = matchOpExtraGame(input.extraGameId)?.id || input.extraGameId || '';
-  if (!extraId) return 0;
-  const catalog = input.extraCatalog.filter((row) => row.ExtraGameId === extraId);
-  const pool = input.extraPool.filter((row) => row.ExtraGameId === extraId);
-  const q = input.question;
-  const poolHit =
-    input.extraQuestionId != null ? pool.find((row) => row.id === input.extraQuestionId) : undefined;
-  const catalogByQuestionId =
-    q?.QuestionID != null
-      ? catalog.find((row) => row.QuestionID === q.QuestionID || row.id === q.QuestionID)
-      : undefined;
-  const catalogByPool =
-    poolHit?.QuestionID != null
-      ? catalog.find((row) => row.QuestionID === poolHit.QuestionID || row.id === poolHit.QuestionID)
-      : poolHit
-        ? catalog.find((row) => sameOpPrompt(row.Prompt, poolHit.Prompt))
-        : undefined;
-  const catalogByPrompt = q?.Prompt ? catalog.find((row) => sameOpPrompt(row.Prompt, q.Prompt)) : undefined;
-  const catalogHit = catalogByQuestionId || catalogByPool || catalogByPrompt;
-  const questionId =
-    catalogHit?.QuestionID ??
-    poolHit?.QuestionID ??
-    q?.QuestionID ??
-    (catalogHit && catalogHit.id > 0 ? catalogHit.id : null);
-  const repo = questionId != null ? input.repoQuestions.find((row) => row.id === questionId) : undefined;
-  if (repo && repo.TimeSec > 0) return repo.TimeSec;
-  if (catalogHit && catalogHit.TimeSec > 0) return catalogHit.TimeSec;
-  if (poolHit && poolHit.TimeSec > 0) return poolHit.TimeSec;
-  if (q?.TimeSec != null && q.TimeSec > 0) return q.TimeSec;
-  if (extraId === 'EG2') return 0;
-  if (q?.TypeCode) return opDefaultTimeSec(q.TypeCode);
-  return 10;
-}
-
 export function readOpMediaText(...values: unknown[]): string | null {
   for (const value of values) {
     if (value == null || value === '') continue;
@@ -416,33 +306,6 @@ function extraMediaOf(row: object) {
     AudioUrl: audioUrl || (mediaIsUrl && mediaLooksAudio ? mediaUrl : null),
     MediaUrl: mediaIsUrl ? mediaUrl : imageUrl,
   };
-}
-
-function fillExtraMedia(existing: OpExtraPoolItem, row: OpExtraPoolItem) {
-  if (row.ImageKey) existing.ImageKey = row.ImageKey;
-  if (row.ImageUrl) existing.ImageUrl = row.ImageUrl;
-  if (row.AudioKey) existing.AudioKey = row.AudioKey;
-  if (row.AudioUrl) existing.AudioUrl = row.AudioUrl;
-  if (row.MediaUrl) existing.MediaUrl = row.MediaUrl;
-}
-
-function sameExtraMediaRow(a: OpExtraPoolItem, b: OpExtraPoolItem) {
-  if (a.ExtraGameId && b.ExtraGameId && a.ExtraGameId !== b.ExtraGameId) return false;
-  if (a.QuestionID != null && b.QuestionID != null && a.QuestionID === b.QuestionID) return true;
-  if (a.id === b.id) return true;
-  if (a.QuestionID != null && (b.id === a.QuestionID || b.QuestionID === a.id)) return true;
-  if (b.QuestionID != null && a.id === b.QuestionID) return true;
-  return false;
-}
-
-export function enrichOpExtraMedia(targets: OpExtraPoolItem[], sources: OpExtraPoolItem[]) {
-  for (const row of targets) {
-    for (const hit of sources) {
-      if (!sameExtraMediaRow(row, hit)) continue;
-      fillExtraMedia(row, hit);
-    }
-  }
-  return targets;
 }
 
 export function opQuestionImageUrl(row: Pick<OpEventQuestion, 'ImageUrl' | 'MediaUrl'>): string | null {
@@ -552,6 +415,24 @@ export interface OpTeamMember {
   TeamID: number;
   EventUserID: number;
   Nickname: string | null;
+  /** null = a BE nem küld jelenlétet (régi BE): online-nak számít. */
+  Online?: boolean | null;
+}
+
+/** A BE `LastSeenUtc`-je ennyin belül = online (a kliens ~2 percenként rejoinol). */
+export const OP_PRESENCE_WINDOW_MS = 3 * 60_000;
+
+function readMemberOnline(row: Record<string, unknown>): boolean | null {
+  const flag = row.Online ?? row.online ?? row.IsOnline ?? row.isOnline;
+  if (flag != null && flag !== '') {
+    return flag === true || flag === 1 || flag === '1' || String(flag).toLowerCase() === 'true';
+  }
+  const seen = row.LastSeenUtc ?? row.lastSeenUtc ?? row.LastSeen ?? row.lastSeen;
+  if (seen === undefined) return null;
+  if (seen === null || seen === '') return false;
+  const raw = String(seen);
+  const at = Date.parse(/[zZ]|[+-]\d\d:?\d\d$/.test(raw) ? raw : `${raw}Z`);
+  return Number.isFinite(at) ? Date.now() - at <= OP_PRESENCE_WINDOW_MS : null;
 }
 
 export interface OpPenalty {
@@ -718,14 +599,16 @@ export function normalizeOpTeamMembers(rows: unknown[]): OpTeamMember[] {
         row.EventUserID ?? row.eventUserID ?? row.EventUserId ?? row.UserID ?? row.userID
       ) ?? (TeamID != null && Nickname ? syntheticMemberId(TeamID, Nickname) : null);
     if (TeamID == null || EventUserID == null) continue;
+    const Online = readMemberOnline(row);
     const key = `${TeamID}:${EventUserID}`;
     if (seen.has(key)) {
       const prev = list.find((item) => item.TeamID === TeamID && item.EventUserID === EventUserID);
       if (prev && !prev.Nickname && Nickname) prev.Nickname = Nickname;
+      if (prev && prev.Online == null && Online != null) prev.Online = Online;
       continue;
     }
     seen.add(key);
-    list.push({ TeamID, EventUserID, Nickname });
+    list.push({ TeamID, EventUserID, Nickname, Online });
   }
   return list;
 }
@@ -740,8 +623,10 @@ export interface OpLiveState {
   AnswerCount: number;
   QuestionStatus: string;
   StartedAtUtc: string | null;
+  AnswerStartedAtUtc: string | null;
   TimeSec: number | null;
   ClockPaused: boolean;
+  Screen: string;
   ClockLeftMs: number | null;
   DisplayClockPhase: string;
   MosaicTipName: string;
@@ -751,6 +636,12 @@ export interface OpLiveState {
   ExtraGameId: string | null;
   ActiveExtraQuestionID: number | null;
   ExtraQuestionStatus: string;
+  /** Az aktív forduló kérdéseinek száma (a játékos a pending sorokat nem látja). */
+  RoundQuestionCount?: number | null;
+  /** A következő (pending) kérdés sorszáma a fordulóban, 1-től. */
+  NextQuestionNo?: number | null;
+  /** A következő (pending) kérdés típuskódja; a szövege nem kerül ide. */
+  NextTypeCode?: string;
 }
 
 export function parseOpUtcMs(value: string | null | undefined): number | null {
@@ -774,8 +665,10 @@ export function emptyOpLive(): OpLiveState {
     AnswerCount: 0,
     QuestionStatus: '',
     StartedAtUtc: null,
+    AnswerStartedAtUtc: null,
     TimeSec: null,
     ClockPaused: false,
+    Screen: '',
     ClockLeftMs: null,
     DisplayClockPhase: '',
     MosaicTipName: '',
@@ -1015,6 +908,47 @@ function partsFromListItems(items: OpListItem[]): { answers: string[]; matches: 
   };
 }
 
+/**
+ * `Op.SubmitAnswer` Items: a BE `OPENJSON`-nal tömböt olvas, elemenként
+ * `{ OptionID, MatchOptionID, SortIndex, TextValue }`. A kliens indexet választ,
+ * az azonosítót a kérdés `OptionsJson` sorából kapja.
+ */
+export function buildOpAnswerItems(
+  row: Pick<OpEventQuestion, 'OptionsJson'> | null | undefined,
+  payload: Record<string, unknown>
+): Record<string, unknown>[] {
+  const type = String(payload.TypeCode || '').toLowerCase();
+  if (type === 'freetext') {
+    const text = String(payload.Text ?? '').trim();
+    return text ? [{ TextValue: text }] : [];
+  }
+  const items = readListItems(row?.OptionsJson);
+  const left = items.filter((item) => !isRightListType(item.listType));
+  const right = items.filter((item) => isRightListType(item.listType));
+  const idOf = (list: OpListItem[], index: number) => list[index]?.id ?? null;
+  const indexes = (Array.isArray(payload.Indexes) ? payload.Indexes : [])
+    .map((item) => Number(item))
+    .filter((item) => Number.isFinite(item));
+  if (type === 'single') return indexes.slice(0, 1).map((i) => ({ OptionID: idOf(left, i) }));
+  if (type === 'multi') return indexes.map((i) => ({ OptionID: idOf(left, i) }));
+  if (type === 'order') return indexes.map((i, n) => ({ OptionID: idOf(left, i), SortIndex: n + 1 }));
+  if (type === 'match') {
+    const binds = asRecord(payload.Matches) || {};
+    return Object.entries(binds).map(([l, r]) => ({
+      OptionID: idOf(left, Number(l)),
+      MatchOptionID: idOf(right, Number(r)),
+    }));
+  }
+  if (type === 'category') {
+    const buckets = asRecord(payload.Buckets) || {};
+    return Object.entries(buckets).map(([i, cat]) => ({
+      OptionID: idOf(left, Number(i)),
+      MatchOptionID: right.find((item) => item.value === String(cat))?.id ?? null,
+    }));
+  }
+  return [];
+}
+
 function asOptionList(value: unknown): string[] {
   return readListItems(value).map((item) => item.value);
 }
@@ -1063,6 +997,12 @@ function splitPipeTexts(list: string[]): string[] {
         .filter(Boolean)
     )
   );
+}
+
+function extraFreetextAnswers(row: Record<string, unknown>, fromJsonAnswers: string[]): string[] {
+  const synonyms = extractOpFreetextSynonyms(row);
+  if (synonyms.length) return synonyms;
+  return splitPipeTexts(fromJsonAnswers);
 }
 
 export function extractOpFreetextSynonyms(row: Record<string, unknown>): string[] {
@@ -1388,6 +1328,7 @@ export function normalizeOpEventQuestions(
       StartedAtUtc: row.StartedAtUtc != null ? String(row.StartedAtUtc) : null,
       StoppedAtUtc: row.StoppedAtUtc != null ? String(row.StoppedAtUtc) : null,
       AnswerCount: nullableNumericId(row.AnswerCount ?? row.answerCount) ?? 0,
+      CorrectCount: nullableNumericId(row.CorrectCount ?? row.correctCount),
       TimeSec:
         nullableNumericId(
           row.TimeSec ??
@@ -1540,14 +1481,28 @@ function parseOpDisplayCastClock(cast: Record<string, unknown> | null) {
   };
 }
 
+function parseOpIdList(raw: unknown): number[] {
+  let list: unknown[] = [];
+  if (Array.isArray(raw)) list = raw;
+  else if (typeof raw === 'string' && raw.trim()) {
+    const text = raw.trim();
+    try {
+      const parsed = JSON.parse(text);
+      list = Array.isArray(parsed) ? parsed : [parsed];
+    } catch {
+      list = text.split(',');
+    }
+  } else if (typeof raw === 'number') list = [raw];
+  return [...new Set(list.map((item) => Number(item)).filter((id) => Number.isFinite(id) && id > 0))];
+}
+
 export function normalizeOpLive(rows: unknown[], displayCast?: unknown[]): OpLiveState {
   const row = asRecord(rows?.[0]) || asRecord(rows);
   const cast = asRecord(displayCast?.[0]) || asRecord(displayCast);
   if (!row && !cast) return emptyOpLive();
   const clock = parseOpDisplayCastClock(cast);
-  const playerFace = ['idle', 'lobby', 'results'].includes(clock.face)
-    ? clock.face
-    : String(row?.PlayerFace ?? row?.playerFace ?? '').trim().toLowerCase();
+  const rowFace = String(row?.PlayerFace ?? row?.playerFace ?? '').trim().toLowerCase();
+  const playerFace = ['idle', 'lobby', 'results'].includes(rowFace) ? rowFace : '';
   const base = row || {};
   const rowPaused = [base.ClockPaused, base.clockPaused, base.PausedFlg, base.pausedFlg, base.Hold, base.hold].some(
     (value) => value === true || value === 1 || value === '1' || String(value || '').toLowerCase() === 'true'
@@ -1566,15 +1521,23 @@ export function normalizeOpLive(rows: unknown[], displayCast?: unknown[]): OpLiv
     AnswerCount: nullableNumericId(base.AnswerCount ?? base.answerCount) ?? 0,
     QuestionStatus: String(base.QuestionStatus ?? base.questionStatus ?? base.StatusCode ?? '').trim().toLowerCase(),
     StartedAtUtc: base.StartedAtUtc != null && base.StartedAtUtc !== '' ? String(base.StartedAtUtc) : null,
+    AnswerStartedAtUtc:
+      base.AnswerStartedAtUtc != null && base.AnswerStartedAtUtc !== ''
+        ? String(base.AnswerStartedAtUtc)
+        : null,
     TimeSec: nullableNumericId(base.TimeSec ?? base.timeSec),
-    ClockPaused: clock.phase === 'play' || clock.phase === 'done' ? false : clock.hold || rowPaused,
+    Screen: String(base.Screen ?? base.screen ?? '').trim().toLowerCase(),
+    ClockPaused: rowPaused,
     ClockLeftMs:
       clock.leftMs ??
       nullableNumericId(base.ClockLeftMs ?? base.clockLeftMs ?? base.RemainingMs ?? base.LeftMs ?? base.leftMs),
     DisplayClockPhase: clock.phase,
-    MosaicTipName: clock.tipName,
-    MosaicTipTeam: clock.tipTeam,
-    MosaicOutTeamIds: clock.outTeamIds,
+    /* A BE az OpLive sorban is visszaadja a mentett tippelőt és a kiesett csapatokat; a DisplayCast az elsődleges. */
+    MosaicTipName: clock.tipName || String(base.MosaicTipName ?? base.mosaicTipName ?? '').trim(),
+    MosaicTipTeam: clock.tipTeam || String(base.MosaicTipTeam ?? base.mosaicTipTeam ?? '').trim(),
+    MosaicOutTeamIds: clock.outTeamIds.length
+      ? clock.outTeamIds
+      : parseOpIdList(base.MosaicOutTeamIds ?? base.mosaicOutTeamIds),
     ExtraRunID: nullableNumericId(base.ExtraRunID ?? base.extraRunID ?? base.ExtraRunId),
     ExtraGameId:
       matchOpExtraGame(base.ExtraGameId ?? base.extraGameId ?? base.ExtraGameID)?.id ||
@@ -1584,11 +1547,10 @@ export function normalizeOpLive(rows: unknown[], displayCast?: unknown[]): OpLiv
       base.ActiveExtraQuestionID ?? base.activeExtraQuestionID ?? base.ExtraQuestionID
     ),
     ExtraQuestionStatus: String(base.ExtraQuestionStatus ?? base.extraQuestionStatus ?? '').trim().toLowerCase(),
+    RoundQuestionCount: nullableNumericId(base.RoundQuestionCount ?? base.roundQuestionCount),
+    NextQuestionNo: nullableNumericId(base.NextQuestionNo ?? base.nextQuestionNo),
+    NextTypeCode: String(base.NextTypeCode ?? base.nextTypeCode ?? '').trim(),
   };
-}
-
-function extraPoolRowKey(row: { ExtraGameId: string; id: number }) {
-  return `${row.ExtraGameId}:${row.id}`;
 }
 
 function foldOpPrompt(value: string) {
@@ -1604,213 +1566,8 @@ export function isDroppedOpExtraPrompt(prompt: string) {
   return foldOpPrompt(prompt) === 'melyikegyextratesztkerdes';
 }
 
-function extraPoolStatusRank(code: string) {
-  if (code === 'active' || code === 'stopped') return 2;
-  if (code === 'closed') return 1;
-  return 0;
-}
-
 function extraCorrectLooksSet(flags: boolean[]) {
   return (flags || []).some(Boolean);
-}
-
-function hydrateOpExtraPoolItem(existing: OpExtraPoolItem, row: OpExtraPoolItem) {
-  if (row.Answers.length > existing.Answers.length) {
-    existing.Answers = [...row.Answers];
-    if (extraCorrectLooksSet(row.IsCorrect) || !extraCorrectLooksSet(existing.IsCorrect)) {
-      existing.IsCorrect = [...(row.IsCorrect || [])];
-    }
-  } else if (!existing.Answers.length && row.Answers.length) {
-    existing.Answers = [...row.Answers];
-    existing.IsCorrect = [...(row.IsCorrect || [])];
-  } else if (
-    row.Answers.length === existing.Answers.length &&
-    extraCorrectLooksSet(row.IsCorrect) &&
-    !extraCorrectLooksSet(existing.IsCorrect)
-  ) {
-    existing.IsCorrect = [...(row.IsCorrect || [])];
-  }
-  if (!existing.Prompt && row.Prompt) existing.Prompt = row.Prompt;
-  if (existing.QuestionID == null && row.QuestionID != null) existing.QuestionID = row.QuestionID;
-  if (row.TimeSec > 0) existing.TimeSec = row.TimeSec;
-  if (extraPoolStatusRank(row.StatusCode) > extraPoolStatusRank(existing.StatusCode)) {
-    existing.StatusCode = row.StatusCode;
-  }
-  if (!existing.StartedAtUtc && row.StartedAtUtc) existing.StartedAtUtc = row.StartedAtUtc;
-  if (!existing.TopicName && row.TopicName) existing.TopicName = row.TopicName;
-  fillExtraMedia(existing, row);
-}
-
-function collapseOpExtraPool(rows: OpExtraPoolItem[]): OpExtraPoolItem[] {
-  const list: OpExtraPoolItem[] = [];
-  const index = new Map<string, number>();
-  for (const row of rows) {
-    const key = extraPoolRowKey(row);
-    const at = index.get(key);
-    if (at != null) {
-      hydrateOpExtraPoolItem(list[at], row);
-      continue;
-    }
-    index.set(key, list.length);
-    list.push({
-      ...row,
-      Answers: [...(row.Answers || [])],
-      IsCorrect: [...(row.IsCorrect || [])],
-    });
-  }
-  const byQuestion = new Map<number, OpExtraPoolItem>();
-  for (const row of list) {
-    if (row.QuestionID == null || !row.Answers.length) continue;
-    const hit = byQuestion.get(row.QuestionID);
-    if (!hit || row.Answers.length > hit.Answers.length) byQuestion.set(row.QuestionID, row);
-  }
-  for (const row of list) {
-    if (row.Answers.length || row.QuestionID == null) continue;
-    const src = byQuestion.get(row.QuestionID);
-    if (!src) continue;
-    row.Answers = [...src.Answers];
-    row.IsCorrect = [...src.IsCorrect];
-  }
-  return list.sort(
-    (a, b) =>
-      a.ExtraGameId.localeCompare(b.ExtraGameId) || a.SortIndex - b.SortIndex || a.id - b.id
-  );
-}
-
-export function normalizeOpExtraPool(
-  rows: unknown[],
-  eventId?: number | string | null
-): OpExtraPoolItem[] {
-  const list: OpExtraPoolItem[] = [];
-  for (const raw of rows || []) {
-    const row = asRecord(raw);
-    if (!row) continue;
-    const ExtraGameId =
-      matchOpExtraGame(row.ExtraGameId ?? row.extraGameId ?? row.ExtraGameID ?? row.Game)?.id ||
-      String(row.ExtraGameId ?? row.extraGameId ?? row.ExtraGameID ?? row.Game ?? '')
-        .trim()
-        .toUpperCase();
-    if (!ExtraGameId) continue;
-    const EventID = nullableNumericId(row.EventID ?? row.eventID) ?? nullableNumericId(eventId);
-    if (EventID == null) continue;
-    const id =
-      nullableNumericId(
-        row.ExtraQuestionID ??
-          row.ExtraQuestionId ??
-          row.id ??
-          row.ID ??
-          row.EventExtraQuestionID ??
-          row.QuestionID
-      ) ?? -(list.length + 1);
-    const fromJson = extractOpQuestionOptions(row);
-    const TypeCode = normalizeOpTypeCode(String(row.TypeCode ?? row.typeCode ?? row.Type ?? 'single')) || 'single';
-    const Prompt = String(row.Prompt ?? row.prompt ?? row.Question ?? '').trim();
-    if (isDroppedOpExtraPrompt(Prompt)) continue;
-    list.push({
-      id,
-      EventID,
-      QuestionID: nullableNumericId(row.QuestionID ?? row.questionID),
-      ExtraGameId,
-      SortIndex: nullableNumericId(row.SortIndex ?? row.sortIndex) ?? list.length + 1,
-      StatusCode: normalizeStatus(row.StatusCode ?? row.statusCode ?? row.Status),
-      TypeCode,
-      Prompt,
-      TopicName: String(row.TopicName ?? row.topicName ?? row.Topic ?? '').trim(),
-      TimeSec: nullableNumericId(row.TimeSec ?? row.timeSec) ?? 0,
-      StartedAtUtc: row.StartedAtUtc != null && row.StartedAtUtc !== '' ? String(row.StartedAtUtc) : null,
-      Answers: TypeCode === 'freetext' ? extraFreetextAnswers(row, fromJson.answers) : fromJson.answers,
-      IsCorrect: readCorrectFlags(row, fromJson.optionItems),
-      ...extraMediaOf(row),
-    });
-  }
-  return collapseOpExtraPool(list);
-}
-
-function extraPoolFromQuestion(row: OpEventQuestion): OpExtraPoolItem | null {
-  if (!row.ExtraGameId || isDroppedOpExtraPrompt(row.Prompt)) return null;
-  return {
-    id: row.id,
-    EventID: row.EventID,
-    QuestionID: row.QuestionID,
-    ExtraGameId: row.ExtraGameId,
-    SortIndex: row.SortIndex,
-    StatusCode: row.StatusCode,
-    TypeCode: row.TypeCode,
-    Prompt: row.Prompt,
-    TopicName: row.TopicName,
-    TimeSec: row.TimeSec,
-    StartedAtUtc: row.StartedAtUtc,
-    Answers: row.Answers || [],
-    IsCorrect: row.IsCorrect || [],
-    ...extraMediaOf(row),
-  };
-}
-
-export function extraCatalogFromRepo(
-  rows: OpRepoQuestion[],
-  eventId?: number | string | null
-): OpExtraPoolItem[] {
-  const EventID = nullableNumericId(eventId);
-  if (EventID == null) return [];
-  const list: OpExtraPoolItem[] = [];
-  for (const row of rows) {
-    const ExtraGameId = matchOpExtraGame(row.ExtraGameId, row.TopicName)?.id;
-    if (!ExtraGameId || isDroppedOpExtraPrompt(row.Prompt)) continue;
-    list.push({
-      id: row.id,
-      EventID,
-      QuestionID: row.id,
-      ExtraGameId,
-      SortIndex: row.SortIndex ?? list.length + 1,
-      StatusCode: 'pending',
-      TypeCode: row.TypeCode,
-      Prompt: row.Prompt,
-      TopicName: row.TopicName,
-      TimeSec: row.TimeSec,
-      StartedAtUtc: null,
-      Answers: row.TypeCode === 'freetext' ? splitPipeTexts(row.Answers || []) : row.Answers || [],
-      IsCorrect: row.IsCorrect || [],
-      ...extraMediaOf(row),
-    });
-  }
-  return collapseOpExtraPool(list);
-}
-
-export function mergeOpExtraPool(
-  pool: OpExtraPoolItem[],
-  extras: OpExtraPoolItem[],
-  questions: OpEventQuestion[]
-): OpExtraPoolItem[] {
-  const list = collapseOpExtraPool(pool);
-  const index = new Map(list.map((row, at) => [extraPoolRowKey(row), at]));
-  const push = (row: OpExtraPoolItem) => {
-    const key = extraPoolRowKey(row);
-    const at = index.get(key);
-    if (at != null) {
-      hydrateOpExtraPoolItem(list[at], row);
-      return;
-    }
-    const existing =
-      row.QuestionID != null
-        ? list.find((item) => item.ExtraGameId === row.ExtraGameId && item.QuestionID === row.QuestionID)
-        : undefined;
-    if (existing) {
-      hydrateOpExtraPoolItem(existing, row);
-      return;
-    }
-    index.set(key, list.length);
-    list.push({
-      ...row,
-      Answers: [...(row.Answers || [])],
-      IsCorrect: [...(row.IsCorrect || [])],
-    });
-  };
-  for (const row of extras) push(row);
-  for (const row of questions) {
-    const mapped = extraPoolFromQuestion(row);
-    if (mapped) push(mapped);
-  }
-  return collapseOpExtraPool(list);
 }
 
 export function uniqueOpExtraGameIds(...groups: Array<string[] | undefined>): string[] {
@@ -2124,4 +1881,39 @@ export function filterOpLeaderboardRows(
     if (tagged.length) next = tagged;
   }
   return next;
+}
+
+/** Belépett játékosok száma a csapatban: a szerver MemberCount és az ismert tagsorok közül a nagyobb. */
+export function opTeamPlayerCount(
+  team: { id: number; MemberCount?: number },
+  members: { TeamID: number }[]
+): number {
+  const named = members.reduce((sum, member) => sum + (member.TeamID === team.id ? 1 : 0), 0);
+  return Math.max(Number(team.MemberCount) || 0, named);
+}
+
+/** Azok a csapatok, ahol legalább 1 belépett játékos van. */
+export function opTeamsWithPlayers<T extends { id: number; MemberCount?: number }>(
+  teams: T[],
+  members: { TeamID: number }[]
+): T[] {
+  return teams.filter((team) => opTeamPlayerCount(team, members) > 0);
+}
+
+/**
+ * Csapat-tabellák: csak azok a csapatok látszanak, ahol van belépett játékos.
+ * Csak a csapatlista betöltése előtt (nincs csapat) marad szűretlen a lista.
+ */
+export function onlyOpTeamsWithPlayers<T extends { name: string; teamId?: number | null }>(
+  rows: T[],
+  teams: { id: number; Name: string; MemberCount?: number }[],
+  members: { TeamID: number }[]
+): T[] {
+  if (!rows.length || !teams.length) return rows;
+  const joined = opTeamsWithPlayers(teams, members);
+  const ids = new Set(joined.map((team) => team.id));
+  const names = new Set(joined.map((team) => String(team.Name || '').trim().toLowerCase()));
+  return rows.filter((row) =>
+    row.teamId != null ? ids.has(row.teamId) : names.has(String(row.name || '').trim().toLowerCase())
+  );
 }

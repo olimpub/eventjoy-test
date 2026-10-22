@@ -12,6 +12,7 @@ import {
   disconnectEventLive,
   isEventLiveJoinRoute,
 } from 'src/services/signalrService';
+import { resetAppScroll } from 'src/utils/resetScroll';
 import { clearStaleChunkReload, isStaleChunkError, reloadOnceForStaleChunk } from 'src/utils/staleChunk';
 
 export default route(function (/* { store, ssrContext } */) {
@@ -20,7 +21,12 @@ export default route(function (/* { store, ssrContext } */) {
     : (process.env.VUE_ROUTER_MODE === 'history' ? createWebHistory : createWebHashHistory);
 
   const Router = createRouter({
-    scrollBehavior: () => ({ left: 0, top: 0 }),
+    scrollBehavior: (to, from) => {
+      /* Ugyanazon az oldalon belüli query / hash váltás (szűrő, fül) nem ugrik a tetejére. */
+      if (to.path === from.path) return false;
+      resetAppScroll();
+      return { left: 0, top: 0 };
+    },
     routes,
     history: createHistory(process.env.VUE_ROUTER_BASE),
   });

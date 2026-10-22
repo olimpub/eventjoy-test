@@ -18,11 +18,13 @@
         :remaining-ratio="remainingRatio"
         :remaining-sec="remainingSec"
         :skip-intro="skipQuizRead"
+        :hold-read="quizReading"
+        :submit-failed="submitFailed"
         :intro-ms="QUIZ_READ_MS"
-        :paused="clockPaused"
+        :paused="answerPaused"
         :face="manualStage ? 'game' : 'quiz'"
         :listen-only="manualStage"
-        :accepting="!game.live.ClockPaused"
+        :accepting="!quizReading && !answerPaused"
         phase="play"
         @ready="onStageReady"
         @submitted="onSubmitted"
@@ -56,11 +58,21 @@
           <h1 class="manage-panel__title">{{ eventName }}</h1>
         </section>
 
+        <section v-if="accessBlocked" class="op-player-denied" role="alert">
+          <q-icon name="sym_r_lock" size="32px" />
+          <p class="op-player-denied__title">Nem érjük el az estét</p>
+          <p class="op-player-denied__text">
+            A belépésed lejárt, vagy ehhez az eseményhez nincs jogod ezzel a fiókkal. Csatlakozz újra.
+          </p>
+          <button type="button" class="op-player-denied__btn" @click="rejoin">Újracsatlakozás</button>
+        </section>
         <OpPlayerBreak
-          v-if="showBreak"
-          :type-label="nextBreak?.typeLabel || 'Kérdés'"
-          :remaining="nextBreak?.remaining ?? 0"
-          :topic="nextBreak?.topic || ''"
+          v-else-if="showBreak"
+          :type-label="breakInfo?.typeLabel || ''"
+          :remaining="breakInfo?.remaining ?? 0"
+          :position="breakInfo?.position ?? null"
+          :total="breakInfo?.total ?? null"
+          :topic="breakInfo?.topic || ''"
         />
         <OpPlayerWaitingRoom
           v-else-if="showWaitingRoom && myTeam"
@@ -101,14 +113,16 @@ import {
   kabalaImageOf,
   opQuestionImageUrl,
   opQuestionTopic,
-  opExtraQuestionTimeSec,
+  buildOpAnswerItems,
   parseOpUtcMs,
   previewModelFromQuestion,
   teamsFromKabalaIds,
 } from '../opData';
-import { matchOpExtraGame, normalizeOpTypeCode, opDefaultTimeSec, opTypeLabel } from '../constants';
+import { readOpNextCue } from '../opDisplayChannel';
+import { normalizeOpTypeCode, normalizeRoundTypeCode, stageMarkForRound, opDefaultTimeSec, opTypeLabel } from '../constants';
 import { resolveOpMediaUrl } from '../opMediaCache';
-import { onOpDisplay, onOpPlayerFace, readOpDisplay, readOpPlayerFace, type OpDisplayCommand } from '../opDisplayChannel';
+import { useOpLiveResync } from '../useOpLiveResync';
+import { eventLiveJoinDenied } from 'src/services/signalrService';
 import OpPlayerBreak from '../components/OpPlayerBreak.vue';
 import OpPlayerLobby from '../components/OpPlayerLobby.vue';
 import OpPlayerWaitingRoom from '../components/OpPlayerWaitingRoom.vue';
@@ -136,13 +150,16 @@ const eventId = computed(() => String(route.params.id));
 const numericEventId = computed(() => nullableNumericId(eventId.value));
 const nowMs = ref(Date.now());
 const clockAt = ref<number | null>(null);
+const submitFailed = ref(0);
 const joining = ref(false);
 const leaving = ref(false);
 const joinError = ref('');
 const remoteStatusName = ref('');
+/** `GET /op/event` 401 / 403: a szerver nem enged be ebbe az eseménybe. */
+const accessDenied = ref<number | null>(null);
+const accessBlocked = computed(() => accessDenied.value != null || eventLiveJoinDenied.value != null);
 const localTeamId = ref<number | null>(null);
 let tick: number | null = null;
-let statusPoll: number | null = null;
 
 const game = computed(() => store.getGame(eventId.value));
 const settings = computed(
@@ -269,26 +286,6 @@ const myTeam = computed(
 
 const nextBreak = computed(() => {
   const live = game.value.live;
-  if (live.ExtraGameId) {
-    const extraId = live.ExtraGameId;
-    const fromPool = game.value.extraPool.filter((row) => row.ExtraGameId === extraId);
-    const fromQs = game.value.questions.filter((row) => row.ExtraGameId === extraId);
-    const pool = (fromPool.length ? fromPool : fromQs)
-      .slice()
-      .sort((a, b) => a.SortIndex - b.SortIndex || a.id - b.id);
-    const currentId = live.ActiveExtraQuestionID;
-    const current = pool.find((row) => row.id === currentId);
-    const later = pool.filter((row) => !current || row.SortIndex > current.SortIndex);
-    const extraStatus = String(live.ExtraQuestionStatus || '').toLowerCase();
-    if (extraStatus === 'active') return null;
-    const next = later[0] || current || pool[0];
-    const named = matchOpExtraGame(extraId);
-    return {
-      typeLabel: opTypeLabel(normalizeOpTypeCode(next?.TypeCode || '') || next?.TypeCode || 'single'),
-      remaining: later.length,
-      topic: named?.title || 'Játék',
-    };
-  }
   const roundId = live.ActiveRoundID;
   if (roundId == null && live.FocusedEventQuestionID == null && live.ActiveEventQuestionID == null) {
     return null;
@@ -315,20 +312,47 @@ const nextBreak = computed(() => {
     return true;
   });
   if (qStatus === 'active') return null;
-  const next = remaining[0] || qs.find((row) => row.id === currentId) || qs[0];
+  /* A játékos a GET-ben csak az aktív és a lezárt kérdéseket kapja; a következő (pending) ismeretlen lehet.
+     Ilyenkor nem az előző kérdés típusát írjuk ki, hanem üresen hagyjuk. */
+  const next = remaining[0];
+  /* A típus és a „X/Y" a kvízmester indításáig látszik (a `showBreak` aktív kérdésnél lekapcsol).
+     Ha a telefon ismeri a következő sort, abból számol; különben a szerver `Next*` mezőiből. */
+  const cue = readOpNextCue(game.value.displayCast);
+  const serverTotal = live.RoundQuestionCount ?? null;
+  const serverNo = live.NextQuestionNo ?? null;
+  const serverType = String(live.NextTypeCode || '').trim();
+  let position: number | null = null;
+  let total: number | null = null;
+  let typeCode = '';
+  if (next) {
+    position = qs.findIndex((row) => row.id === next.id) + 1;
+    total = qs.length;
+    typeCode = next.TypeCode || '';
+  } else if (cue) {
+    position = cue.no;
+    total = cue.total;
+    typeCode = cue.typeCode;
+  } else if (serverTotal != null) {
+    position = serverNo;
+    total = serverTotal;
+    typeCode = serverType;
+  }
+  if (position != null && total != null && (position < 1 || position > total)) {
+    position = null;
+    total = null;
+    typeCode = '';
+  }
   return {
-    typeLabel: opTypeLabel(normalizeOpTypeCode(next?.TypeCode || '') || next?.TypeCode || 'single'),
+    typeLabel: typeCode ? opTypeLabel(normalizeOpTypeCode(typeCode) || typeCode) : '',
     remaining: remaining.length,
-    topic: opQuestionTopic(next, game.value, store.topics) || round?.TopicName || '',
+    position,
+    total,
+    topic: (next ? opQuestionTopic(next, game.value, store.topics) : '') || round?.TopicName || '',
   };
 });
 
-const localPlayerFace = ref(readOpPlayerFace(eventId.value));
-let stopPlayerFace = () => undefined;
-let stopDisplay = () => undefined;
-
 function playerFace() {
-  return String(game.value.live.PlayerFace || localPlayerFace.value || '').trim().toLowerCase();
+  return String(game.value.live.PlayerFace || '').trim().toLowerCase();
 }
 
 function liveInRound() {
@@ -351,24 +375,52 @@ function questionIsActive() {
   return String(game.value.live.QuestionStatus || '').toLowerCase() === 'active';
 }
 
+/** A kérdés már aktív, de a telefon még nem tudja kirajzolni (a GET késve adja a sort). */
+const inQuestionGap = computed(
+  () =>
+    questionIsActive() &&
+    !stageRendered.value &&
+    liveInRound() &&
+    playPhase.value !== 'ended' &&
+    playPhase.value !== 'ceremony'
+);
+
+/** Az utolsó nem-kérdés képernyő: a rés alatt ugyanez marad látható, így semmi nem villan fel közte. */
+const idleScreen = ref<'break' | 'wait' | ''>('');
+const lastBreak = ref<typeof nextBreak.value>(null);
+
 const showBreak = computed(() => {
   if (myTeamId.value == null) return false;
   if (qmOnCatalog()) return false;
   if (playPhase.value === 'ended' || playPhase.value === 'ceremony') return false;
-  if (questionIsActive()) return false;
+  if (questionIsActive()) return inQuestionGap.value && idleScreen.value === 'break';
   return liveInRound();
 });
+
+const breakInfo = computed(() => (questionIsActive() ? lastBreak.value : nextBreak.value));
 
 const showWaitingRoom = computed(
   () =>
     myTeamId.value != null &&
     (mosaicOut.value ||
+      /* A kérdés elindult, de még nincs mit kirajzolni: ha a váróból jöttünk, a váróterem marad (nem a csapatválasztó). */
+      (inQuestionGap.value && idleScreen.value !== 'break') ||
       (!questionIsActive() &&
         !showBreak.value &&
         (qmOnCatalog() || !liveInRound()) &&
         playPhase.value !== 'ended' &&
         playPhase.value !== 'ceremony' &&
         playPhase.value !== 'before'))
+);
+
+watch(
+  [showBreak, showWaitingRoom, nextBreak],
+  () => {
+    if (questionIsActive()) return;
+    idleScreen.value = showBreak.value ? 'break' : showWaitingRoom.value ? 'wait' : '';
+    if (showBreak.value) lastBreak.value = nextBreak.value;
+  },
+  { immediate: true }
 );
 
 const waitingImage = computed(() =>
@@ -406,7 +458,12 @@ function questionStatusOf(row: { id?: number; StatusCode?: string } | null) {
   if (row?.id != null && live.ActiveEventQuestionID != null && row.id !== live.ActiveEventQuestionID) {
     return own || 'pending';
   }
-  return own || String(live.QuestionStatus || '').toLowerCase();
+  const liveStatus = String(live.QuestionStatus || '').toLowerCase();
+  /* A ping már aktívra váltotta az élő állapotot, de a sor még a régi (pending) státuszt hordozza: az élő állapot az irányadó. */
+  if (row?.id != null && row.id === live.ActiveEventQuestionID && liveStatus === 'active' && own === 'pending') {
+    return 'active';
+  }
+  return own || liveStatus;
 }
 
 const focusedQuestion = computed(() => {
@@ -422,19 +479,7 @@ const focusedQuestion = computed(() => {
   return game.value.questions.find((row) => row.StatusCode === 'active') || null;
 });
 
-function questionWindowSec(q: { TimeSec?: number; ExtraGameId?: string | null; QuestionID?: number | null; TypeCode?: string; Prompt?: string; id?: number } | null) {
-  const live = game.value.live;
-  const extraId = q?.ExtraGameId || live.ExtraGameId;
-  if (extraId) {
-    return opExtraQuestionTimeSec({
-      extraGameId: extraId,
-      extraQuestionId: live.ActiveExtraQuestionID,
-      question: q,
-      extraPool: game.value.extraPool,
-      extraCatalog: game.value.extraCatalog,
-      repoQuestions: game.value.repoQuestions,
-    });
-  }
+function questionWindowSec(q: { TimeSec?: number; QuestionID?: number | null; TypeCode?: string; Prompt?: string; id?: number } | null) {
   if (q?.QuestionID != null) {
     const repo = game.value.repoQuestions.find((item) => item.id === q.QuestionID);
     if (repo?.TimeSec != null && repo.TimeSec > 0) return repo.TimeSec;
@@ -444,9 +489,16 @@ function questionWindowSec(q: { TimeSec?: number; ExtraGameId?: string | null; Q
   return 20;
 }
 
-const mosaicLive = computed(
-  () => game.value.live.ExtraGameId === 'EG2' && String(game.value.live.ExtraQuestionStatus || '') !== 'stopped'
-);
+/** V2: a Mozaik egy `manual_display` forduló (a cím alapján elkülönítve a Karaoke-tól); az OpLive Extra* mezői üresek. */
+const mosaicLive = computed(() => {
+  const row = focusedQuestion.value;
+  if (!row) return false;
+  const round = game.value.rounds.find((item) => item.id === row.RoundID);
+  if (!round) return false;
+  const title = round.TopicName || opQuestionTopic(row, game.value, store.topics);
+  const code = normalizeRoundTypeCode(round.RoundTypeCode);
+  return stageMarkForRound(code, title) === 'EG2' && questionStatusOf(row) !== 'stopped';
+});
 
 const mosaicBusy = ref(false);
 const mosaicTipTeamId = ref<number | null>(null);
@@ -455,6 +507,31 @@ const mosaicOutTeamIds = ref<number[]>([]);
 const mosaicOutTeamNames = ref<string[]>([]);
 const mosaicFrozenSec = ref<number | null>(null);
 const mosaicResume = ref<{ at: number; leftSec: number } | null>(null);
+
+/** A friss tippet (saját vagy érkező Op.MosaicBuzz) ennyi ideig nem írja felül egy régebbi „play” Cast. */
+const MOSAIC_BUZZ_GRACE_MS = 4000;
+let lastMosaicBuzzAt = 0;
+
+let mosaicReleaseTimer: number | null = null;
+
+/** A QM Castja (GET-ből) újra „play” fázist mutat és nincs tippelő: a hold véget ért.
+ *  A CastDisplay ping a BE-ben vékony, ezért ez a megbízható feloldás. A friss tipp védelmi ideje után is ellenőrzünk. */
+function releaseMosaicHoldIfPlaying() {
+  if (mosaicReleaseTimer != null) {
+    window.clearTimeout(mosaicReleaseTimer);
+    mosaicReleaseTimer = null;
+  }
+  if (!mosaicLive.value) return;
+  if (mosaicTipTeamId.value == null && mosaicFrozenSec.value == null) return;
+  const live = game.value.live;
+  if (String(live.DisplayClockPhase || '').toLowerCase() !== 'play' || live.MosaicTipName) return;
+  const wait = MOSAIC_BUZZ_GRACE_MS - (Date.now() - lastMosaicBuzzAt);
+  if (wait > 0) {
+    mosaicReleaseTimer = window.setTimeout(releaseMosaicHoldIfPlaying, wait + 50);
+    return;
+  }
+  resumeMosaicClock(live.ClockLeftMs != null ? live.ClockLeftMs / 1000 : null);
+}
 
 function resetMosaicHold() {
   mosaicTipTeamId.value = null;
@@ -505,6 +582,14 @@ const manualStage = computed(() => {
   return String(round?.RoundTypeCode || '') === 'manual_display';
 });
 
+/** Párbaj (duel_speed): nincs 3 mp felolvasás, a kérdés opciókkal és órával indul. A Gyorsasági (fast_5) és a fő kvíz megtartja a „következő kérdés" bevezetőt. */
+const noReadingRound = computed(() => {
+  const row = focusedQuestion.value;
+  if (!row) return false;
+  const round = game.value.rounds.find((item) => item.id === row.RoundID);
+  return normalizeRoundTypeCode(round?.RoundTypeCode) === 'duel_speed';
+});
+
 const stageQuestion = computed(() => {
   const row = focusedQuestion.value;
   if (!row || !showQuestionStage.value) return null;
@@ -514,6 +599,10 @@ const stageQuestion = computed(() => {
     topic: opQuestionTopic(row, game.value, store.topics),
   };
 });
+/** Igaz, ha a sablon tényleg a kérdésoldalt (Mozaik vagy OpPlayerStage) rajzolja ki. */
+const stageRendered = computed(
+  () => showQuestionStage.value && (mosaicLive.value || stageQuestion.value != null)
+);
 const playerImage = ref<string | null>(null);
 
 watch(
@@ -558,9 +647,22 @@ function markQuizRead(questionId: number | null | undefined) {
   }
 }
 
+const answerStartedMs = computed(() => parseOpUtcMs(game.value.live.AnswerStartedAtUtc));
+
+/** Felolvasás: a szerver még nem indította a válaszidőt (`AnswerStartedAtUtc` üres). */
+const quizReading = computed(() => {
+  const q = focusedQuestion.value;
+  if (!q || q.ExtraGameId || manualStage.value || noReadingRound.value) return false;
+  if (questionStatusOf(q) !== 'active') return false;
+  return game.value.live.ClockPaused && answerStartedMs.value == null;
+});
+
+/** Szünet a válaszidő közben. A felolvasás ClockPaused értéke nem ez. */
+const answerPaused = computed(() => game.value.live.ClockPaused && answerStartedMs.value != null);
+
 const skipQuizRead = computed(() => {
   const q = focusedQuestion.value;
-  if (!q || q.ExtraGameId) return true;
+  if (!q || q.ExtraGameId || noReadingRound.value) return true;
   if (sawQuizRead(q.id)) return true;
   const start = startedAtMs.value;
   if (start == null) return false;
@@ -568,14 +670,24 @@ const skipQuizRead = computed(() => {
   return Date.now() - start > QUIZ_READ_MS + 2500;
 });
 
+/** A Mozaik kérdésnél a QM stage nem küld Op.StartClock-ot, így a StartQuestion ClockPaused=1 értéke
+ *  végig megmarad. Ez nem tipp: csak az elindult válaszidő alatti szünet számít szünetnek. */
+function serverClockPaused() {
+  const live = game.value.live;
+  if (!live.ClockPaused) return false;
+  return !(mosaicLive.value && answerStartedMs.value == null);
+}
+
 const clockPaused = computed(() => {
-  if (game.value.live.ClockPaused) return true;
+  if (serverClockPaused()) return true;
   if (game.value.live.DisplayClockPhase === 'paused') return true;
   if (store.lastPingEventId != null && String(store.lastPingEventId) !== eventId.value) return false;
   if (store.lastPingAction === 'Op.MosaicBuzz') return true;
   if (store.lastPingAction === 'Op.PauseQuestion' && store.lastPingHold === true) return true;
+  /* A QM stage a 3 mp-es felolvasás alatt is hold=true Castot küld; ez nem tipp. */
   return (
     store.lastPingAction === 'Op.CastDisplay' &&
+    store.lastPingClockPhase !== 'read' &&
     (store.lastPingHold === true || store.lastPingClockPhase === 'paused')
   );
 });
@@ -586,13 +698,13 @@ function playRemainingSec() {
   if (questionStatusOf(q) === 'stopped') return 0;
   const total = questionWindowSec(q);
   if (total <= 0) return 0;
-  const serverStart = startedAtMs.value;
-  const started = serverStart ?? clockAt.value;
+  const answerStart = q.ExtraGameId ? startedAtMs.value : answerStartedMs.value;
+  const started = answerStart ?? clockAt.value;
   if (started == null) return total;
-  const readMs = serverStart != null && !q.ExtraGameId ? QUIZ_READ_MS : 0;
-  const playAt = started + readMs;
-  if (nowMs.value < playAt) return total;
-  return Math.max(0, total - (nowMs.value - playAt) / 1000);
+  if (game.value.live.ClockPaused && game.value.live.ClockLeftMs != null && answerStartedMs.value != null) {
+    return Math.max(0, game.value.live.ClockLeftMs / 1000);
+  }
+  return Math.max(0, total - (nowMs.value - started) / 1000);
 }
 
 function freezeMosaicClock(leftSec?: number | null) {
@@ -622,7 +734,12 @@ function frozenLeftSec() {
 }
 
 const remainingSec = computed(() => {
-  if (clockPaused.value || mosaicFrozenSec.value != null || mosaicTipTeamId.value != null) {
+  if (
+    mosaicFrozenSec.value != null ||
+    mosaicTipTeamId.value != null ||
+    (mosaicLive.value && clockPaused.value) ||
+    (!mosaicLive.value && answerPaused.value)
+  ) {
     return frozenLeftSec();
   }
   if (mosaicResume.value) {
@@ -667,7 +784,7 @@ const mosaicTopic = computed(
 const mosaicSort = computed(() => {
   const row = focusedQuestion.value;
   if (!row) return '';
-  const total = game.value.extraPool.filter((item) => item.ExtraGameId === 'EG2').length;
+  const total = game.value.questions.filter((item) => item.RoundID === row.RoundID).length;
   const index = row.SortIndex || 1;
   return total > 0 ? `${index}/${total}` : String(index);
 });
@@ -675,26 +792,43 @@ const mosaicCanTip = computed(
   () => mosaicLive.value && showQuestionStage.value && !mosaicOut.value && !mosaicHold.value && !mosaicBusy.value
 );
 
-function onStageReady() {
-  markQuizRead(focusedQuestion.value?.id);
-  if (clockAt.value != null) return;
-  const start = startedAtMs.value;
-  if (start != null && Date.now() - start > QUIZ_READ_MS) {
-    clockAt.value = start + QUIZ_READ_MS;
-    return;
-  }
+function armAnswerClock() {
+  if (answerStartedMs.value != null || clockAt.value != null) return;
   clockAt.value = Date.now();
 }
 
+function onStageReady() {
+  markQuizRead(focusedQuestion.value?.id);
+  if (quizReading.value) return;
+  armAnswerClock();
+}
+
+/** Ugyanaz a kérdés újranyílt (Op.ReopenQuestion): a régi helyi óra nem érvényes, a tipp visszaszámlálása újra indul. */
+watch(quizReading, (reading, was) => {
+  if (!reading || reading === was) return;
+  clockAt.value = null;
+  submitFailed.value = 0;
+});
+
 watch(
-  () => focusedQuestion.value?.id ?? null,
-  () => {
-    clockAt.value = null;
+  () => showQuestionStage.value && !quizReading.value && !answerPaused.value,
+  (open) => {
+    if (open) armAnswerClock();
   }
 );
 
 watch(
-  () => game.value.live.ActiveExtraQuestionID ?? null,
+  () => focusedQuestion.value?.id ?? null,
+  (id, prev) => {
+    if (id === prev) return;
+    clockAt.value = null;
+    submitFailed.value = 0;
+    if (showQuestionStage.value && !quizReading.value && !answerPaused.value) armAnswerClock();
+  }
+);
+
+watch(
+  () => (mosaicLive.value ? focusedQuestion.value?.id ?? null : null),
   (id, prev) => {
     if (id == null || id === prev) return;
     resetMosaicQuestion();
@@ -717,7 +851,7 @@ watch(
     ] as const,
   ([paused, phase, leftMs, tipTeam, tipName, outKey]) => {
     if (!mosaicLive.value) return;
-    if (paused || phase === 'paused' || tipName) {
+    if (serverClockPaused() || phase === 'paused' || tipName) {
       freezeMosaicClock(leftMs != null ? leftMs / 1000 : null);
       if (mosaicTipTeamId.value == null && tipTeam) {
         const name = String(tipTeam).trim().toLowerCase();
@@ -726,6 +860,8 @@ watch(
           lobbyTeams.value.find((row) => row.Name.trim().toLowerCase() === name);
         if (team?.id != null) mosaicTipTeamId.value = team.id;
       }
+    } else {
+      releaseMosaicHoldIfPlaying();
     }
     const outIds = game.value.live.MosaicOutTeamIds || [];
     mosaicOutTeamIds.value = [...outIds];
@@ -735,27 +871,20 @@ watch(
   }
 );
 
-let mosaicSync: number | null = null;
-watch(
-  () => mosaicLive.value,
-  (on) => {
-    if (mosaicSync != null) {
-      window.clearInterval(mosaicSync);
-      mosaicSync = null;
-    }
-    if (!on || numericEventId.value == null) return;
-    const pull = () => {
-      if (numericEventId.value == null) return;
-      void store.loadGame(numericEventId.value);
-    };
-    pull();
-    mosaicSync = window.setInterval(pull, 280);
-  }
-);
-
 watch(clockPaused, (paused) => {
-  if (paused) freezeMosaicClock(store.lastPingLeftMs != null ? store.lastPingLeftMs / 1000 : null);
+  if (paused && mosaicLive.value) {
+    freezeMosaicClock(store.lastPingLeftMs != null ? store.lastPingLeftMs / 1000 : null);
+  }
 }, { flush: 'sync' });
+
+/** Kvíz kérdésnél a mozaik fagyasztás nem élhet: az óra a StartClock / AnswerStartedAtUtc alapján fut. */
+watch(
+  () => [focusedQuestion.value?.id ?? null, mosaicLive.value] as const,
+  ([, mosaic]) => {
+    if (!mosaic) resetMosaicHold();
+  },
+  { immediate: true }
+);
 
 const remainingRatio = computed(() => {
   const total = questionWindowSec(focusedQuestion.value) || 1;
@@ -773,6 +902,7 @@ watch(
       return;
     }
     if (action === 'Op.MosaicBuzz') {
+      lastMosaicBuzzAt = Date.now();
       freezeMosaicClock(store.lastPingLeftMs != null ? store.lastPingLeftMs / 1000 : null);
       const teamId = resolvePingTeamId();
       if (teamId != null && mosaicOutTeamIds.value.includes(teamId)) return;
@@ -788,7 +918,8 @@ watch(
         resetMosaicQuestion();
         return;
       }
-      if (store.lastPingHold || store.lastPingClockPhase === 'paused') {
+      const readingCast = store.lastPingClockPhase === 'read';
+      if ((store.lastPingHold && !readingCast) || store.lastPingClockPhase === 'paused') {
         freezeMosaicClock(store.lastPingLeftMs != null ? store.lastPingLeftMs / 1000 : null);
         if (mosaicTipTeamId.value == null) {
           mosaicTipTeamId.value = resolvePingTeamId();
@@ -797,6 +928,8 @@ watch(
       }
       mosaicOutTeamIds.value = [...outIds];
       if (!outIds.length) mosaicOutTeamNames.value = [];
+      /* Rossz tipp után a QM „play” Castja (a bővített ping hordozza a fázist) oldja a holdot, a kiesett csapat listájával. */
+      if (!store.lastPingHold && store.lastPingClockPhase === 'play') releaseMosaicHoldIfPlaying();
       return;
     }
     if (action === 'Op.PauseQuestion') {
@@ -828,7 +961,8 @@ watch(
       store.lastPingAction === 'Op.PauseQuestion' ||
       store.lastPingAction === 'Op.MosaicJudge' ||
       store.lastPingAction === 'Op.CastDisplay' ||
-      store.lastPingAction === 'Op.React'
+      store.lastPingAction === 'Op.React' ||
+      store.lastPingAction === 'Op.Presence'
     ) {
       return;
     }
@@ -888,50 +1022,39 @@ async function refreshLobby() {
     }
     try {
       await store.loadGame(eventId.value);
-    } catch {
-      /* a váróterem státusz-szöveggel akkor is kell */
+      accessDenied.value = null;
+    } catch (error) {
+      const status = (error as { response?: { status?: unknown } } | null)?.response?.status;
+      if (status === 401 || status === 403) accessDenied.value = status;
+      /* egyéb hibánál a váróterem státusz-szöveggel akkor is kell */
     }
   } finally {
     lobbyInFlight = false;
   }
 }
 
-function itemsFromSubmit(payload: Record<string, unknown>) {
-  const type = String(payload.TypeCode || '');
-  if (type === 'single') {
-    const indexes = Array.isArray(payload.Indexes) ? payload.Indexes : [];
-    return { Index: Number(indexes[0] ?? 0) };
-  }
-  if (type === 'multi' || type === 'order') return { Indexes: payload.Indexes || [] };
-  if (type === 'freetext') return { Text: payload.Text || '' };
-  if (type === 'category') return { Buckets: payload.Buckets || {} };
-  if (type === 'match') return { Matches: payload.Matches || {} };
-  return payload;
-}
-
 async function onSubmitted(payload: Record<string, unknown>) {
   const q = focusedQuestion.value;
   if (!q || numericEventId.value == null) return;
-  if (questionStatusOf(q) !== 'active' || clockPaused.value) return;
+  if (questionStatusOf(q) !== 'active') return;
+  if (q.ExtraGameId ? clockPaused.value : quizReading.value || answerPaused.value) return;
   const live = game.value.live;
   if (q.ExtraGameId && live.ActiveExtraQuestionID != null && q.id !== live.ActiveExtraQuestionID) return;
   if (!q.ExtraGameId && live.ActiveEventQuestionID != null && q.id !== live.ActiveEventQuestionID) return;
   const cap = Math.max(1, questionWindowSec(q) || 20) * 1000;
-  const serverStart = startedAtMs.value;
-  const started = serverStart ?? clockAt.value;
-  const readMs = serverStart != null && !q.ExtraGameId ? QUIZ_READ_MS : 0;
-  const playAt = started != null ? started + readMs : Date.now();
-  const elapsed = Math.max(0, Date.now() - playAt);
+  const started = (q.ExtraGameId ? startedAtMs.value : answerStartedMs.value) ?? clockAt.value;
+  const elapsed = Math.max(0, Date.now() - (started ?? Date.now()));
   try {
     await submitOpAnswer(numericEventId.value, {
       eventQuestionId: q.id,
-      items: itemsFromSubmit(payload),
+      items: buildOpAnswerItems(q, payload),
       correct: Boolean(payload.Correct),
       ratio: typeof payload.Ratio === 'number' ? payload.Ratio : payload.Correct ? 1 : 0,
       elapsedMs: Math.min(cap, Math.max(0, elapsed)),
       extra: Boolean(q.ExtraGameId),
     });
   } catch {
+    submitFailed.value += 1;
     /* a helyi verdikt megmarad; a következő Stop pontozása nélkül esik ki */
   }
 }
@@ -939,20 +1062,24 @@ async function onSubmitted(payload: Record<string, unknown>) {
 async function onBuzz() {
   if (numericEventId.value == null || !mosaicCanTip.value || mosaicOut.value) return;
   mosaicBusy.value = true;
+  lastMosaicBuzzAt = Date.now();
   const leftMs = Math.round(remainingSec.value * 1000);
   try {
-    await mosaicBuzzOp(numericEventId.value, game.value.live.ActiveExtraQuestionID, {
+    await mosaicBuzzOp(numericEventId.value, focusedQuestion.value?.id ?? null, {
       leftMs,
       teamId: myTeamId.value,
       teamName: myTeam.value?.Name || '',
       nickname: nickname.value,
       eventUserId: eventUserId.value,
     });
-    if (mosaicTipTeamId.value != null && mosaicTipTeamId.value !== myTeamId.value) return;
-    if (mosaicTipUserId.value != null && mosaicTipUserId.value !== eventUserId.value) return;
-    freezeMosaicClock(leftMs / 1000);
-    if (mosaicTipTeamId.value == null) mosaicTipTeamId.value = myTeamId.value;
-    if (mosaicTipUserId.value == null) mosaicTipUserId.value = eventUserId.value;
+    /* A BE az első érvényes tippet fogadja el, a többit csendben eldobja (válasz mindkét esetben sikeres).
+       Nyertest nem feltételezünk: az Op.MosaicBuzz ping jelzi, ki nyert. Ha a ping nem jön, a GET dönt. */
+    if (mosaicTipTeamId.value == null) {
+      await new Promise((resolve) => window.setTimeout(resolve, 800));
+      if (mosaicTipTeamId.value == null && numericEventId.value != null) {
+        await store.loadGame(String(numericEventId.value)).catch(() => undefined);
+      }
+    }
   } catch {
     if (mosaicTipTeamId.value == null) resetMosaicHold();
   } finally {
@@ -1008,25 +1135,18 @@ async function onJoinTeam(teamId: number) {
     joining.value = false;
   }
 }
+useOpLiveResync(numericEventId, refreshLobby, { blocked: () => accessBlocked.value });
 
-function applyMosaicDisplay(command: OpDisplayCommand) {
-  if (command.face !== 'question') return;
-  const mosaic = command.type === 'mosaic' || game.value.live.ExtraGameId === 'EG2';
-  if (!mosaic) return;
-  if (command.clockPhase === 'paused' || command.tipName) {
-    freezeMosaicClock(command.clockLeftMs > 0 ? command.clockLeftMs / 1000 : null);
-    if (mosaicTipTeamId.value == null && command.tipTeam) {
-      const name = command.tipTeam.trim().toLowerCase();
-      const team =
-        game.value.teams.find((row) => row.Name.trim().toLowerCase() === name) ||
-        lobbyTeams.value.find((row) => row.Name.trim().toLowerCase() === name);
-      if (team?.id != null) mosaicTipTeamId.value = team.id;
-    }
-  } else if (command.clockPhase === 'play' && mosaicTipTeamId.value == null) {
-    resumeMosaicClock(command.clockLeftMs > 0 ? command.clockLeftMs / 1000 : null);
-  }
-  for (const id of command.mosaicOutTeamIds || []) markTeamOut(id);
+function rejoin() {
+  void router.push({ name: 'olimpub-join' });
 }
+
+watch(
+  () => String(dbEvent.value?.EventStatusID ?? ''),
+  (next, prev) => {
+    if (prev && next && next !== prev) void refreshLobby();
+  }
+);
 
 onMounted(() => {
   void store.loadMaster(true);
@@ -1034,27 +1154,10 @@ onMounted(() => {
   tick = window.setInterval(() => {
     nowMs.value = Date.now();
   }, 200);
-  statusPoll = window.setInterval(() => {
-    if (!showQuestionStage.value) void refreshLobby();
-  }, 8000);
-  stopPlayerFace = onOpPlayerFace((id, face) => {
-    if (id !== eventId.value) return;
-    localPlayerFace.value = face;
-  });
-  stopDisplay = onOpDisplay((id, command) => {
-    if (String(id) !== eventId.value) return;
-    applyMosaicDisplay(command);
-  });
-  const current = readOpDisplay(eventId.value);
-  if (current) applyMosaicDisplay(current);
 });
 
 onUnmounted(() => {
   if (tick != null) window.clearInterval(tick);
-  if (statusPoll != null) window.clearInterval(statusPoll);
-  if (mosaicSync != null) window.clearInterval(mosaicSync);
-  stopPlayerFace();
-  stopDisplay();
 });
 </script>
 
@@ -1143,5 +1246,41 @@ onUnmounted(() => {
   line-height: 1.25;
   color: var(--op-cream);
   text-align: center;
+
+.op-player-denied {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 24px 20px;
+  background: var(--op-panel);
+  border: 1px solid rgba(251, 113, 133, 0.28);
+  border-radius: var(--op-radius);
+  color: #fb7185;
+  text-align: center;
+}
+
+.op-player-denied__title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: var(--op-cream);
+}
+
+.op-player-denied__text {
+  margin: 0;
+  color: #cbd5e1;
+  line-height: 1.4;
+}
+
+.op-player-denied__btn {
+  margin-top: 8px;
+  padding: 10px 22px;
+  border: 0;
+  border-radius: 9999px;
+  background: #f5b942;
+  color: #120c18;
+  font-weight: 800;
+  cursor: pointer;
+}
 }
 </style>

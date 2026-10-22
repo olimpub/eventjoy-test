@@ -1,13 +1,16 @@
 <template>
-  <div class="op-res" :class="{ 'is-played': played, 'is-ranked': ranked, 'is-finale': finale, 'is-game': face === 'game' }">
+  <div
+    class="op-res"
+    :class="{ 'is-played': played, 'is-ranked': ranked, 'is-finale': finale, 'is-game': face === 'game', 'is-wall': wall }"
+  >
     <header>
       <p>{{ banner }}</p>
-      <h1>Eredmény</h1>
-      <div class="op-res__pick" role="tablist" aria-label="Eredmény mód">
+      <h1>{{ wall ? (finale ? 'Forduló vége' : 'Állás') : 'Eredmény' }}</h1>
+      <div v-if="!wall" class="op-res__pick" role="tablist" aria-label="Eredmény mód">
         <button type="button" :class="{ 'is-on': !finale }" @click="showStanding">Állás</button>
         <button type="button" :class="{ 'is-on': finale }" @click="showFinale">Forduló vége</button>
       </div>
-      <button type="button" class="op-res__cast" @click="emit('cast', finale ? 'finale' : 'standings')">
+      <button v-if="!wall" type="button" class="op-res__cast" @click="emit('cast', finale ? 'finale' : 'standings')">
         Vetítés
       </button>
     </header>
@@ -70,8 +73,10 @@ const props = withDefaults(
     face?: 'quiz' | 'game';
     rows?: { name: string; points: number; previous?: number }[];
     precise?: boolean;
+    /** Kivetítő: nincs kapcsoló és Vetítés gomb, a mód kintről jön (`roundOver`). */
+    wall?: boolean;
   }>(),
-  { roundOver: false, topic: '', face: 'quiz', precise: false }
+  { roundOver: false, topic: '', face: 'quiz', precise: false, wall: false }
 );
 
 interface StandingRow {
@@ -400,6 +405,18 @@ onUnmounted(() => {
     radial-gradient(circle at 90% 20%, rgba(245, 185, 66, 0.28), transparent 26%),
     #14081c;
   color: #fff8f2;
+}
+
+.op-res.is-wall {
+  padding: 28px 48px 28px;
+}
+
+.op-res.is-wall .op-res__list {
+  gap: 12px;
+}
+
+.op-res.is-wall li {
+  min-height: 96px;
 }
 
 .op-res header p {

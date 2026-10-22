@@ -3,7 +3,6 @@ import {
   formatOpQuestionCorrect,
   opQuestionTopic,
   type OpEventQuestion,
-  type OpExtraPoolItem,
   type OpLiveState,
   type OpRound,
 } from './opData';
@@ -105,10 +104,7 @@ export function buildQmCatalog(
     rounds: OpRound[];
     questions: OpEventQuestion[];
     live: OpLiveState;
-    extraPool?: OpExtraPoolItem[];
-    extraCatalog?: OpExtraPoolItem[];
   },
-  _extraGameIds: string[],
   topics: { id: number; Name: string }[]
 ): QmCatalogItem[] {
   const quiz: QmCatalogItem[] = [];

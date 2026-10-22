@@ -20,15 +20,17 @@
     :round-id="openItem.roundId ?? null"
     :question-index="openItem.index"
     :question-total="openItem.total"
+    :question-status="stageQuestionStatus"
     :extra-game-id="stageMarkForRound(openItem.roundTypeCode || '', openItem.title)"
     :extra-question-id="liveExtraQuestionId"
     :extra-run-id="liveExtraRunId"
     :result-rows="roundScoreRows"
     :result-loading="roundLoading"
     :result-precise="true"
-    @back="openItem = null"
+    @back="leaveRound"
     @begin="onBegin(openItem)"
     @advance="onAdvance(openItem)"
+    @step="onStep(openItem, $event)"
     @finish="onFinish(openItem)"
     @results="onResults(openItem)"
     @cast-results="onCastResults"
@@ -256,27 +258,40 @@ import { useQuasar } from 'quasar';
 import { useEventStore } from 'src/stores/event';
 import { useOlimpubStore } from 'src/stores/olimpub';
 import { readAxiosErrorMessage } from 'src/utils/apiPayload';
-import { closeOpRound, castOpDisplay, fetchOpLeaderboard, resetOpRound, showOpLeaderboard, startOpRound, stopOpQuestion } from '../opApi';
-import { opDefaultTimeSec, opJoinAbsoluteUrl, opReactGlyph, stageMarkForRound } from '../constants';
 import {
-  extraPoolToQuestion,
-  opExtraQuestionTimeSec,
+  closeOpRound,
+  castOpDisplay,
+  showOpScreen,
+  fetchOpLeaderboard,
+  resetOpRound,
+  setOpPlayerFace,
+  showOpLeaderboard,
+  startOpRound,
+  stopOpQuestion,
+} from '../opApi';
+import {
+  normalizeRoundTypeCode,
+  opDefaultTimeSec,
+  opJoinAbsoluteUrl,
+  roundTypeKind,
+  stageMarkForRound,
+} from '../constants';
+import {
   formatOpQuestionCorrect,
   liveAnswerCountFor,
   kabalaImageOf,
   opQuestionAudioUrl,
   opQuestionImageUrl,
   extraPenaltyStandings,
-  uniqueOpExtraGameIds,
+  onlyOpTeamsWithPlayers,
+  opTeamsWithPlayers,
   withOpPenaltyPoints,
   type OpEventQuestion,
   type OpLeaderboardRow,
 } from '../opData';
 import {
   emptyOpDisplayCommand,
-  publishOpDisplay,
   commandToCastPayload,
-  writeOpPlayerFace,
   type OpDisplayClockPhase,
   type OpDisplayCommand,
   type OpDisplayLobbyTeam,
@@ -286,6 +301,7 @@ import {
 import { resolveOpMediaUrl } from '../opMediaCache';
 import { buildQmCatalog, type QmCatalogItem } from '../qmCatalog';
 import { useOpLeaderboards, type OpStandingsSource } from '../useOpLeaderboards';
+import { useOpLiveResync } from '../useOpLiveResync';
 
 const OpQuizmasterStage = defineAsyncComponent(() => import('./OpQuizmasterStage.vue'));
 
@@ -342,14 +358,7 @@ const SAMPLE_ITEMS: CatalogItem[] = [
 
 const liveItems = computed(() => {
   if (!props.eventId) return [] as CatalogItem[];
-  const game = store.getGame(props.eventId);
-  const extra = uniqueOpExtraGameIds(
-    store.getSettingsForEvent(props.eventId)?.ExtraGameIds,
-    eventStore.getOpSettingsForEvent(props.eventId)?.ExtraGameIds,
-    (game.extraPool || []).map((row) => row.ExtraGameId),
-    (game.extraCatalog || []).map((row) => row.ExtraGameId)
-  );
-  return buildQmCatalog(game, extra, store.topics);
+  return buildQmCatalog(store.getGame(props.eventId), store.topics);
 });
 
 const items = computed(() => {
@@ -394,7 +403,6 @@ const roundLoading = ref(false);
 const roundError = ref('');
 const busyKey = ref('');
 const visibleOverride = ref<Record<string, boolean>>({});
-const extraClosedOverride = ref<Record<string, boolean>>({});
 const podiumStep = ref(-1);
 const revealCount = ref(0);
 const ceremonyPlace = ref<number | null>(null);
@@ -427,18 +435,14 @@ const liveQuestionId = computed(() => {
     null
   );
 });
-const liveExtraQuestionId = computed(() => {
-  const row = openItem.value;
-  if (!row?.extraGameId || !props.eventId) return row?.extraQuestionId ?? null;
-  if (row.extraQuestionId != null) return row.extraQuestionId;
-  const live = store.getGame(props.eventId).live;
-  if (live.ActiveExtraQuestionID != null) return live.ActiveExtraQuestionID;
-  const pool = store
-    .getGame(props.eventId)
-    .extraPool.filter((item) => item.ExtraGameId === row.extraGameId)
-    .sort((a, b) => a.SortIndex - b.SortIndex || a.id - b.id);
-  return pool.find((item) => item.SortIndex === row.index)?.id ?? pool[0]?.id ?? null;
+/** A megnyitott kérdés szerver szerinti állapota (pending / active / stopped), a stage Újra gombjához. */
+const stageQuestionStatus = computed(() => {
+  const id = liveQuestionId.value;
+  if (!props.eventId || id == null || openItem.value?.extraGameId) return '';
+  const row = store.getGame(props.eventId).questions.find((item) => item.id === id);
+  return String(row?.StatusCode || '').toLowerCase();
 });
+const liveExtraQuestionId = computed(() => openItem.value?.extraQuestionId ?? null);
 const liveExtraRunId = computed(() => (props.eventId ? store.getGame(props.eventId).live.ExtraRunID : null));
 
 function currentStageQuestion(row: CatalogItem): OpEventQuestion | null {
@@ -447,53 +451,13 @@ function currentStageQuestion(row: CatalogItem): OpEventQuestion | null {
   if (!props.eventId) return null;
   const game = store.getGame(props.eventId);
   const live = game.live;
-  if (row.extraGameId) {
-    const liveId = live.ActiveExtraQuestionID ?? row.extraQuestionId;
-    const pool =
-      (liveId != null
-        ? game.extraPool.find(
-            (item) => item.id === liveId && item.ExtraGameId === row.extraGameId
-          )
-        : undefined) ||
-      game.extraPool.find((item) => item.ExtraGameId === row.extraGameId) ||
-      game.extraCatalog.find((item) => item.ExtraGameId === row.extraGameId);
-    return pool ? withExtraTime(row, extraPoolToQuestion(pool)) : null;
-  }
   const liveId = live.FocusedEventQuestionID ?? live.ActiveEventQuestionID;
   if (liveId == null) return null;
   return game.questions.find((item) => item.id === liveId) || null;
 }
 
-function withExtraTime(row: CatalogItem, q: OpEventQuestion): OpEventQuestion {
-  if (!props.eventId || !row.extraGameId) return q;
-  const game = store.getGame(props.eventId);
-  return {
-    ...q,
-    TimeSec: opExtraQuestionTimeSec({
-      extraGameId: row.extraGameId,
-      extraQuestionId: row.extraQuestionId ?? q.id,
-      question: q,
-      extraPool: game.extraPool,
-      extraCatalog: game.extraCatalog,
-      repoQuestions: game.repoQuestions,
-    }),
-  };
-}
-
 function stageTimeSec(row: CatalogItem) {
-  if (row.kind === 'game') {
-    if (row.total == null) return 0;
-    if (!props.eventId) return 10;
-    const game = store.getGame(props.eventId);
-    return opExtraQuestionTimeSec({
-      extraGameId: row.extraGameId,
-      extraQuestionId: row.extraQuestionId,
-      question: currentStageQuestion(row),
-      extraPool: game.extraPool,
-      extraCatalog: game.extraCatalog,
-      repoQuestions: game.repoQuestions,
-    });
-  }
+  if (row.kind === 'game' && row.total == null) return 0;
   const q = currentStageQuestion(row);
   if (props.eventId && q?.QuestionID != null) {
     const repo = store.getGame(props.eventId).repoQuestions.find((item) => item.id === q.QuestionID);
@@ -511,16 +475,7 @@ const heading = computed(() => {
   return 'Kvízmester';
 });
 
-const listed = computed(() =>
-  items.value
-    .filter((row) => row.kind === area.value)
-    .map((row) => {
-      if (row.kind !== 'game') return row;
-      if (extraRunActive(row)) return { ...row, status: 'live' as const };
-      if (extraClosedNow(row)) return { ...row, status: 'closed' as const };
-      return row;
-    })
-);
+const listed = computed(() => items.value.filter((row) => row.kind === area.value));
 
 const eventName = computed(() => {
   const id = String(props.eventId ?? '');
@@ -666,73 +621,6 @@ function writeVisibleOverride() {
   }
 }
 
-function extraClosedStorageKey() {
-  return props.eventId ? `opExtraClosed:${props.eventId}` : '';
-}
-
-function readJsonFlagMap(key: string) {
-  if (!key) return {};
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
-    const next: Record<string, boolean> = {};
-    for (const [name, value] of Object.entries(parsed as Record<string, unknown>)) {
-      if (name) next[name] = Boolean(value);
-    }
-    return next;
-  } catch {
-    return {};
-  }
-}
-
-function readExtraClosedOverride() {
-  extraClosedOverride.value = readJsonFlagMap(extraClosedStorageKey());
-}
-
-function writeExtraClosedOverride() {
-  const key = extraClosedStorageKey();
-  if (!key) return;
-  try {
-    localStorage.setItem(key, JSON.stringify(extraClosedOverride.value));
-  } catch {
-    /* a Lezárt állapot ettől a gépről akkor is megy */
-  }
-}
-
-function markExtraClosed(extraGameId: string | undefined, closed: boolean) {
-  if (!extraGameId) return;
-  extraClosedOverride.value = { ...extraClosedOverride.value, [extraGameId]: closed };
-  writeExtraClosedOverride();
-}
-
-function extraPoolOf(row: CatalogItem) {
-  if (!props.eventId || !row.extraGameId) return [];
-  return store.getGame(props.eventId).extraPool.filter((item) => item.ExtraGameId === row.extraGameId);
-}
-
-function extraRunActive(row: CatalogItem) {
-  if (!props.eventId || !row.extraGameId) return false;
-  return store.getGame(props.eventId).live.ExtraGameId === row.extraGameId;
-}
-
-function extraRunIdOf(row: CatalogItem) {
-  if (!props.eventId || !row.extraGameId) return null;
-  const live = store.getGame(props.eventId).live;
-  return live.ExtraGameId === row.extraGameId ? live.ExtraRunID : null;
-}
-
-function extraClosedNow(row: CatalogItem) {
-  if (row.kind !== 'game') return roundClosedNow(row);
-  if (extraRunActive(row)) return false;
-  const key = row.extraGameId || row.id;
-  if (Object.prototype.hasOwnProperty.call(extraClosedOverride.value, key)) {
-    return extraClosedOverride.value[key];
-  }
-  return row.status === 'closed';
-}
-
 function quizQuestionsOf(roundId: number) {
   if (!props.eventId) return [];
   return store
@@ -780,51 +668,21 @@ function roundHasProgress(row: CatalogItem) {
   });
 }
 
-function extraHasAnswer(row: CatalogItem) {
-  if (!fromLive.value || !props.eventId || !row.extraGameId) {
-    return row.status === 'live' || row.status === 'closed' || row.index > 1;
-  }
-  if (!extraRunActive(row)) return extraClosedNow(row);
-  if (row.total == null || row.total === 0) return true;
-  const rows = extraPoolOf(row);
-  if (
-    rows.some((item) => {
-      const st = String(item.StatusCode || '').toLowerCase();
-      return st === 'stopped' || st === 'closed';
-    })
-  ) {
-    return true;
-  }
-  const live = store.getGame(props.eventId).live;
-  return live.ExtraGameId === row.extraGameId && (live.AnswerCount || 0) > 0;
-}
-
-function extraHasProgress(row: CatalogItem) {
-  if (extraClosedNow(row) || extraRunActive(row)) return true;
-  if (extraHasAnswer(row)) return true;
-  if (!fromLive.value || !props.eventId || !row.extraGameId) {
-    return row.status !== 'wait' || row.index > 1;
-  }
-  return false;
-}
-
+/* V2: a játék is forduló (RoundTypeCode), ugyanazokkal az akciókkal, mint a kvíz. */
 function canCloseRound(row: CatalogItem) {
-  if (row.kind === 'game') return !extraClosedNow(row) && (extraRunActive(row) || extraHasAnswer(row));
-  return row.kind === 'quiz' && !roundClosedNow(row) && roundHasAnswer(row);
+  return !roundClosedNow(row) && roundHasAnswer(row);
 }
 
 function canResetRound(row: CatalogItem) {
-  if (row.kind === 'game') return extraHasProgress(row);
-  return row.kind === 'quiz' && roundHasProgress(row);
+  return roundHasProgress(row);
 }
 
 function canProjectClosed(row: CatalogItem) {
-  if (row.kind === 'game') return extraClosedNow(row);
-  return row.kind === 'quiz' && roundClosedNow(row);
+  return roundClosedNow(row);
 }
 
 function isRowClosed(row: CatalogItem) {
-  return row.kind === 'game' ? extraClosedNow(row) : roundClosedNow(row);
+  return roundClosedNow(row);
 }
 
 function roundVisible(row: CatalogItem) {
@@ -978,8 +836,9 @@ function onToggleVisible(row: CatalogItem) {
 }
 
 function closedBoardMemoryKey(row: CatalogItem) {
-  if (row.kind === 'quiz' && row.roundId != null) return `opBoardSeen:${props.eventId || 0}:roundF:${row.roundId}`;
-  if (row.extraGameId) return `opBoardSeen:${props.eventId || 0}:games:${row.extraGameId}`;
+  if (row.roundId != null) {
+    return `opBoardSeen:${props.eventId || 0}:${row.kind === 'game' ? 'gameRound' : 'roundF'}:${row.roundId}`;
+  }
   return `opBoardSeen:${props.eventId || 0}:games`;
 }
 
@@ -1010,7 +869,8 @@ function writeNamedScoreMemory(key: string, rows: { name: string; points: number
 
 function emptyTeamBoard(): OpLeaderboardRow[] {
   if (!props.eventId) return [];
-  return store.getGame(props.eventId).teams.map((team, index) => ({
+  const game = store.getGame(props.eventId);
+  return opTeamsWithPlayers(game.teams, game.teamMembers).map((team, index) => ({
     key: `t${team.id}`,
     name: team.Name,
     points: 0,
@@ -1076,8 +936,7 @@ async function onProjectClosedRow(row: CatalogItem) {
       face: 'results',
       kind: isGame ? 'game' : 'quiz',
       board: isGame ? 'games' : 'quiz',
-      extraGameId: row.extraGameId || '',
-      roundId: isGame ? null : row.roundId ?? null,
+      roundId: row.roundId ?? null,
       scoreScope: isGame ? 'game' : 'round',
       title: `Állás · ${row.title}`,
       rows,
@@ -1097,7 +956,7 @@ async function onProjectClosedRow(row: CatalogItem) {
     $q.notify({
       type: 'warning',
       message: isGame
-        ? 'A játék lezárt, de a GET /op/leaderboard?board=games&ExtraGameId= 0 pontot ad.'
+        ? 'A játék lezárt, de a GET /op/leaderboard?board=games&RoundId= 0 pontot ad.'
         : 'A forduló lezárt, de a GET /op/leaderboard?board=quiz&RoundId= 0 F-et ad.',
       position: 'top',
       timeout: 3600,
@@ -1107,17 +966,22 @@ async function onProjectClosedRow(row: CatalogItem) {
   }
 }
 
+function roundKindOf(row: { RoundTypeCode: string }) {
+  return roundTypeKind(normalizeRoundTypeCode(row.RoundTypeCode) || 'main_quiz');
+}
+
 const hasClosedQuizF = computed(() => {
   if (!props.eventId) return false;
-  return store.getGame(props.eventId).rounds.some((row) => roundIsClosed(row.StatusCode));
+  return store
+    .getGame(props.eventId)
+    .rounds.some((row) => roundKindOf(row) === 'quiz' && roundIsClosed(row.StatusCode));
 });
 
 const hasClosedGameF = computed(() => {
-  if (Object.values(extraClosedOverride.value).some(Boolean)) return true;
   if (!props.eventId) return false;
-  const game = store.getGame(props.eventId);
-  if (roundIsClosed(String(game.live.ExtraQuestionStatus || ''))) return true;
-  return game.extraPool.some((row) => roundIsClosed(row.StatusCode));
+  return store
+    .getGame(props.eventId)
+    .rounds.some((row) => roundKindOf(row) === 'game' && roundIsClosed(row.StatusCode));
 });
 
 const hasPlacementF = computed(() => {
@@ -1138,6 +1002,7 @@ const scoreRows = computed(() => {
     } else if (showExtra.value && source !== 'main') {
       base = withOpPenaltyPoints(base, game.teams, game.penalties);
     }
+    base = onlyOpTeamsWithPlayers(base, game.teams, game.teamMembers);
   }
   const mapped = base.map((row) => ({
     key: row.key,
@@ -1149,7 +1014,7 @@ const scoreRows = computed(() => {
   }));
   if (mapped.length) return mapped;
   if (!game) return [];
-  return game.teams.map((team, index) => ({
+  return opTeamsWithPlayers(game.teams, game.teamMembers).map((team, index) => ({
     key: `t${team.id}`,
     name: team.Name,
     team: '',
@@ -1159,8 +1024,8 @@ const scoreRows = computed(() => {
   }));
 });
 
-const roundScoreRows = computed(() =>
-  roundRows.value.map((row) => {
+const roundScoreRows = computed(() => {
+  return roundRows.value.map((row) => {
     const points = Number(row.points) || 0;
     const previous = Number(row.previousPoints) > 0 ? Number(row.previousPoints) : 0;
     return {
@@ -1168,8 +1033,8 @@ const roundScoreRows = computed(() =>
       points,
       previous: previous > points ? 0 : previous,
     };
-  })
-);
+  });
+});
 
 watch(
   () => boardMemoryKey(),
@@ -1245,80 +1110,25 @@ function back() {
   sent.value = '';
 }
 
-function channelId() {
-  return props.eventId ?? 0;
-}
-
 let nonce = 0;
 
 function publish(partial: Partial<OpDisplayCommand>) {
   nonce += 1;
   if (partial.face) lastFace.value = partial.face;
-  const command = {
+  const command: OpDisplayCommand = {
     ...emptyOpDisplayCommand(),
     nonce,
     kind: area.value === 'game' ? 'game' : 'quiz',
     sample: !fromLive.value,
     ...partial,
   };
-  publishOpDisplay(channelId(), command);
-  if (fromLive.value && props.eventId) {
-    void castOpDisplay(props.eventId, commandToCastPayload(command)).catch(() => undefined);
-  }
+  if (!fromLive.value || !props.eventId) return;
+  void castOpDisplay(props.eventId, commandToCastPayload(command)).catch(() => undefined);
 }
 
 function eventQuestionOf(row: CatalogItem): OpEventQuestion | null {
   if (!props.eventId) return null;
   const game = store.getGame(props.eventId);
-  if (row.extraGameId) {
-    const extraId = row.extraQuestionId;
-    const poolHit =
-      extraId != null
-        ? game.extraPool.find((item) => item.id === extraId && item.ExtraGameId === row.extraGameId)
-        : undefined;
-    const catalogHit =
-      (poolHit?.QuestionID != null
-        ? game.extraCatalog.find(
-            (item) =>
-              item.ExtraGameId === row.extraGameId &&
-              (item.QuestionID === poolHit.QuestionID || item.id === poolHit.QuestionID)
-          )
-        : undefined) ||
-      (poolHit
-        ? game.extraCatalog.find(
-            (item) =>
-              item.ExtraGameId === row.extraGameId &&
-              String(item.Prompt || '').trim() === String(poolHit.Prompt || '').trim()
-          )
-        : undefined) ||
-      game.extraCatalog.find(
-        (item) => item.ExtraGameId === row.extraGameId && item.SortIndex === row.index
-      ) ||
-      game.extraCatalog.find((item) => item.ExtraGameId === row.extraGameId);
-    const pool =
-      poolHit ||
-      catalogHit ||
-      game.extraPool.find((item) => item.ExtraGameId === row.extraGameId && item.StatusCode === 'active') ||
-      game.extraPool.find((item) => item.ExtraGameId === row.extraGameId);
-    if (!pool) return catalogHit ? withExtraTime(row, extraPoolToQuestion(catalogHit)) : null;
-    const merged = catalogHit
-      ? {
-          ...pool,
-          QuestionID: catalogHit.QuestionID ?? pool.QuestionID,
-          TimeSec: catalogHit.TimeSec > 0 ? catalogHit.TimeSec : pool.TimeSec,
-          Answers: catalogHit.Answers?.length ? catalogHit.Answers : pool.Answers,
-          IsCorrect: catalogHit.IsCorrect?.length ? catalogHit.IsCorrect : pool.IsCorrect,
-          Prompt: catalogHit.Prompt || pool.Prompt,
-          TypeCode: catalogHit.TypeCode || pool.TypeCode,
-          ImageKey: pool.ImageKey || catalogHit.ImageKey,
-          ImageUrl: pool.ImageUrl || catalogHit.ImageUrl,
-          AudioKey: pool.AudioKey || catalogHit.AudioKey,
-          AudioUrl: pool.AudioUrl || catalogHit.AudioUrl,
-          MediaUrl: pool.MediaUrl || catalogHit.MediaUrl,
-        }
-      : pool;
-    return withExtraTime(row, extraPoolToQuestion(merged));
-  }
   if (row.eventQuestionId != null) {
     return game.questions.find((item) => item.id === row.eventQuestionId) || null;
   }
@@ -1412,10 +1222,11 @@ function lobbyTeamsCast(): OpDisplayLobbyTeam[] {
         .filter((member) => member.TeamID === team.id)
         .map((member) => ({
           nickname: String(member.Nickname || '').trim() || 'Játékos',
+          online: member.Online !== false,
         }));
       const count = Math.max(team.MemberCount || 0, named.length);
       const members = named.slice();
-      while (members.length < count) members.push({ nickname: 'Játékos' });
+      while (members.length < count) members.push({ nickname: 'Játékos', online: true });
       return {
         id: team.id,
         name: team.Name,
@@ -1538,15 +1349,32 @@ function projectJoin() {
   acknowledge('join', 'Belépő képernyő kint a kijelzőn.');
 }
 
+/** Kilépés a fordulóból: a játékosok mindig a váróba kerülnek, a kijelző az alap (Belépés) képernyőre vált. */
+function leaveRound() {
+  openItem.value = null;
+  if (!props.eventId || !fromLive.value) return;
+  lastPlayerCue = 'idle';
+  store.setPlayerFace(props.eventId, 'idle');
+  void setOpPlayerFace(props.eventId, 'idle').catch(() => undefined);
+  publish({
+    face: 'join',
+    kind: 'quiz',
+    title: eventName.value,
+    prompt: opJoinAbsoluteUrl(),
+    sample: false,
+  });
+}
+
 function projectTopics() {
   const kind = area.value === 'game' ? 'game' : 'quiz';
   const topics = openTopics(kind);
-  publish({
-    face: 'topics',
-    kind,
-    title: kind === 'game' ? 'Játék' : 'Kvíz',
-    topics,
-  });
+  if (props.eventId) {
+    void showOpScreen(props.eventId, 'Op.ShowTopics', {
+      Kind: kind,
+      Title: kind === 'game' ? 'Játék' : 'Kvíz',
+      Topics: topics,
+    }).catch(() => undefined);
+  }
   acknowledge(
     'topics',
     topics.length
@@ -1558,12 +1386,13 @@ function projectTopics() {
 function projectDraw() {
   const kind = area.value === 'game' ? 'game' : 'quiz';
   const topics = openTopics(kind);
-  publish({
-    face: 'draw',
-    kind,
-    title: 'Sorsolás',
-    topics,
-  });
+  if (props.eventId) {
+    void showOpScreen(props.eventId, 'Op.ShowDraw', {
+      Kind: kind,
+      Title: 'Sorsolás',
+      Topics: topics,
+    }).catch(() => undefined);
+  }
   acknowledge(
     'draw',
     topics.length ? 'Sorsolás elindult a kijelzőn.' : 'Nincs el nem kezdett kör a sorsoláshoz.'
@@ -1703,11 +1532,18 @@ function onCastResults(mode: 'standings' | 'finale') {
 async function projectRoundCast(mode: 'standings' | 'finale') {
   await loadRoundBoard();
   const roundId = openItem.value?.roundId;
+  let serverOk = true;
   if (props.eventId && roundId != null) {
     try {
       await showOpLeaderboard(props.eventId, 'raw', { roundId });
-    } catch {
-      /* a GET sorai mennek a Caston */
+    } catch (error) {
+      serverOk = false;
+      $q.notify({
+        type: 'negative',
+        message: readAxiosErrorMessage(error, 'A vetítés nem sikerült.'),
+        position: 'top',
+        timeout: 2400,
+      });
     }
   }
   const rows = roundScoreRows.value.map((row) => ({
@@ -1740,6 +1576,12 @@ async function projectRoundCast(mode: 'standings' | 'finale') {
     revealEveryMs: every,
     revealStartedAt: started,
   });
+  if (serverOk) {
+    acknowledge(
+      'results',
+      mode === 'finale' ? 'A forduló záró állása kint van a kijelzőn.' : 'A forduló állása kint van a kijelzőn.'
+    );
+  }
 }
 
 function publishCeremony(note: string, mark: 'results' | 'wall' | '' = '') {
@@ -1819,12 +1661,44 @@ onUnmounted(stopStandingsClock);
 
 function projectLobby(row: CatalogItem) {
   lastClock = null;
-  publish({
-    face: 'lobby',
-    kind: row.kind,
-    title: row.title,
-    teams: lobbyTeamsCast(),
-  });
+  if (!props.eventId) return;
+  const eventId = props.eventId;
+  const teams = lobbyTeamsCast();
+  const next = nextQuestionCue(row);
+  void showOpScreen(eventId, 'Op.ShowLobby', {
+    Kind: row.kind,
+    Title: row.title,
+    Teams: teams,
+  })
+    .then(() => {
+      /* A játékos a pending kérdéseket nem kapja meg: a „hányadik / milyen típus" a mentett Castból jön.
+         Nonce 0 = ugyanaz a lobby, a kijelző nem építi újra. */
+      if (!next) return undefined;
+      return castOpDisplay(eventId, {
+        Face: 'lobby',
+        face: 'lobby',
+        Kind: row.kind,
+        Title: row.title,
+        Teams: teams,
+        Nonce: 0,
+        Next: { No: next.no, Total: next.total, TypeCode: next.typeCode },
+      });
+    })
+    .catch(() => undefined);
+}
+
+/** A kvízmester által kijelölt (még el nem indított) kérdés sorszáma, a forduló kérdéseinek száma és típusa. */
+function nextQuestionCue(row: CatalogItem): { no: number; total: number; typeCode: string } | null {
+  if (!fromLive.value || !props.eventId || row.roundId == null || row.extraGameId) return null;
+  const qs = store
+    .getGame(props.eventId)
+    .questions.filter((item) => item.RoundID === row.roundId && !item.ExtraGameId)
+    .sort((a, b) => a.SortIndex - b.SortIndex || a.id - b.id);
+  if (!qs.length) return null;
+  let at = qs.findIndex((item) => item.id === row.eventQuestionId);
+  if (at < 0) at = qs.findIndex((item) => String(item.StatusCode || '').toLowerCase() === 'pending');
+  if (at < 0) return null;
+  return { no: at + 1, total: qs.length, typeCode: qs[at].TypeCode || '' };
 }
 
 function isMosaicRow(row: CatalogItem | null) {
@@ -1858,11 +1732,24 @@ async function onBegin(row: CatalogItem | null) {
       if (next) openItem.value = { ...next };
     } catch (error) {
       const message = readAxiosErrorMessage(error, 'A forduló nem indult.');
-      if (!/már|active|folyamat/i.test(message)) {
-        $q.notify({ type: 'negative', message, position: 'top' });
+      await reloadLive();
+      const game = store.getGame(props.eventId);
+      const runningRounds = game.rounds.filter((round) =>
+        ['active', 'live', 'running', 'open', 'started'].includes(String(round.StatusCode || '').toLowerCase())
+      );
+      const thisRunning =
+        game.live.ActiveRoundID === row.roundId || runningRounds.some((round) => round.id === row.roundId);
+      if (!/már|active|aktív|folyamat|fut/i.test(message) || !thisRunning) {
+        const other = runningRounds.find((round) => round.id !== row.roundId);
+        $q.notify({
+          type: 'negative',
+          message: other?.TopicName ? `${message} (fut: ${other.TopicName} — előbb azt zárd le)` : message,
+          position: 'top',
+        });
         return;
       }
-      await reloadLive();
+      const next = liveItems.value.find((item) => item.id === row.id);
+      if (next) openItem.value = { ...next };
     }
   }
   if (!fromLive.value && row.status !== 'closed') {
@@ -1900,6 +1787,43 @@ async function onAdvance(row: CatalogItem | null) {
     if (next) openItem.value = { ...next, index: row.total as number };
   }
   projectLobby(openItem.value || row);
+}
+
+/** Előre / hátra a forduló kérdései között (pl. szakadás után egy kérdés újravetítéséhez). A kérdést a kvízmester indítja. */
+async function onStep(row: CatalogItem | null, direction: -1 | 1) {
+  if (!row || row.total == null) return;
+  if (!fromLive.value || !props.eventId) {
+    const next = row.index + direction;
+    if (next >= 1 && next <= row.total) row.index = next;
+    projectLobby(row);
+    return;
+  }
+  await reloadLive();
+  const game = store.getGame(props.eventId);
+  const qs = game.questions
+    .filter((item) => item.RoundID === row.roundId)
+    .sort((a, b) => a.SortIndex - b.SortIndex || a.id - b.id);
+  const currentId = liveQuestionId.value;
+  const at = qs.findIndex((item) => item.id === currentId);
+  const target = at >= 0 ? qs[at + direction] : undefined;
+  if (!target) {
+    $q.notify({
+      type: 'warning',
+      message: direction < 0 ? 'Ez az első kérdés.' : 'Ez az utolsó kérdés.',
+      position: 'top',
+      timeout: 1600,
+    });
+    return;
+  }
+  openItem.value = {
+    ...row,
+    index: at + direction + 1,
+    prompt: target.Prompt,
+    correct: formatOpQuestionCorrect(target),
+    eventQuestionId: target.id,
+    status: 'live',
+  };
+  projectLobby(openItem.value);
 }
 
 async function onResults(row: CatalogItem | null) {
@@ -1971,12 +1895,12 @@ function onClock(
 ) {
   if (!row) return;
   lastClock = clock;
-  const running = clock.phase === 'read' || clock.phase === 'play' || clock.phase === 'paused';
-  if (running) {
-    projectQuestion(row, clock);
+  if (isMosaicRow(row)) {
     castMosaicClock(row, clock);
     return;
   }
+  const running = clock.phase === 'read' || clock.phase === 'play' || clock.phase === 'paused';
+  if (running) return;
   if (clock.phase === 'done' && lastFace.value === 'question') {
     projectQuestion(row, clock);
   }
@@ -2017,9 +1941,12 @@ async function reloadLive() {
 
 onMounted(() => {
   readVisibleOverride();
-  readExtraClosedOverride();
   void reloadLive();
 });
+useOpLiveResync(
+  computed(() => props.eventId ?? null),
+  () => (props.eventId ? store.loadGame(props.eventId) : undefined)
+);
 watch(
   () => area.value,
   (next) => {
@@ -2032,7 +1959,6 @@ watch(
   () => {
     lastPlayerCue = '';
     readVisibleOverride();
-    readExtraClosedOverride();
     void reloadLive();
   }
 );
@@ -2063,8 +1989,7 @@ watch(
     if (lastFace.value === 'results') return;
     lastPlayerCue = face;
     store.setPlayerFace(props.eventId, face);
-    writeOpPlayerFace(props.eventId, face);
-    void castOpDisplay(props.eventId, face).catch(() => undefined);
+    void setOpPlayerFace(props.eventId, face).catch(() => undefined);
   }
 );
 
@@ -2078,7 +2003,9 @@ watch(
             .join(','),
           store
             .getGame(props.eventId)
-            .teamMembers.map((row) => `${row.TeamID}:${row.EventUserID}:${row.Nickname || ''}`)
+            .teamMembers.map(
+              (row) => `${row.TeamID}:${row.EventUserID}:${row.Nickname || ''}:${row.Online === false ? 0 : 1}`
+            )
             .join('|'),
         ].join('#')
       : '',
@@ -2091,26 +2018,6 @@ watch(
       title: row.title,
       teams: lobbyTeamsCast(),
     });
-  }
-);
-
-watch(
-  () => store.pingAt,
-  () => {
-    if (!props.eventId || store.lastPingEventId !== props.eventId) return;
-    const action = store.lastPingAction;
-    const row = openItem.value;
-    if (!row) return;
-    if (action === 'Op.SubmitAnswer') {
-      if (lastFace.value === 'question') projectQuestion(row);
-      return;
-    }
-    if (action === 'Op.React' && lastFace.value === 'question') {
-      projectQuestion(row, lastClock || undefined, {
-        reactGlyph: opReactGlyph(store.lastPingGlyph) || store.lastPingGlyph,
-        reactAt: Date.now(),
-      });
-    }
   }
 );
 </script>

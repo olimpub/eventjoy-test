@@ -1,4 +1,5 @@
 import { api } from 'src/boot/axios';
+import { displayAuthHeaders } from 'src/modules/profitability/ptaDisplayApi';
 import {
   hasDatasetKey,
   nullableNumericId,
@@ -11,10 +12,6 @@ import {
   normalizeOpCatalog,
   withKabalaAssets,
   normalizeOpEventQuestions,
-  normalizeOpExtraPool,
-  mergeOpExtraPool,
-  extraCatalogFromRepo,
-  enrichOpExtraMedia,
   filterOpLeaderboardRows,
   normalizeOpLeaderboardRows,
   normalizeOpLive,
@@ -26,13 +23,11 @@ import {
   normalizeOpPenalties,
   normalizeOpTeamMembers,
   normalizeOpTeams,
-  uniqueOpExtraGameIds,
   type OpCatalogItem,
   type OpEventQuestion,
   type OpEventSettings,
   type OpLeaderboardBoard,
   type OpLeaderboardRow,
-  type OpExtraPoolItem,
   type OpLiveState,
   type OpRepoQuestion,
   type OpRound,
@@ -50,8 +45,6 @@ export interface OpEventPayload {
   settings: OpEventSettings[];
   rounds: OpRound[];
   questions: OpEventQuestion[];
-  extraPool: OpExtraPoolItem[];
-  extraCatalog: OpExtraPoolItem[];
   repoQuestions: OpRepoQuestion[];
   teams: OpTeam[];
   teamMembers: OpTeamMember[];
@@ -162,100 +155,6 @@ function uniqueIds(...lists: number[][]): number[] {
   return out;
 }
 
-function pickOpExtraLiveRows(data: unknown): unknown[] {
-  const named = pickFilledDataset(data, 'OpExtra', 'opExtra', 'OpExtraRun', 'opExtraRun');
-  const out: unknown[] = [];
-  const push = (value: unknown) => {
-    if (Array.isArray(value)) {
-      value.forEach(push);
-      return;
-    }
-    const rec = asRow(value);
-    if (!rec) return;
-    const kids = rec.Questions ?? rec.questions ?? rec.ExtraQuestions ?? rec.ExtraPool;
-    if (Array.isArray(kids) && kids.length) {
-      kids.forEach(push);
-      return;
-    }
-    out.push(rec);
-  };
-  named.forEach(push);
-  if (!data || typeof data !== 'object') return out;
-  const rec = asRow((data as Record<string, unknown>).OpExtra ?? (data as Record<string, unknown>).opExtra);
-  if (rec) push(rec);
-  return out;
-}
-
-function overlayExtraMediaRows(base: unknown[], media: unknown[]): unknown[] {
-  if (!base.length) return media;
-  if (!media.length) return base;
-  const byQuestion = new Map<number, Record<string, unknown>>();
-  for (const raw of media) {
-    const row = asRow(raw);
-    if (!row) continue;
-    const qid = nullableNumericId(row.QuestionID ?? row.questionID ?? row.id ?? row.ID);
-    if (qid != null) byQuestion.set(qid, row);
-  }
-  return base.map((raw) => {
-    const row = asRow(raw);
-    if (!row) return raw;
-    const qid = nullableNumericId(row.QuestionID ?? row.questionID ?? row.id ?? row.ID);
-    const extra = qid != null ? byQuestion.get(qid) : undefined;
-    if (!extra) return raw;
-    return {
-      ...row,
-      AudioKey: row.AudioKey ?? row.audioKey ?? extra.AudioKey ?? extra.audioKey,
-      AudioUrl: row.AudioUrl ?? row.audioUrl ?? extra.AudioUrl ?? extra.audioUrl,
-      ImageKey: row.ImageKey ?? row.imageKey ?? extra.ImageKey ?? extra.imageKey,
-      ImageUrl: row.ImageUrl ?? row.imageUrl ?? extra.ImageUrl ?? extra.imageUrl,
-      MediaUrl: row.MediaUrl ?? row.mediaUrl ?? extra.MediaUrl ?? extra.mediaUrl,
-    };
-  });
-}
-
-function pickOpExtraCatalogRows(data: unknown): unknown[] {
-  const catalog = pickFilledDataset(data, 'OpExtraCatalog', 'opExtraCatalog');
-  const pointers = pickFilledDataset(
-    data,
-    'EventExtraQuestions',
-    'OpEventExtraQuestions',
-    'tblEventExtraQuestion'
-  );
-  if (catalog.length) return overlayExtraMediaRows(pointers, catalog);
-  if (pointers.length) return pointers;
-  const pool = pickDataset(data as Record<string, unknown>, 'OpExtraPool', 'opExtraPool');
-  return pool.filter((raw) => {
-    const row = asRow(raw);
-    if (!row) return false;
-    return (
-      row.QuestionID != null ||
-      row.questionID != null ||
-      row.EventExtraQuestionID != null ||
-      row.eventExtraQuestionID != null
-    );
-  });
-}
-
-function pickOpExtraPoolRows(data: unknown): unknown[] {
-  const named = pickFilledDataset(
-    data,
-    'OpExtraPool',
-    'opExtraPool',
-    'OpExtraQuestions',
-    'EventExtraQuestions',
-    'OpEventExtraQuestions',
-    'tblEventExtraQuestion'
-  );
-  if (named.length) return named;
-  if (!data || typeof data !== 'object') return [];
-  for (const [key, val] of Object.entries(data as Record<string, unknown>)) {
-    if (!Array.isArray(val) || !val.length) continue;
-    if (/^opextra$/i.test(key)) continue;
-    if (/extrapool|extraquestion/i.test(key.replace(/[^a-z]/gi, ''))) return val;
-  }
-  return [];
-}
-
 function pickOpQuestionRows(data: unknown): unknown[] {
   return pickFilledDataset(
     data,
@@ -281,49 +180,29 @@ export async function fetchOpMaster(): Promise<OpMasterCatalog> {
   };
 }
 
+/** PIN-es TV: nincs JWT, a kivetítő token visz. */
+function kioskHeaders(eventId: number | string): Record<string, string> {
+  if (typeof localStorage !== 'undefined' && localStorage.getItem('token')) return {};
+  return displayAuthHeaders(eventId);
+}
+
 export async function fetchOpEvent(eventId: number | string): Promise<OpEventPayload> {
-  const response = await api.get(`/op/event/${eventId}`, { skipErrorNotify: true });
+  const response = await api.get(`/op/event/${eventId}`, {
+    skipErrorNotify: true,
+    headers: kioskHeaders(eventId),
+  });
   const data = expandOpPayload(unwrapApiPayload(response.data));
   throwIfApiFailed(data, 'Az Olimpub esemény betöltése sikertelen.');
   const questionRows = pickDataset(data, 'OpEventQuestions', 'opEventQuestions', 'EventQuestions');
   const questions = normalizeOpEventQuestions(questionRows, eventId);
-  const extraPool = mergeOpExtraPool(
-    normalizeOpExtraPool(pickOpExtraPoolRows(data), eventId),
-    normalizeOpExtraPool(pickOpExtraLiveRows(data), eventId),
-    questions
-  );
   const repoQuestions = normalizeOpRepoQuestions(
     pickFilledDataset(data, 'OpQuestions', 'opQuestions', 'OpRepoQuestions', 'tblQuestion')
   );
-  const extraCatalog = mergeOpExtraPool(
-    normalizeOpExtraPool(pickOpExtraCatalogRows(data), eventId),
-    extraCatalogFromRepo(repoQuestions, eventId),
-    questions
-  );
-  enrichOpExtraMedia(extraCatalog, extraPool);
-  enrichOpExtraMedia(extraPool, extraCatalog);
   const settings = normalizeOpSettings(pickDataset(data, 'OpSettings', 'opSettings'), eventId);
-  const extraFromKids = uniqueOpExtraGameIds(
-    pickDataset(data, 'OpExtraGames', 'OpSettingExtras', 'ExtraGames', 'OpSettingExtraGames').map((raw) => {
-      if (typeof raw === 'string' || typeof raw === 'number') return String(raw);
-      if (!raw || typeof raw !== 'object') return '';
-      const rec = raw as Record<string, unknown>;
-      return String(
-        rec.ExtraGameId ?? rec.extraGameId ?? rec.ExtraGameID ?? rec.Code ?? rec.Name ?? rec.name ?? rec.Id ?? rec.id ?? ''
-      );
-    })
-  );
-  const extraFromPool = extraPool.map((row) => row.ExtraGameId);
   const kabalaFromKids = pickOpKabalaIdsFromKids(data);
   if (settings.length) {
     settings[0] = {
       ...settings[0],
-      ExtraGameIds: uniqueOpExtraGameIds(
-        settings[0].ExtraGameIds,
-        extraFromKids,
-        extraFromPool,
-        extraCatalog.map((row) => row.ExtraGameId)
-      ),
       KabalaIds: uniqueIds(settings[0].KabalaIds, kabalaFromKids),
     };
   }
@@ -331,8 +210,6 @@ export async function fetchOpEvent(eventId: number | string): Promise<OpEventPay
     settings,
     rounds: normalizeOpRounds(pickDataset(data, 'OpRounds', 'opRounds', 'Rounds'), eventId),
     questions,
-    extraPool,
-    extraCatalog,
     repoQuestions,
     teams: normalizeOpTeams(pickOpTeamRows(data), eventId),
     penalties: normalizeOpPenalties(
@@ -411,7 +288,7 @@ export async function fetchOpLeaderboard(
       : board === 'main'
         ? 'points'
         : 'f';
-  const response = await api.get(`/op/leaderboard/${eventId}`, { params });
+  const response = await api.get(`/op/leaderboard/${eventId}`, { params, headers: kioskHeaders(eventId) });
   const rows = Array.isArray(response.data)
     ? normalizeOpLeaderboardRows(response.data, pointMode)
     : (() => {
@@ -439,6 +316,18 @@ export async function showOpLeaderboard(
         : roundId != null
           ? { Board: raw ? 'raw' : 'quiz', RoundId: roundId }
           : { Board: raw ? 'quiz' : board },
+  });
+}
+
+export async function showOpScreen(
+  eventId: number,
+  action: 'Op.ShowLobby' | 'Op.ShowTopics' | 'Op.ShowDraw',
+  payload: Record<string, unknown>
+): Promise<unknown> {
+  return postOpGameChange({
+    EventID: eventId,
+    Action: action,
+    Payload: payload,
   });
 }
 
@@ -521,6 +410,17 @@ export async function setOpCurrent(eventId: number, current: boolean): Promise<u
     Action: 'Op.SetCurrent',
     Payload: { Current: current },
   });
+}
+
+/** Játékos képernyő: `idle` = QM a katalógusban (váró), `lobby` = kör nyitva (szünet), `results`. Nem TV-vetítés. */
+export async function setOpPlayerFace(eventId: number, face: string): Promise<unknown> {
+  const response = await api.post(
+    '/op/game/change',
+    { EventID: eventId, Action: 'Op.SetPlayerFace', Payload: { Face: face } },
+    { skipErrorNotify: true }
+  );
+  throwIfApiFailed(response.data, 'A játékos képernyő nem váltott.');
+  return unwrapApiPayload(response.data);
 }
 
 export async function leaveOpTeam(eventId: number): Promise<unknown> {

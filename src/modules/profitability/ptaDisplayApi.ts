@@ -91,8 +91,14 @@ export function ptaDisplayTokenRequestBody(eventId: number): Record<string, unkn
   return { EventID: eventId, Module: 'pta' };
 }
 
-export function ptaDisplaySessionRequestBody(eventId: number, pin: string): Record<string, unknown> {
-  return { EventID: eventId, Module: 'pta', Pin: pin };
+export type DisplayModule = 'pta' | 'op';
+
+export function ptaDisplaySessionRequestBody(
+  eventId: number,
+  pin: string,
+  module: DisplayModule = 'pta'
+): Record<string, unknown> {
+  return { EventID: eventId, Module: module, Pin: pin };
 }
 
 function firstResultRow(raw: unknown): Record<string, unknown> {
@@ -274,8 +280,9 @@ export async function requestPtaDisplayToken(eventId: number): Promise<PtaDispla
 export async function openPtaDisplaySession(args: {
   eventId: number;
   pin: string;
+  module?: DisplayModule;
 }): Promise<PtaDisplaySessionResult> {
-  const body = ptaDisplaySessionRequestBody(args.eventId, args.pin);
+  const body = ptaDisplaySessionRequestBody(args.eventId, args.pin, args.module);
   const response = await api.post('/pta/display-session', body);
   console.info('[pta display-session]', { url: '/pta/display-session', body, status: response.status, data: response.data });
   throwIfApiFailed(response.data, 'Érvénytelen vagy lejárt PIN.');

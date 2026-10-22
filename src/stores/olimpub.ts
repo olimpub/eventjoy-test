@@ -5,15 +5,13 @@ import {
   fetchOpQuestions,
 } from 'src/modules/olimpub/opApi';
 import {
-  extraCatalogFromRepo,
   emptyOpLive,
-  mergeOpExtraPool,
+  normalizeOpEventQuestions,
   opLiveQuestionStatus,
   sameOpLiveQuestion,
   type OpCatalogItem,
   type OpEventQuestion,
   type OpEventSettings,
-  type OpExtraPoolItem,
   type OpLiveState,
   type OpPenalty,
   type OpRepoQuestion,
@@ -25,8 +23,6 @@ import {
 export interface OpGameState {
   rounds: OpRound[];
   questions: OpEventQuestion[];
-  extraPool: OpExtraPoolItem[];
-  extraCatalog: OpExtraPoolItem[];
   teams: OpTeam[];
   teamMembers: OpTeamMember[];
   penalties: OpPenalty[];
@@ -41,10 +37,26 @@ const emptyLive = (): OpLiveState => emptyOpLive();
 const pingReloadTimers = new Map<string, number>();
 const recentPingKeys: { key: string; at: number }[] = [];
 
+function pingStrings(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      if (typeof item === 'string') return item.trim();
+      if (!item || typeof item !== 'object') return '';
+      const row = item as Record<string, unknown>;
+      return String(row.Text ?? row.text ?? row.Value ?? row.value ?? row.Name ?? row.name ?? '').trim();
+    })
+    .filter(Boolean);
+}
+
 function optionalCount(value: unknown): number | null {
   if (value == null || value === '') return null;
   const n = Number(value);
   return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+function isPlayerFace(face: string) {
+  return face === 'idle' || face === 'lobby' || face === 'results';
 }
 
 function isOpStartAction(action: string) {
@@ -89,6 +101,16 @@ export const useOlimpubStore = defineStore('olimpub', {
     eventSettings: [] as OpEventSettings[],
     games: {} as Record<string, OpGameState>,
     pingAt: 0,
+    /** Az Op.MosaicBuzz saját számlálója: a pingAt egyetlen helyet jelez, két egyidejű ping közül az egyik elveszne. */
+    buzzSeq: 0,
+    lastBuzz: null as {
+      eventId: number | null;
+      nickname: string;
+      teamName: string;
+      teamId: number | null;
+      eventUserId: number | null;
+      leftMs: number | null;
+    } | null,
     lastPingAction: '',
     lastPingEventId: null as number | null,
     lastPingGlyph: '',
@@ -121,8 +143,6 @@ export const useOlimpubStore = defineStore('olimpub', {
         return {
           rounds: [],
           questions: [],
-          extraPool: [],
-          extraCatalog: [],
           teams: [],
           teamMembers: [],
           penalties: [],
@@ -134,8 +154,6 @@ export const useOlimpubStore = defineStore('olimpub', {
       }
       return {
         ...row,
-        extraPool: row.extraPool || [],
-        extraCatalog: row.extraCatalog || [],
         teamMembers: row.teamMembers || [],
         teams: row.teams || [],
         penalties: row.penalties || [],
@@ -158,7 +176,8 @@ export const useOlimpubStore = defineStore('olimpub', {
       if (isDuplicatePing(pingKey(eventId, action, body))) return;
       const key = eventId != null && eventId !== '' ? String(eventId) : '';
       const prevGame = key ? this.games[key] || this.getGame(eventId as number | string) : null;
-      if (action === 'Op.MosaicBuzz' && prevGame?.live.ClockPaused) return;
+      /* Az Op.MosaicBuzz-t a BE már csak az első érvényes tippnél küldi szét; a helyi ClockPaused alapján
+         nem dobjuk el (egy beragadt ClockPaused elnyelte a tippet a kvízmesternél). */
       this.pingAt = Date.now();
       this.lastPingAction = action;
       this.lastPingEventId = eventId != null ? Number(eventId) : null;
@@ -200,6 +219,17 @@ export const useOlimpubStore = defineStore('olimpub', {
       );
       const userId = Number(body.EventUserID ?? body.eventUserID ?? body.EventUserId ?? body.UserID);
       this.lastPingEventUserId = Number.isFinite(userId) && userId > 0 ? userId : null;
+      if (action === 'Op.MosaicBuzz') {
+        this.lastBuzz = {
+          eventId: eventId != null ? Number(eventId) : null,
+          nickname: this.lastPingNickname,
+          teamName: this.lastPingTeamName,
+          teamId: this.lastPingTeamId,
+          eventUserId: this.lastPingEventUserId,
+          leftMs: this.lastPingLeftMs,
+        };
+        this.buzzSeq += 1;
+      }
       const judged = body.CorrectFlg ?? body.correctFlg ?? body.Correct ?? body.correct;
       if (action === 'Op.MosaicJudge') {
         this.lastPingCorrectFlg =
@@ -208,20 +238,51 @@ export const useOlimpubStore = defineStore('olimpub', {
         this.lastPingCorrectFlg = null;
       }
       const face = String(body.Face ?? body.face ?? '').trim().toLowerCase();
-      if (action === 'Op.CastDisplay' && face) this.lastPingFace = face;
-      if (action === 'Op.CastDisplay' || action === 'Op.ShowLeaderboard') {
+      const playerFace = action === 'Op.SetPlayerFace' && isPlayerFace(face) ? face : null;
+      if (playerFace != null) this.lastPingFace = playerFace;
+      const incomingVersion = Number(body.StateVersion ?? body.stateVersion);
+      const knownVersion = prevGame?.live.StateVersion || 0;
+      const versionGap =
+        Number.isFinite(incomingVersion) && knownVersion > 0 && incomingVersion > knownVersion + 1;
+      if (
+        action === 'Op.CastDisplay' ||
+        action === 'Op.ShowLeaderboard' ||
+        action === 'Op.ShowLobby' ||
+        action === 'Op.ShowTopics' ||
+        action === 'Op.ShowDraw' ||
+        isOpStartAction(action) ||
+        action === 'Op.StartClock' ||
+        action === 'Op.PauseQuestion' ||
+        action === 'Op.StopQuestion' ||
+        action === 'Op.StopExtraQuestion'
+      ) {
         this.lastPingCast = body;
       }
       if (!key) return;
+      if (action === 'Op.Presence' && !versionGap) {
+        const game = prevGame || this.getGame(key);
+        const userId = this.lastPingEventUserId;
+        const flag = body.Online ?? body.online;
+        const online = flag === true || flag === 1 || flag === '1' || String(flag).toLowerCase() === 'true';
+        if (userId != null && game.teamMembers.some((member) => member.EventUserID === userId)) {
+          this.games[key] = {
+            ...game,
+            teamMembers: game.teamMembers.map((member) =>
+              member.EventUserID === userId ? { ...member, Online: online } : member
+            ),
+          };
+          return;
+        }
+      }
       const nextCount = isOpStartAction(action)
         ? 0
         : Math.max(prevGame?.live.AnswerCount || 0, this.lastPingAnswerCount ?? 0);
       const paused =
-        action === 'Op.StartQuestion'
+        isOpStartAction(action)
           ? true
           : action === 'Op.StartClock'
             ? false
-            : isOpStartAction(action) || action === 'Op.StartExtra'
+            : action === 'Op.StartExtra'
           ? false
           : action === 'Op.MosaicBuzz'
             ? true
@@ -234,16 +295,115 @@ export const useOlimpubStore = defineStore('olimpub', {
                   : action === 'Op.PauseQuestion' && this.lastPingHold != null
                     ? this.lastPingHold
                     : Boolean(prevGame?.live.ClockPaused);
+      const baseGame = prevGame || this.getGame(eventId as number | string);
+      const sheetId = Number(body.EventQuestionID ?? body.QuestionID ?? body.QuestionId);
+      const sheetPrompt = String(body.Prompt ?? body.prompt ?? '').trim();
+      /* A játékos GET-je a pending kérdéssort nem adja, ezért az indító pingből építünk egy sort:
+         a kérdés ugyanabban a pillanatban kirajzolható, nem kell köztes képernyő a következő GET-ig. */
+      let startedRow: OpEventQuestion | undefined;
+      if (
+        isOpStartAction(action) &&
+        Number.isFinite(sheetId) &&
+        sheetId > 0 &&
+        sheetPrompt &&
+        !baseGame.questions.some((row) => row.id === sheetId)
+      ) {
+        const roundId =
+          body.RoundID ??
+          body.roundID ??
+          baseGame.live.ActiveRoundID ??
+          baseGame.questions[baseGame.questions.length - 1]?.RoundID;
+        const answers = pingStrings(body.Answers ?? body.answers ?? body.Options);
+        const matches = pingStrings(body.Matches ?? body.matches);
+        const categories = pingStrings(body.Categories ?? body.categories);
+        const built = normalizeOpEventQuestions(
+          [
+            {
+              ...body,
+              EventQuestionID: sheetId,
+              EventID: eventId,
+              RoundID: roundId,
+              StatusCode: 'active',
+              Prompt: sheetPrompt,
+            },
+          ],
+          eventId
+        )[0];
+        if (built) {
+          startedRow = {
+            ...built,
+            Answers: answers.length ? answers : built.Answers,
+            Matches: matches.length ? matches : built.Matches,
+            Categories: categories.length ? categories : built.Categories,
+          };
+        }
+      }
       this.games[key] = {
-        ...(prevGame || this.getGame(eventId as number | string)),
+        ...baseGame,
+        questions:
+          isOpStartAction(action) && Number.isFinite(sheetId) && sheetId > 0 && sheetPrompt
+            ? baseGame.questions.map((row) =>
+                row.id !== sheetId
+                  ? row
+                  : {
+                      ...row,
+                      Prompt: sheetPrompt,
+                      TypeCode: String(body.TypeCode ?? body.Type ?? row.TypeCode),
+                      TimeSec: Number(body.TimeSec ?? body.timeSec) || row.TimeSec,
+                      Answers: pingStrings(body.Answers ?? body.answers ?? body.Options).length
+                        ? pingStrings(body.Answers ?? body.answers ?? body.Options)
+                        : row.Answers,
+                      Matches: pingStrings(body.Matches ?? body.matches).length
+                        ? pingStrings(body.Matches ?? body.matches)
+                        : row.Matches,
+                      Categories: pingStrings(body.Categories ?? body.categories).length
+                        ? pingStrings(body.Categories ?? body.categories)
+                        : row.Categories,
+                      ImageUrl: String(body.ImageUrl ?? body.imageUrl ?? '') || row.ImageUrl,
+                      ImageKey: String(body.ImageKey ?? body.imageKey ?? '') || row.ImageKey,
+                      AudioUrl: String(body.AudioUrl ?? body.audioUrl ?? '') || row.AudioUrl,
+                      MediaUrl: String(body.MediaUrl ?? body.mediaUrl ?? body.ImageUrl ?? body.imageUrl ?? '') || row.MediaUrl,
+                      TopicName: String(body.TopicName ?? body.topicName ?? '') || row.TopicName,
+                    }
+              )
+            : startedRow
+              ? [...baseGame.questions, startedRow]
+              : baseGame.questions,
         live: {
-          ...(prevGame?.live || this.getGame(eventId as number | string).live),
+          ...baseGame.live,
           AnswerCount: nextCount,
-          PlayerFace:
-            action === 'Op.CastDisplay' && (face === 'idle' || face === 'lobby' || face === 'results')
-              ? face
-              : prevGame?.live.PlayerFace || '',
+          StateVersion: Math.max(
+            knownVersion,
+            Number.isFinite(incomingVersion) && !versionGap ? incomingVersion : 0
+          ),
+          PlayerFace: playerFace ?? prevGame?.live.PlayerFace ?? '',
           ClockPaused: paused,
+          ActiveEventQuestionID:
+            isOpStartAction(action) && Number.isFinite(sheetId) && sheetId > 0
+              ? sheetId
+              : baseGame.live.ActiveEventQuestionID,
+          QuestionStatus: isOpStartAction(action)
+            ? 'active'
+            : action === 'Op.StopQuestion' || action === 'Op.StopExtraQuestion'
+              ? 'stopped'
+              : baseGame.live.QuestionStatus,
+          AnswerStartedAtUtc:
+            action === 'Op.StartClock'
+              ? String(body.AnswerStartedAtUtc ?? body.answerStartedAtUtc ?? '') || new Date().toISOString()
+              : isOpStartAction(action)
+                ? null
+                : prevGame?.live.AnswerStartedAtUtc ?? null,
+          Screen: isOpStartAction(action)
+            ? 'question'
+            : action === 'Op.ShowLeaderboard'
+              ? 'results'
+              : action === 'Op.ShowLobby'
+                ? 'lobby'
+                : action === 'Op.ShowTopics'
+                  ? 'topics'
+                  : action === 'Op.ShowDraw'
+                    ? 'draw'
+                    : prevGame?.live.Screen || '',
           ClockLeftMs:
             this.lastPingLeftMs != null &&
             (action === 'Op.MosaicBuzz' ||
@@ -259,14 +419,19 @@ export const useOlimpubStore = defineStore('olimpub', {
                 : action === 'Op.MosaicJudge' || isOpStartAction(action)
                   ? ''
                   : prevGame?.live.DisplayClockPhase || '',
+          /* A bővített Op.CastDisplay ping hordozza a tippelőt (üres TipName = nincs tippelő), ezért felülírja a korábbit. */
           MosaicTipName:
             action === 'Op.MosaicJudge' || isOpStartAction(action)
               ? ''
-              : this.lastPingNickname || prevGame?.live.MosaicTipName || '',
+              : action === 'Op.CastDisplay' && clockPhase
+                ? this.lastPingNickname
+                : this.lastPingNickname || prevGame?.live.MosaicTipName || '',
           MosaicTipTeam:
             action === 'Op.MosaicJudge' || isOpStartAction(action)
               ? ''
-              : this.lastPingTeamName || prevGame?.live.MosaicTipTeam || '',
+              : action === 'Op.CastDisplay' && clockPhase
+                ? this.lastPingTeamName
+                : this.lastPingTeamName || prevGame?.live.MosaicTipTeam || '',
           MosaicOutTeamIds: (() => {
             const prevOut = prevGame?.live.MosaicOutTeamIds || [];
             if (isOpStartAction(action) || action === 'Op.StartExtra') return [];
@@ -288,10 +453,13 @@ export const useOlimpubStore = defineStore('olimpub', {
         },
       };
       if (
-        action === 'Op.React' ||
+        !versionGap &&
+        (action === 'Op.React' ||
         action === 'Op.MosaicBuzz' ||
         (action === 'Op.MosaicJudge' && this.lastPingCorrectFlg === false) ||
-        (action === 'Op.CastDisplay' && (this.lastPingHold || clockPhase === 'paused' || clockPhase === 'play'))
+        (action === 'Op.CastDisplay' && (this.lastPingHold || clockPhase === 'paused' || clockPhase === 'play')) ||
+        action === 'Op.StartClock' ||
+        action === 'Op.PauseQuestion')
       ) {
         return;
       }
@@ -301,7 +469,7 @@ export const useOlimpubStore = defineStore('olimpub', {
         key,
         window.setTimeout(() => {
           pingReloadTimers.delete(key);
-          void this.loadGame(eventId);
+          if (eventId != null) void this.loadGame(eventId);
         }, 220)
       );
     },
@@ -361,34 +529,11 @@ export const useOlimpubStore = defineStore('olimpub', {
     ) {
       const key = String(eventId);
       const prev = this.getGame(eventId);
-      const extraPatch: Partial<OpExtraPoolItem> = {
-        Prompt: patch.Prompt,
-        TimeSec: patch.TimeSec,
-        TypeCode: patch.TypeCode,
-        Answers: patch.Answers,
-        IsCorrect: patch.IsCorrect,
-        ImageKey: patch.ImageKey,
-        ImageUrl: patch.ImageUrl,
-        AudioKey: patch.AudioKey,
-        AudioUrl: patch.AudioUrl,
-        MediaUrl: patch.MediaUrl,
-        TopicName: patch.TopicName,
-      };
-      const extraHit = (row: OpExtraPoolItem) =>
-        row.id === questionId ||
-        row.QuestionID === questionId ||
-        (patch.QuestionID != null && row.QuestionID === patch.QuestionID);
       const repoId = patch.QuestionID ?? questionId;
       this.games[key] = {
         ...prev,
         questions: prev.questions.map((row) =>
           row.id === questionId ? { ...row, ...patch } : row
-        ),
-        extraCatalog: prev.extraCatalog.map((row) =>
-          extraHit(row) ? { ...row, ...extraPatch } : row
-        ),
-        extraPool: prev.extraPool.map((row) =>
-          extraHit(row) ? { ...row, ...extraPatch } : row
         ),
         repoQuestions: prev.repoQuestions.map((row) =>
           row.id === repoId
@@ -424,17 +569,13 @@ export const useOlimpubStore = defineStore('olimpub', {
         this.lastPingAnswerCount = 0;
       }
       const pingFace =
-        this.lastPingAction === 'Op.CastDisplay' &&
+        this.lastPingAction === 'Op.SetPlayerFace' &&
         this.lastPingEventId != null &&
         String(this.lastPingEventId) === key &&
-        (this.lastPingFace === 'idle' || this.lastPingFace === 'lobby' || this.lastPingFace === 'results')
+        isPlayerFace(this.lastPingFace)
           ? this.lastPingFace
           : '';
       const cleared = this.clearedExtraGames[key] || [];
-      const pendingExtra = (row: OpExtraPoolItem) =>
-        cleared.includes(row.ExtraGameId)
-          ? { ...row, StatusCode: 'pending', StartedAtUtc: null }
-          : row;
       const extraId = String(payload.live.ExtraGameId || '').toUpperCase();
       const samePing = this.lastPingEventId != null && String(this.lastPingEventId) === key;
       const holdPing =
@@ -453,16 +594,30 @@ export const useOlimpubStore = defineStore('olimpub', {
         !(this.lastPingAction === 'Op.CastDisplay' && this.lastPingHold === false);
       const frozen = holdPing || keepMosaicHold;
       const castPhase = String(payload.live.DisplayClockPhase || '').toLowerCase();
+      /* Párbajnál (duel_speed) nincs felolvasási fázis és Op.StartClock: a BE indításkor elindítja a válaszórát. */
+      const startedQuestion = payload.questions.find((row) => row.id === payload.live.ActiveEventQuestionID);
+      const startedRound = payload.rounds.find((row) => row.id === startedQuestion?.RoundID);
+      const serverStartsClock = String(startedRound?.RoundTypeCode || '').toLowerCase() === 'duel_speed';
       const live = {
         ...payload.live,
+        AnswerStartedAtUtc:
+          samePing && this.lastPingAction === 'Op.StartClock'
+            ? prev?.live.AnswerStartedAtUtc || payload.live.AnswerStartedAtUtc || new Date().toISOString()
+            : samePing && isOpStartAction(this.lastPingAction)
+              ? serverStartsClock
+                ? payload.live.AnswerStartedAtUtc || null
+                : null
+              : payload.live.AnswerStartedAtUtc || prev?.live.AnswerStartedAtUtc || null,
         ClockPaused:
-          samePing && this.lastPingAction === 'Op.StartQuestion'
-            ? true
+          samePing && isOpStartAction(this.lastPingAction)
+            ? serverStartsClock && payload.live.AnswerStartedAtUtc
+              ? Boolean(payload.live.ClockPaused)
+              : true
             : samePing && this.lastPingAction === 'Op.StartClock'
               ? false
-              : castPhase === 'paused' || castPhase === 'read'
+              : samePing && this.lastPingAction === 'Op.PauseQuestion' && this.lastPingHold === true
                 ? true
-                : castPhase === 'play' || castPhase === 'done'
+                : samePing && this.lastPingAction === 'Op.PauseQuestion' && this.lastPingHold === false
                   ? false
                   : frozen
                     ? true
@@ -471,7 +626,7 @@ export const useOlimpubStore = defineStore('olimpub', {
           frozen || castPhase === 'paused'
             ? (this.lastPingLeftMs ?? payload.live.ClockLeftMs ?? prev?.live.ClockLeftMs)
             : payload.live.ClockLeftMs,
-        PlayerFace: pingFace || prev?.live.PlayerFace || payload.live.PlayerFace || '',
+        PlayerFace: pingFace || payload.live.PlayerFace || '',
         ExtraQuestionStatus:
           extraId === 'EG2' &&
           this.lastPingAction === 'Op.MosaicJudge' &&
@@ -507,11 +662,32 @@ export const useOlimpubStore = defineStore('olimpub', {
             }
           : {}),
       };
+      /* A játékos GET-je az éppen induló kérdést késve adja: ha a pingből épített aktív sor a válaszban még nincs benn,
+         megtartjuk, különben a kérdésoldal eltűnne (váróterem villanás) a következő GET-ig. */
+      const activeId = live.ActiveEventQuestionID;
+      const carriedRow =
+        activeId != null &&
+        String(live.QuestionStatus || '').toLowerCase() === 'active' &&
+        !payload.questions.some((row) => row.id === activeId)
+          ? prev?.questions.find((row) => row.id === activeId && String(row.StatusCode || '').toLowerCase() === 'active')
+          : undefined;
       this.games[key] = {
         rounds: payload.rounds,
-        questions: payload.questions,
-        extraPool: payload.extraPool.map(pendingExtra),
-        extraCatalog: payload.extraCatalog.map(pendingExtra),
+        questions: (carriedRow ? [...payload.questions, carriedRow] : payload.questions).map((row) => {
+          const kept = prev?.questions.find((item) => item.id === row.id);
+          if (!kept) return row;
+          const incomingKey = (row.IsCorrect || []).some(Boolean);
+          const keptKey = (kept.IsCorrect || []).some(Boolean);
+          const freetext = String(row.TypeCode || '').toLowerCase() === 'freetext';
+          const lostSynonyms = freetext && !(row.Answers || []).some(Boolean) && (kept.Answers || []).some(Boolean);
+          if (incomingKey && row.CorrectJson && !lostSynonyms) return row;
+          return {
+            ...row,
+            IsCorrect: incomingKey || !keptKey ? row.IsCorrect : kept.IsCorrect,
+            CorrectJson: row.CorrectJson || kept.CorrectJson,
+            Answers: lostSynonyms ? kept.Answers : row.Answers,
+          };
+        }),
         teams: payload.teams.length ? payload.teams : prev?.teams || [],
         teamMembers: payload.teamMembers.length ? payload.teamMembers : prev?.teamMembers || [],
         penalties: payload.hasPenaltiesDataset ? payload.penalties : prev?.penalties || [],
@@ -536,14 +712,8 @@ export const useOlimpubStore = defineStore('olimpub', {
       const cleared = [...new Set([...(this.clearedExtraGames[key] || []), extraId])];
       this.clearedExtraGames = { ...this.clearedExtraGames, [key]: cleared };
       if (String(this.lastPingEventId) === key) this.lastPingAnswerCount = 0;
-      const pending = (row: OpExtraPoolItem) =>
-        row.ExtraGameId !== extraId
-          ? row
-          : { ...row, StatusCode: 'pending', StartedAtUtc: null };
       this.games[key] = {
         ...prev,
-        extraPool: prev.extraPool.map(pending),
-        extraCatalog: prev.extraCatalog.map(pending),
         live:
           !prev.live.ExtraGameId || String(prev.live.ExtraGameId).toUpperCase() === extraId
             ? {
@@ -579,14 +749,6 @@ export const useOlimpubStore = defineStore('olimpub', {
       try {
         const rows = await fetchOpQuestions(eventId);
         if (rows.length) this.replaceRepoQuestions(eventId, rows);
-        const extras = extraCatalogFromRepo(this.getGame(eventId).repoQuestions, eventId);
-        if (extras.length) {
-          const prev = this.getGame(eventId);
-          this.games[String(eventId)] = {
-            ...prev,
-            extraCatalog: mergeOpExtraPool(prev.extraCatalog, extras, []),
-          };
-        }
         return this.getGame(eventId).repoQuestions;
       } catch {
         return this.getGame(eventId).repoQuestions;

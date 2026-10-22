@@ -1,5 +1,5 @@
 import { boot } from 'quasar/wrappers';
-import { createErrorLogPayload, useErrorLogStore } from 'src/stores/errorLog';
+import { createErrorLogPayload, describeWindowError, useErrorLogStore } from 'src/stores/errorLog';
 import { isAxiosNetworkError } from 'src/utils/networkStatus';
 import { isGoogle3pLoadError, markGoogleAuthBlocked } from 'src/utils/googleAuthStatus';
 import { isStaleChunkError, reloadOnceForStaleChunk } from 'src/utils/staleChunk';
@@ -20,8 +20,16 @@ function safePush(build: () => void) {
   }
 }
 
-export default boot(({ app }) => {
+export default boot(({ app, router }) => {
   const store = useErrorLogStore();
+
+  function currentRoutePath(): string {
+    try {
+      return router.currentRoute.value.fullPath || '';
+    } catch {
+      return '';
+    }
+  }
 
   app.config.errorHandler = (err, instance, info) => {
     if (isNoisyClientError(err)) return;
@@ -49,14 +57,13 @@ export default boot(({ app }) => {
     }
     if (isNoisyClientError(event.error || event.message)) return;
     safePush(() => {
+      const route = currentRoutePath();
+      const described = describeWindowError(event, route);
       store.pushError(
-        createErrorLogPayload(event.error || event.message, 'Window Error', {
-          severity: 'Fatal',
-          contextPayload: {
-            filename: event.filename,
-            lineno: event.lineno,
-            colno: event.colno,
-          },
+        createErrorLogPayload(described.subject, 'Window Error', {
+          severity: described.severity,
+          urlOrAction: route ? `Window Error @ ${route}` : undefined,
+          contextPayload: described.contextPayload,
         })
       );
     });
@@ -76,6 +83,10 @@ export default boot(({ app }) => {
       store.pushError(
         createErrorLogPayload(event.reason, 'Unhandled Promise Rejection', {
           severity: 'Error',
+          urlOrAction: currentRoutePath()
+            ? `Unhandled Promise Rejection @ ${currentRoutePath()}`
+            : undefined,
+          contextPayload: { route: currentRoutePath() || null, eventType: 'unhandledrejection' },
         })
       );
     });

@@ -943,6 +943,8 @@ function comingSoon(label: string, icon = 'sym_r_schedule') {
 
 .manage-panel {
   position: relative;
+  min-width: 0;
+  max-width: 100%;
   overflow: hidden;
   background: rgba(16, 17, 18, 0.92);
   backdrop-filter: blur(18px);
@@ -968,6 +970,7 @@ function comingSoon(label: string, icon = 'sym_r_schedule') {
   line-height: 1.25;
   color: #f1f5f9;
   text-align: center;
+  overflow-wrap: anywhere;
 }
 
 .manage-panel__brand {
@@ -1017,7 +1020,8 @@ function comingSoon(label: string, icon = 'sym_r_schedule') {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-width: 168px;
+  min-width: 0;
+  max-width: 100%;
   min-height: 44px;
   padding: 10px 28px;
   border-radius: 9999px;
@@ -1079,8 +1083,9 @@ function comingSoon(label: string, icon = 'sym_r_schedule') {
 
 .manage-kpis {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
+  min-width: 0;
 }
 
 .manage-kpi {
@@ -1095,10 +1100,12 @@ function comingSoon(label: string, icon = 'sym_r_schedule') {
 }
 
 .manage-kpi__value {
+  max-width: 100%;
   font-size: 18px;
   font-weight: 800;
   color: #f1f5f9;
   line-height: 1.1;
+  overflow-wrap: anywhere;
 }
 
 .manage-kpi__label {
@@ -1111,9 +1118,10 @@ function comingSoon(label: string, icon = 'sym_r_schedule') {
 
 .manage-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 14px;
+  min-width: 0;
 }
 
 .manage-tile {
@@ -1171,10 +1179,12 @@ function comingSoon(label: string, icon = 'sym_r_schedule') {
 }
 
 .manage-tile__label {
+  max-width: 100%;
   font-size: 14px;
   font-weight: 800;
   letter-spacing: 0.02em;
   color: #e2e8f0;
+  overflow-wrap: anywhere;
 }
 
 .manage-sheet {

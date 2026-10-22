@@ -30,6 +30,86 @@ function currentLocation(): string {
   return `${window.location.pathname}${window.location.search}${window.location.hash}`;
 }
 
+function textOf(value: unknown, max = 300): string {
+  const text = String(value ?? '').trim();
+  if (!text) return '';
+  return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
+/** Erőforrás- vagy script-hiba célja, DOM-csomópont nélkül. */
+export function describeErrorTarget(target: EventTarget | null | undefined): Record<string, unknown> {
+  if (!target || (typeof window !== 'undefined' && target === window)) {
+    return { kind: 'window' };
+  }
+  const el = target as {
+    tagName?: string;
+    nodeName?: string;
+    id?: string;
+    src?: string;
+    currentSrc?: string;
+    href?: string;
+  };
+  const tag = textOf(el.tagName || el.nodeName, 40).toLowerCase();
+  if (!tag) return { kind: 'unknown' };
+  const out: Record<string, unknown> = { kind: 'element', tag };
+  const id = textOf(el.id, 80);
+  const src = textOf(el.currentSrc || el.src || el.href);
+  if (id) out.id = id;
+  if (src) out.src = src;
+  return out;
+}
+
+/**
+ * A böngésző `error` eseménye gyakran nem Error: üres message, null error,
+ * és a filename/lineno csak a contextben van meg.
+ */
+export function describeWindowError(
+  event: {
+    type?: string;
+    message?: string;
+    filename?: string;
+    lineno?: number;
+    colno?: number;
+    error?: unknown;
+    target?: EventTarget | null;
+  },
+  route = ''
+): {
+  subject: unknown;
+  severity: ErrorLogSeverity;
+  contextPayload: Record<string, unknown>;
+} {
+  const target = describeErrorTarget(event.target);
+  const filename = textOf(event.filename) || null;
+  const lineno = Number.isFinite(event.lineno) && Number(event.lineno) > 0 ? Number(event.lineno) : null;
+  const colno = Number.isFinite(event.colno) && Number(event.colno) > 0 ? Number(event.colno) : null;
+  const message = textOf(event.message, 500);
+  const resource = target.kind === 'element';
+  const subject =
+    event.error ||
+    message ||
+    (resource
+      ? `Erőforrás betöltése sikertelen (${String(target.tag || 'elem')}${target.src ? `: ${target.src}` : ''})`
+      : filename
+        ? `Ismeretlen ablakhiba @ ${filename}:${lineno ?? 0}:${colno ?? 0}`
+        : 'Ismeretlen ablakhiba');
+  const viewport =
+    typeof window === 'undefined' ? '' : `${window.innerWidth || 0}x${window.innerHeight || 0}`;
+  return {
+    subject,
+    severity: event.error || !resource ? 'Fatal' : 'Warning',
+    contextPayload: {
+      route: route || currentLocation() || null,
+      eventType: textOf(event.type, 40) || 'error',
+      filename,
+      lineno,
+      colno,
+      target,
+      viewport: viewport || null,
+    },
+  };
+}
+
 function readMessage(err: unknown): string {
   if (err == null) return 'Ismeretlen hiba';
   if (typeof err === 'string' && err.trim()) return err.trim();

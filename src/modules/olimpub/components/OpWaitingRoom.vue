@@ -115,7 +115,9 @@ const teams = computed(() =>
   })
 );
 
-const memberCount = computed(() => teams.value.reduce((sum, team) => sum + team.people.length, 0));
+const memberCount = computed(() =>
+  teams.value.reduce((sum, team) => sum + team.people.filter((person) => person.online).length, 0)
+);
 const countLabel = computed(() => `${memberCount.value} fő`);
 
 const lobbyStyle = computed(() => {

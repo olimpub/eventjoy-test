@@ -2,7 +2,7 @@
   <div class="op-qm" :class="[started ? `is-${phase}` : 'is-gate', face === 'game' ? 'is-game' : 'is-quiz']">
     <div class="op-qm__wash" aria-hidden="true" />
     <header class="op-qm__top">
-      <button v-if="showBack" type="button" class="op-qm__backnav" aria-label="Vissza" @click="emit('back')">
+      <button v-if="showBack" type="button" class="op-qm__backnav" aria-label="Vissza" @click="leaveToList">
         <q-icon name="sym_r_arrow_back" size="22px" />
       </button>
       <div class="op-qm__id">
@@ -20,7 +20,7 @@
       >
         <q-icon name="sym_r_music_note" size="36px" />
       </button>
-      <button type="button" class="op-qm__close" :class="{ 'is-end': !showSound }" aria-label="Bezárás" @click="emit('close')">
+      <button type="button" class="op-qm__close" :class="{ 'is-end': !showSound }" aria-label="Bezárás" @click="closeNav">
         <q-icon name="close" size="22px" />
       </button>
     </header>
@@ -59,7 +59,7 @@
     <audio
       v-if="audioUrl"
       ref="audioEl"
-      :src="audioUrl"
+      :src="playUrl || undefined"
       preload="metadata"
       @loadedmetadata="onAudioMeta"
       @timeupdate="onAudioTime"
@@ -95,23 +95,51 @@
     </section>
     <div v-else class="op-qm__live">
     <div class="op-qm__board">
-    <section v-if="tipper" class="op-qm__judge">
-      <p>{{ tipper.name }}</p>
-      <span :style="{ color: tipper.color }">{{ tipper.team }}</span>
-      <div class="op-qm__verdict">
-        <button type="button" class="is-ok" :disabled="sending" @click="judge(true)">Jó</button>
-        <button type="button" class="is-bad" :disabled="sending" @click="judge(false)">Rossz</button>
-      </div>
-    </section>
-    <section
-      v-else
-      class="op-qm__clock"
-      :class="{ 'is-read': phase === 'read' || (phase === 'paused' && pausedFrom === 'read') }"
-      :style="{ '--p': clockRatio }"
-    >
-      <strong>{{ clockSec }}</strong>
-      <span>{{ clockCaption }}</span>
-    </section>
+    <div class="op-qm__clockrow">
+      <button
+        v-if="canStep"
+        type="button"
+        class="op-qm__arrow"
+        aria-label="Előző kérdés"
+        :disabled="liveBusy || questionIndex <= 1"
+        @click="askStep(-1)"
+      >
+        <q-icon name="sym_r_chevron_left" size="34px" />
+      </button>
+      <i v-else aria-hidden="true" />
+      <section v-if="tipper" class="op-qm__judge">
+        <p>{{ tipper.name }}</p>
+        <span :style="{ color: tipper.color }">{{ tipper.team }}</span>
+        <div class="op-qm__verdict">
+          <button type="button" class="is-ok" :disabled="sending" @click="judge(true)">Jó</button>
+          <button type="button" class="is-bad" :disabled="sending" @click="judge(false)">Rossz</button>
+        </div>
+      </section>
+      <section
+        v-else
+        class="op-qm__clock"
+        :class="{ 'is-read': phase === 'read' || (phase === 'paused' && pausedFrom === 'read') }"
+        :style="{ '--p': clockRatio }"
+      >
+        <strong>{{ clockSec }}</strong>
+        <span>{{ clockCaption }}</span>
+      </section>
+      <button
+        v-if="canStep"
+        type="button"
+        class="op-qm__arrow"
+        aria-label="Következő kérdés"
+        :disabled="liveBusy || questionIndex >= (questionTotal || 0)"
+        @click="askStep(1)"
+      >
+        <q-icon name="sym_r_chevron_right" size="34px" />
+      </button>
+      <i v-else aria-hidden="true" />
+    </div>
+    <p v-if="extraGameId !== 'EG2'" class="op-qm__sent" aria-live="polite">
+      <strong>{{ submitted }}</strong> / {{ roster }} beküldte
+      <template v-if="correctCount != null"> · <strong>{{ correctCount }}</strong> jó</template>
+    </p>
 
     <h2>{{ prompt || 'A kérdés szövege' }}</h2>
     <img v-if="mediaUrl" class="op-qm__pic" :src="mediaUrl" alt="" />
@@ -120,7 +148,6 @@
       <strong>{{ correct || '—' }}</strong>
     </p>
     </div>
-    <p v-if="extraGameId !== 'EG2'" class="op-qm__sent">Beküldte {{ submitted }} / {{ roster }}</p>
     <div class="op-qm__emojis" aria-hidden="true">
       <span
         v-for="item in floaters"
@@ -159,7 +186,12 @@
         <q-icon name="sym_r_pause" size="28px" />
         Szünet
       </button>
-      <button type="button" class="op-qm__tool is-repeat" :disabled="liveBusy || phase === 'ready'" @click="repeat">
+      <button
+        type="button"
+        class="op-qm__tool is-repeat"
+        :disabled="liveBusy || (phase === 'ready' && !questionPlayed)"
+        @click="repeat"
+      >
         <q-icon name="sym_r_replay" size="26px" />
         Újra
       </button>
@@ -179,34 +211,51 @@
       A + és a − a csapatot küldi a szervernek, a pontot ő írja a játékmenet alapján.
       Tippnél az óra helyén látszik, ki tippelt.
     </p>
-    <div v-if="showResults" class="op-qm__results">
-      <button type="button" class="op-qm__back" @click="closeResults">Vissza</button>
-      <p v-if="eventId && resultLoading && !resultRows.length" class="op-qm__note">Eredmények betöltése…</p>
-      <OpResultsBoard
-        v-else
-        :topic="topic"
-        :face="face"
-        :rows="eventId ? resultRows : undefined"
-        :precise="resultPrecise"
-        @cast="emit('castResults', $event)"
-      />
-    </div>
-    <div v-if="adjust" class="op-qm__sheet">
-      <p>{{ adjust === 'plus' ? 'Pluszpont' : 'Büntetőpont' }}</p>
-      <span>Ugyanarra a csapatra többször is lehet. Bezárás: Kész.</span>
-      <button
-        v-for="team in teamList"
-        :key="team.key"
-        type="button"
-        :disabled="sending"
-        :style="{ background: team.color, color: team.ink }"
-        @click="sendAdjust(team)"
-      >
-        <span>{{ team.name }}</span>
-        <small class="op-qm__adj-count">{{ adjustCountLabel(team.id) }}</small>
-      </button>
-      <button type="button" class="is-cancel" :disabled="sending" @click="adjust = null">Kész</button>
-    </div>
+    <AppConfirmDialog
+      :model-value="pendingStep != null"
+      variant="warning"
+      :title="pendingStep === -1 ? 'Vissza az előző kérdésre?' : 'Ugrás a következő kérdésre?'"
+      message="A futó kérdés leáll, a beküldött válaszok megmaradnak. Az új kérdést te indítod el."
+      ok-label="Léptetés"
+      @update:model-value="(open: boolean) => { if (!open) pendingStep = null; }"
+      @confirm="confirmStep"
+    />
+    <!-- A rétegek a képernyőhöz rögzülnek (body), így a görgetett oldal tetejétől függetlenül az elejük látszik. -->
+    <Teleport to="body">
+      <div v-if="showResults" class="op-qm__results">
+        <button type="button" class="op-qm__back" @click="closeResults">Vissza</button>
+        <p v-if="eventId && resultLoading && !resultRows.length" class="op-qm__note">Eredmények betöltése…</p>
+        <OpResultsBoard
+          v-else
+          :topic="topic"
+          :face="face"
+          :rows="eventId ? resultRows : undefined"
+          :precise="resultPrecise"
+          @cast="emit('castResults', $event)"
+        />
+      </div>
+      <div v-if="adjust" class="op-qm__sheet">
+        <button type="button" class="op-qm__back" aria-label="Vissza" @click="adjust = null">
+          <q-icon name="sym_r_arrow_back" size="18px" />
+          Vissza
+        </button>
+        <p>{{ adjust === 'plus' ? 'Pluszpont' : 'Büntetőpont' }}</p>
+        <span>Ugyanarra a csapatra többször is lehet. Bezárás: Vissza vagy Kész.</span>
+        <span v-if="!teamList.length">Még egyetlen csapatban sincs belépett játékos.</span>
+        <button
+          v-for="team in teamList"
+          :key="team.key"
+          type="button"
+          :disabled="sending"
+          :style="{ background: team.color, color: team.ink }"
+          @click="sendAdjust(team)"
+        >
+          <span>{{ team.name }}</span>
+          <small class="op-qm__adj-count">{{ adjustCountLabel(team.id) }}</small>
+        </button>
+        <button type="button" class="is-cancel" :disabled="sending" @click="adjust = null">Kész</button>
+      </div>
+    </Teleport>
     </div>
   </div>
 </template>
@@ -217,7 +266,15 @@ import { useQuasar } from 'quasar';
 import { useOlimpubStore } from 'src/stores/olimpub';
 import { readAxiosErrorMessage } from 'src/utils/apiPayload';
 import { opReactGlyph } from '../constants';
-import { countOpPenaltiesByTeam, formatOpPenaltySum, liveAnswerCountFor, parseOpUtcMs, sumOpPenaltiesByTeam } from '../opData';
+import {
+  countOpPenaltiesByTeam,
+  formatOpPenaltySum,
+  liveAnswerCountFor,
+  opTeamPlayerCount,
+  opTeamsWithPlayers,
+  parseOpUtcMs,
+  sumOpPenaltiesByTeam,
+} from '../opData';
 import {
   postOpGameChange,
   reopenOpQuestion,
@@ -226,6 +283,7 @@ import {
   startOpQuestion,
   stopOpQuestion,
 } from '../opApi';
+import AppConfirmDialog from 'src/components/ui/AppConfirmDialog.vue';
 import OpResultsBoard from './OpResultsBoard.vue';
 
 const emit = defineEmits<{
@@ -235,6 +293,7 @@ const emit = defineEmits<{
   advance: [];
   finish: [];
   results: [];
+  step: [direction: -1 | 1];
   castResults: [mode: 'standings' | 'finale'];
   clock: [payload: { phase: Phase; totalMs: number; leftMs: number; endsAt: number; hold: boolean; tipName?: string; tipTeam?: string; outTeamIds?: number[] }];
   revealAnswer: [];
@@ -262,6 +321,8 @@ const props = withDefaults(
     extraRunId?: number | null;
     questionIndex?: number;
     questionTotal?: number | null;
+    /** A szerver szerinti állapot: pending / active / stopped. Lejátszott kérdésnél az Újra nullázza a válaszokat. */
+    questionStatus?: string;
     resultRows?: { name: string; points: number; previous?: number }[];
     resultLoading?: boolean;
     resultPrecise?: boolean;
@@ -283,6 +344,7 @@ const props = withDefaults(
     extraRunId: null,
     questionIndex: 0,
     questionTotal: null,
+    questionStatus: '',
     resultRows: () => [],
     resultLoading: false,
     resultPrecise: false,
@@ -356,10 +418,9 @@ const SAMPLE_TEAMS: QmTeam[] = [
 
 const phase = ref<Phase>('ready');
 const pausedFrom = ref<'read' | 'play' | null>(null);
-const clockArmed = ref(false);
+const readLeft = ref(0);
 const playLeft = ref(0);
 const jumped = ref(false);
-let wantMosaicContinue = false;
 const showResults = ref(false);
 const audioEl = ref<HTMLAudioElement | null>(null);
 const audioPlaying = ref(false);
@@ -369,7 +430,8 @@ const scrub = ref(0);
 const scrubbing = ref(false);
 const volume = ref(80);
 const soundOpen = ref(false);
-const teams = ref<QmTeam[]>(SAMPLE_TEAMS);
+/* Éles eseménynél a már ismert, szűrt csapatlistából indul (nem a minta csapatokból); a minta csak eventId nélkül látszik. */
+const teams = ref<QmTeam[]>(props.eventId ? teamsFromStore() : SAMPLE_TEAMS);
 const face = ref<'quiz' | 'game'>(props.initialFace);
 const started = ref(false);
 const adjust = ref<'plus' | 'minus' | null>(null);
@@ -413,12 +475,47 @@ const roster = computed(() => {
 const submitted = computed(() => {
   if (!props.eventId) return demoSubmitted.value;
   const fromPing = store.lastPingEventId === props.eventId ? store.lastPingAnswerCount : null;
-  return liveAnswerCountFor(store.getGame(props.eventId).live, fromPing, {
+  const game = store.getGame(props.eventId);
+  const fromLive = liveAnswerCountFor(game.live, fromPing, {
     eventQuestionId: props.eventQuestionId,
     extraQuestionId: props.extraQuestionId,
   });
+  /* A kérdéssor saját AnswerCount értéke (GET /op/event) a már lezárt, korábbi kérdésekre is él. */
+  const row = questionRow();
+  const fromRow = row && String(row.StatusCode || '').toLowerCase() !== 'pending' ? row.AnswerCount || 0 : 0;
+  return Math.max(fromLive, fromRow);
 });
+
+function questionRow() {
+  if (!props.eventId || props.eventQuestionId == null || isExtra()) return null;
+  return store.getGame(props.eventId).questions.find((item) => item.id === props.eventQuestionId) || null;
+}
+
+/** Jó választ beküldők száma a kérdéssorból (csak ha a BE küldi a CorrectCount mezőt). */
+const correctCount = computed<number | null>(() => questionRow()?.CorrectCount ?? null);
+
+/** Tartalék: a hub ping a fő forrás, futó kérdésnél pár másodpercenként a GET is igazít. */
+let countTimer: number | null = null;
+function stopCountSync() {
+  if (countTimer != null) {
+    window.clearInterval(countTimer);
+    countTimer = null;
+  }
+}
+watch(
+  () => [started.value, phase.value, props.eventId] as const,
+  ([isStarted, current, eventId]) => {
+    stopCountSync();
+    if (!isStarted || !eventId || current === 'ready') return;
+    countTimer = window.setInterval(() => {
+      if (document.visibilityState === 'hidden') return;
+      void store.loadGame(eventId).catch(() => undefined);
+    }, 4000);
+  },
+  { immediate: true }
+);
 let tickTimer: number | null = null;
+let answerClockSent = false;
 let lastTick = 0;
 let answerGap = 0;
 let runUntil = 0;
@@ -452,17 +549,59 @@ const clockCaption = computed(() => {
   return 'Válaszidő';
 });
 
-const playLabel = computed(() => {
-  if (clockArmed.value) return 'Óra';
-  return phase.value === 'paused' ? 'Folytatás' : 'Indítás';
-});
+const playLabel = computed(() => (phase.value === 'paused' ? 'Folytatás' : 'Indítás'));
 const shownTime = computed(() => (scrubbing.value ? scrub.value : audioNow.value));
 const seekPct = computed(() => (audioDur.value > 0 ? Math.min(100, (shownTime.value / audioDur.value) * 100) : 0));
 const showSound = computed(() => Boolean(props.audioUrl || props.hasAudio));
 
+/* Ha a szerver nem támogatja a Range kéréseket, a böngésző nem tud tekerni (elölről indul). Ilyenkor a fájlt
+   egyszer letöltjük, és helyi blob URL-ről játsszuk, amely mindig tekerhető. */
+const localAudioUrl = ref<string | null>(null);
+const playUrl = computed(() => localAudioUrl.value || props.audioUrl || null);
+let blobLoading = false;
+let pendingSeek = 0;
+
+function dropLocalAudio() {
+  pendingSeek = 0;
+  if (localAudioUrl.value) URL.revokeObjectURL(localAudioUrl.value);
+  localAudioUrl.value = null;
+  blobLoading = false;
+}
+
+async function switchToLocalAudio(resumeAt: number, resumePlaying: boolean) {
+  const remote = props.audioUrl;
+  if (!remote || localAudioUrl.value || blobLoading || remote.startsWith('blob:')) return;
+  blobLoading = true;
+  try {
+    const response = await fetch(remote);
+    if (!response.ok) return;
+    const blob = await response.blob();
+    if (props.audioUrl !== remote) return;
+    localAudioUrl.value = URL.createObjectURL(blob);
+    const el = audioEl.value;
+    if (!el) return;
+    el.addEventListener(
+      'loadedmetadata',
+      () => {
+        /* Húzás közben a legutolsó kért pozícióra ugrunk. */
+        const target = pendingSeek || resumeAt;
+        el.currentTime = target;
+        audioNow.value = target;
+        if (resumePlaying) void el.play();
+      },
+      { once: true }
+    );
+  } catch {
+    /* CORS vagy hálózati hiba: marad az eredeti forrás */
+  } finally {
+    blobLoading = false;
+  }
+}
+
 watch(
   () => [props.audioUrl, props.eventQuestionId, props.extraQuestionId],
   () => {
+    dropLocalAudio();
     audioPlaying.value = false;
     audioNow.value = 0;
     audioDur.value = 0;
@@ -552,7 +691,7 @@ function syncPause(hold: boolean) {
 }
 
 function begin(from: 'read' | 'play') {
-  clockArmed.value = false;
+  answerClockSent = false;
   jumped.value = false;
   demoSubmitted.value = 0;
   answerGap = 0;
@@ -570,10 +709,6 @@ function begin(from: 'read' | 'play') {
     return;
   }
   playLeft.value = answerMs.value;
-  if (from === 'play') {
-    armClock();
-    return;
-  }
   if (from === 'read') {
     readLeft.value = readMs;
     phase.value = 'read';
@@ -588,6 +723,7 @@ function begin(from: 'read' | 'play') {
   stopTick();
   tickTimer = window.setInterval(tick, 100);
   emitClock();
+  if (from === 'play') void releaseServerClock();
 }
 
 function tick() {
@@ -596,9 +732,7 @@ function tick() {
   lastTick = now;
   if (phase.value === 'read') {
     readLeft.value = Math.max(0, runUntil - now);
-    if (readLeft.value <= 0) {
-      armClock();
-    }
+    if (readLeft.value <= 0) void openAnswerClock(now);
     return;
   }
   if (phase.value !== 'play') return;
@@ -671,6 +805,15 @@ function seekTo(ratio: number) {
   if (!el || !(audioDur.value > 0)) return;
   const next = Math.min(audioDur.value, Math.max(0, ratio * audioDur.value));
   scrub.value = next;
+  const ranges = el.seekable;
+  const seekableEnd = ranges.length ? ranges.end(ranges.length - 1) : 0;
+  if (!localAudioUrl.value && next > seekableEnd + 0.5) {
+    /* A forrás nem tekerhető: átváltunk helyi blobra, és ott folytatjuk a kért pozíciótól. */
+    pendingSeek = next;
+    void switchToLocalAudio(next, audioPlaying.value);
+    audioNow.value = next;
+    return;
+  }
   el.currentTime = next;
   audioNow.value = next;
 }
@@ -701,16 +844,6 @@ function isExtra() {
   return Boolean(props.extraGameId);
 }
 
-function armClock() {
-  clockArmed.value = true;
-  readLeft.value = 0;
-  playLeft.value = answerMs.value;
-  phase.value = 'paused';
-  pausedFrom.value = 'play';
-  stopTick();
-  emitClock();
-}
-
 function liveIsThisQuestion() {
   if (!props.eventId || props.eventQuestionId == null) return false;
   const live = store.getGame(props.eventId).live;
@@ -737,16 +870,36 @@ function attachFromLive() {
   stoppedOnServer.value = false;
   jumped.value = false;
   demoSubmitted.value = 0;
+  answerClockSent = false;
   tipper.value = null;
   if (!props.eventId) return;
   const live = store.getGame(props.eventId).live;
   const left = remainingPlayMs();
+  const startedAt = parseOpUtcMs(live.StartedAtUtc);
+  const sinceStart = startedAt != null ? Date.now() - startedAt : Number.POSITIVE_INFINITY;
+  const quizRead = !isExtra() && face.value !== 'game';
+  if (live.ClockPaused && quizRead && sinceStart >= 0 && sinceStart < readMs) {
+    playLeft.value = answerMs.value;
+    readLeft.value = Math.max(0, readMs - sinceStart);
+    phase.value = 'read';
+    pausedFrom.value = null;
+    pausedAt = 0;
+    runUntil = Date.now() + readLeft.value;
+    lastTick = Date.now();
+    stopTick();
+    if (!noClock.value) tickTimer = window.setInterval(tick, 100);
+    emitClock();
+    return;
+  }
+  if (live.ClockPaused && quizRead && left >= answerMs.value - 500) {
+    void openAnswerClock(Date.now());
+    return;
+  }
   if (live.ClockPaused) {
     playLeft.value = left;
     readLeft.value = 0;
     phase.value = 'paused';
     pausedFrom.value = 'play';
-    clockArmed.value = left >= answerMs.value - 500;
     pausedAt = Date.now();
     runUntil = 0;
     stopTick();
@@ -773,6 +926,7 @@ function attachFromLive() {
 }
 
 function tryAttachToLive() {
+  if (liveBusy.value) return;
   if (!liveIsThisQuestion()) return;
   if (phase.value === 'play' || phase.value === 'read' || (phase.value === 'paused' && pausedFrom.value === 'play')) {
     return;
@@ -822,6 +976,31 @@ async function stopLive() {
   return stopInFlight;
 }
 
+/** A 3 mp felolvasás után a válaszidő magától indul, a telefonok az Op.StartClock-ra nyitnak. */
+async function releaseServerClock() {
+  if (!canCallLive() || isExtra() || answerClockSent) return;
+  answerClockSent = true;
+  const error = await runLive('Az óra nem indult.', () =>
+    startOpClock(props.eventId as number, props.eventQuestionId as number)
+  );
+  if (error) answerClockSent = false;
+}
+
+async function openAnswerClock(now: number) {
+  if (phase.value === 'play' || phase.value === 'done') return;
+  readLeft.value = 0;
+  phase.value = 'play';
+  pausedFrom.value = null;
+  pausedAt = 0;
+  playLeft.value = answerMs.value;
+  runUntil = now + answerMs.value;
+  lastTick = now;
+  stopTick();
+  if (!noClock.value) tickTimer = window.setInterval(tick, 100);
+  emitClock();
+  await releaseServerClock();
+}
+
 function resumeAfterHold() {
   if (phase.value !== 'paused' || !pausedFrom.value) {
     emitClock();
@@ -841,17 +1020,6 @@ function resumeAfterHold() {
 
 async function start() {
   if (liveBusy.value) return;
-  if (clockArmed.value) {
-    if (canCallLive()) {
-      const error = await runLive('Az óra nem indult.', () =>
-        startOpClock(props.eventId as number, props.eventQuestionId as number)
-      );
-      if (error) return;
-    }
-    clockArmed.value = false;
-    resumeAfterHold();
-    return;
-  }
   if (phase.value === 'paused' && pausedFrom.value) {
     resumeAfterHold();
     if (props.extraGameId !== 'EG2') syncPause(false);
@@ -884,8 +1052,49 @@ function pause() {
   syncPause(true);
 }
 
+const questionPlayed = computed(() =>
+  ['active', 'stopped', 'closed', 'complete', 'completed', 'done', 'finished'].includes(
+    String(props.questionStatus || '').toLowerCase()
+  )
+);
+const canStep = computed(
+  () => started.value && !isExtra() && props.questionTotal != null && props.questionTotal > 1
+);
+const pendingStep = ref<-1 | 1 | null>(null);
+
+function askStep(direction: -1 | 1) {
+  if (liveBusy.value) return;
+  const running = phase.value === 'read' || phase.value === 'play' || phase.value === 'paused';
+  if (running) {
+    pendingStep.value = direction;
+    return;
+  }
+  void doStep(direction);
+}
+
+function confirmStep() {
+  const direction = pendingStep.value;
+  pendingStep.value = null;
+  if (direction != null) void doStep(direction);
+}
+
+/** Előre / hátra a kérdések között: a futó kérdést leállítja, az újat a kvízmester indítja (vagy az Újra nullázza). */
+async function doStep(direction: -1 | 1) {
+  if (liveBusy.value) return;
+  const target = (props.questionIndex || 0) + direction;
+  if (target < 1 || (props.questionTotal != null && target > props.questionTotal)) return;
+  stopTick();
+  const serverActive = String(props.questionStatus || '').toLowerCase() === 'active';
+  if (phase.value !== 'ready' || serverActive) {
+    const error = await stopLive();
+    if (error) return;
+  }
+  tipper.value = null;
+  emit('step', direction);
+}
+
 async function repeat() {
-  if (liveBusy.value || phase.value === 'ready') return;
+  if (liveBusy.value || (phase.value === 'ready' && !questionPlayed.value)) return;
   if (canCallLive() && !isExtra()) {
     const error = await runLive('A kérdés újranyitása nem sikerült.', () =>
       reopenOpQuestion(props.eventId as number, {
@@ -910,13 +1119,24 @@ function onMain() {
   void start();
 }
 
-async function leaveToList() {
-  if (liveBusy.value) return;
+/** Kilépés a fordulóból: a futó kérdést lezárja, majd a Home a játékosokat a váróba, a kijelzőt az alap képernyőre teszi. */
+async function leaveToList(): Promise<boolean> {
+  if (liveBusy.value) return false;
+  /* Csak elindított kérdést zárunk le. Ha a kvízmester belépett, de nem indított, a kérdés pending marad
+     (különben a forduló „Folyamatban” állapotba kerülne, és a második kérdésnél járna). */
+  const wasStarted = phase.value !== 'ready' || liveIsThisQuestion();
   stopTick();
-  phase.value = 'done';
-  const stopError = await stopLive();
-  if (stopError) return;
+  if (wasStarted) {
+    phase.value = 'done';
+    const stopError = await stopLive();
+    if (stopError) return false;
+  }
   emit('back');
+  return true;
+}
+
+async function closeNav() {
+  if (await leaveToList()) emit('close');
 }
 
 function startRound() {
@@ -949,7 +1169,6 @@ async function jump() {
     if (stopError) return;
   }
   jumped.value = true;
-  if (props.extraGameId === 'EG2' && !atLastQuestion.value) wantMosaicContinue = true;
   emit('advance');
 }
 
@@ -1005,19 +1224,47 @@ watch(
       if (glyph) spawnReact(glyph);
       return;
     }
-    if (store.lastPingAction !== 'Op.MosaicBuzz') return;
+  }
+);
+
+/** Önálló számláló: akkor is megérkezik a tipp, ha egy másik ping (Presence, Cast) ugyanabban a tickben érkezett. */
+watch(
+  () => store.buzzSeq,
+  () => {
+    const buzz = store.lastBuzz;
+    if (!buzz || buzz.eventId !== props.eventId) return;
     if (props.extraGameId !== 'EG2') return;
-    applyBuzzTip(store.lastPingNickname, store.lastPingTeamName, store.lastPingTeamId);
+    applyBuzzTip(buzz.nickname, buzz.teamName, buzz.teamId);
+  }
+);
+
+/** Tartalék: ha az Op.MosaicBuzz ping elveszne vagy összeolvadna egy másikkal (a pingAt egyetlen helyet jelez),
+ *  a BE-ben mentett tippelő (OpLive / bővített Cast) akkor is megérkezik a kvízmesterhez. */
+watch(
+  () => {
+    if (!props.eventId) return '';
+    const live = store.getGame(props.eventId).live;
+    return `${live.MosaicTipName}|${live.MosaicTipTeam}`;
+  },
+  (key) => {
+    if (props.extraGameId !== 'EG2' || tipper.value) return;
+    const [name, team] = key.split('|');
+    if (!name && !team) return;
+    if (phase.value === 'ready' || phase.value === 'done') return;
+    applyBuzzTip(name, team, null);
   }
 );
 
 function teamsFromStore(): QmTeam[] {
   if (!props.eventId) return SAMPLE_TEAMS;
-  const rows = store
-    .getGame(props.eventId)
-    .teams.filter((team) => team.Name.trim())
-    .map((team) => asTeam(team.Name, team.id, String(team.id), team.MemberCount));
-  return rows.length ? rows : SAMPLE_TEAMS;
+  const game = store.getGame(props.eventId);
+  /* Csak azok a csapatok, ahol legalább 1 játékos belépett; üres szobában üres a lista. */
+  return opTeamsWithPlayers(
+    game.teams.filter((team) => team.Name.trim()),
+    game.teamMembers
+  ).map((team) =>
+    asTeam(team.Name, team.id, String(team.id), opTeamPlayerCount(team, game.teamMembers))
+  );
 }
 
 async function loadTeams() {
@@ -1025,6 +1272,8 @@ async function loadTeams() {
     teams.value = SAMPLE_TEAMS;
     return;
   }
+  /* Előbb a Pinia szűrt listája (a hálózati hívás előtt), hogy ne villanjon fel a teljes lista. */
+  teams.value = teamsFromStore();
   try {
     await store.loadEvent(props.eventId);
   } catch {
@@ -1187,7 +1436,6 @@ watch(
     if (!started.value || !prev || next === prev) return;
     stopTick();
     phase.value = 'ready';
-    clockArmed.value = false;
     pausedFrom.value = null;
     readLeft.value = 0;
     playLeft.value = answerMs.value;
@@ -1197,16 +1445,13 @@ watch(
     stoppedOnServer.value = true;
     tipper.value = null;
     mosaicOutTeams.value = [];
-    if (wantMosaicContinue) {
-      wantMosaicContinue = false;
-      void start();
-    }
   }
 );
 
 onUnmounted(() => {
   audioEl.value?.pause();
   stopTick();
+  stopCountSync();
 });
 </script>
 
@@ -1818,10 +2063,18 @@ onUnmounted(() => {
 }
 
 .op-qm__sent {
-  margin: 8px 0 0;
-  font-size: 14px;
+  margin: 10px 0 0;
+  text-align: center;
+  font-size: 15px;
   font-weight: 800;
   color: #7dd3fc;
+}
+
+.op-qm__sent strong {
+  font-size: 26px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  color: #fff8f2;
 }
 
 .op-qm__emojis {
@@ -1919,6 +2172,42 @@ onUnmounted(() => {
   background: #38bdf8;
 }
 
+.op-qm__clockrow {
+  position: relative;
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr) 56px;
+  align-items: center;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.op-qm__clockrow .op-qm__clock {
+  margin: 0 auto;
+}
+
+.op-qm__clockrow .op-qm__judge {
+  margin-top: 0;
+}
+
+.op-qm__arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff8f2;
+  cursor: pointer;
+}
+
+.op-qm__arrow:disabled {
+  cursor: default;
+  opacity: 0.3;
+}
+
 .op-qm__tool.is-answer {
   background: #86efac;
   color: #052e16;
@@ -1930,10 +2219,11 @@ onUnmounted(() => {
 }
 
 .op-qm__results {
-  position: absolute;
+  position: fixed;
   inset: 0;
-  z-index: 30;
+  z-index: 2100;
   overflow: auto;
+  color: #fff8f2;
   background: #14081c;
 }
 
@@ -1942,8 +2232,8 @@ onUnmounted(() => {
 }
 
 .op-qm__back {
-  position: absolute;
-  top: 12px;
+  position: fixed;
+  top: calc(12px + env(safe-area-inset-top, 0px));
   left: 12px;
   z-index: 2;
   min-height: 36px;
@@ -1997,14 +2287,15 @@ onUnmounted(() => {
 }
 
 .op-qm__sheet {
-  position: absolute;
+  position: fixed;
   inset: 0;
-  z-index: 40;
+  z-index: 2100;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 72px 16px 24px;
+  padding: calc(72px + env(safe-area-inset-top, 0px)) 16px calc(24px + env(safe-area-inset-bottom, 0px));
   overflow: auto;
+  color: #fff8f2;
   background: #14081c;
 }
 
@@ -2035,6 +2326,17 @@ onUnmounted(() => {
   font-size: 20px;
   font-weight: 900;
   cursor: pointer;
+}
+
+.op-qm__sheet .op-qm__back {
+  justify-content: flex-start;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff8f2;
+  font-size: 14px;
 }
 
 .op-qm__adj-count {

@@ -18,6 +18,8 @@ export interface OpDisplayRow {
 
 export interface OpDisplayLobbyMember {
   nickname: string;
+  /** false = a BE szerint nincs csatlakozva (szürke). Hiányzik = online. */
+  online?: boolean;
 }
 
 export interface OpDisplayLobbyTeam {
@@ -70,9 +72,6 @@ export interface OpDisplayCommand {
   tipTeam: string;
   mosaicOutTeamIds: number[];
 }
-
-const KEY = (eventId: string | number) => `opDisplayCommand:${eventId}`;
-const channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('opDisplayCommand') : null;
 
 export function emptyOpDisplayCommand(): OpDisplayCommand {
   return {
@@ -187,6 +186,28 @@ function flattenCast(raw: unknown): Record<string, unknown> {
   return { ...cast, ...(nested || {}), ...(json || {}) };
 }
 
+export interface OpNextCue {
+  no: number;
+  total: number;
+  typeCode: string;
+}
+
+/**
+ * A kvízmester a lobby Castban elküldi, hányadik kérdés jön és milyen típusú (`Next`).
+ * A játékos a GET `DisplayCast` sorából olvassa, a pending kérdéseket ugyanis nem kapja meg.
+ */
+export function readOpNextCue(raw: unknown): OpNextCue | null {
+  const src = flattenCast(raw);
+  const face = String(src.Face ?? src.face ?? '').trim().toLowerCase();
+  if (face !== 'lobby') return null;
+  const next = asRecord(src.Next) || asRecord(src.next);
+  if (!next) return null;
+  const no = Number(next.No ?? next.no);
+  const total = Number(next.Total ?? next.total);
+  if (!Number.isFinite(no) || !Number.isFinite(total) || no < 1 || total < 1 || no > total) return null;
+  return { no, total, typeCode: String(next.TypeCode ?? next.typeCode ?? '').trim() };
+}
+
 function castRows(raw: unknown): OpDisplayRow[] {
   const list = Array.isArray(raw) ? raw : [];
   return list
@@ -203,6 +224,52 @@ function castRows(raw: unknown): OpDisplayRow[] {
       };
     })
     .filter((row): row is OpDisplayRow => Boolean(row));
+}
+
+function castStrings(raw: unknown): string[] {
+  return Array.isArray(raw) ? raw.map((item) => String(item ?? '')) : [];
+}
+
+function castTopics(raw: unknown): OpDisplayTopic[] {
+  const list = Array.isArray(raw) ? raw : [];
+  return list
+    .map((item) => {
+      const row = asRecord(item);
+      if (!row) return null;
+      const title = String(row.title ?? row.Title ?? row.TopicName ?? '').trim();
+      if (!title) return null;
+      return { id: String(row.id ?? row.Id ?? row.ID ?? title), title };
+    })
+    .filter((row): row is OpDisplayTopic => Boolean(row));
+}
+
+function castTeams(raw: unknown): OpDisplayLobbyTeam[] {
+  const list = Array.isArray(raw) ? raw : [];
+  return list
+    .map((item): OpDisplayLobbyTeam | null => {
+      const row = asRecord(item);
+      if (!row) return null;
+      const members = (Array.isArray(row.members ?? row.Members) ? (row.members ?? row.Members) : []) as unknown[];
+      return {
+        id: Number(row.id ?? row.Id ?? row.ID ?? row.TeamID) || 0,
+        name: String(row.name ?? row.Name ?? ''),
+        imageUrl: String(row.imageUrl ?? row.ImageUrl ?? ''),
+        members: members
+          .map((member) => asRecord(member))
+          .filter((member): member is Record<string, unknown> => Boolean(member))
+          .map((member) => ({
+            nickname: String(member.nickname ?? member.Nickname ?? ''),
+            online: (member.online ?? member.Online) !== false,
+          })),
+      };
+    })
+    .filter((row): row is OpDisplayLobbyTeam => Boolean(row));
+}
+
+function castCount(raw: unknown): number | null {
+  if (raw == null || raw === '') return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
 }
 
 export function commandToCastPayload(command: OpDisplayCommand): Record<string, unknown> {
@@ -311,114 +378,28 @@ export function commandFromCast(raw: unknown): OpDisplayCommand | null {
     clockEndsAt: Number(src.ClockEndsAt ?? src.clockEndsAt) || 0,
     tipName: String(src.TipName ?? src.tipName ?? ''),
     tipTeam: String(src.TipTeam ?? src.tipTeam ?? ''),
+    mosaicOutTeamIds: (Array.isArray(src.MosaicOutTeamIds ?? src.mosaicOutTeamIds)
+      ? ((src.MosaicOutTeamIds ?? src.mosaicOutTeamIds) as unknown[])
+      : []
+    )
+      .map(Number)
+      .filter((id) => Number.isFinite(id) && id > 0),
+    topics: castTopics(src.Topics ?? src.topics),
+    teams: castTeams(src.Teams ?? src.teams),
+    answers: castStrings(src.Answers ?? src.answers),
+    matches: castStrings(src.Matches ?? src.matches),
+    categories: castStrings(src.Categories ?? src.categories),
+    mediaUrl: String(src.MediaUrl ?? src.mediaUrl ?? ''),
+    timeSec: Number(src.TimeSec ?? src.timeSec) || 0,
+    answerCount: castCount(src.AnswerCount ?? src.answerCount),
+    rosterCount: castCount(src.RosterCount ?? src.rosterCount),
+    showCorrect: Boolean(src.ShowCorrect ?? src.showCorrect),
+    corrects: (Array.isArray(src.Corrects ?? src.corrects) ? ((src.Corrects ?? src.corrects) as unknown[]) : []).map(
+      (value) => value === true || value === 1 || value === '1' || String(value).toLowerCase() === 'true'
+    ),
+    correctText: String(src.CorrectText ?? src.correctText ?? ''),
     nonce: Number(src.Nonce ?? src.nonce) || 0,
   });
 }
 
-export function publishOpDisplay(eventId: string | number, command: OpDisplayCommand) {
-  const raw = JSON.stringify(command);
-  try {
-    localStorage.setItem(KEY(eventId), raw);
-  } catch {
-    /* ignore */
-  }
-  try {
-    channel?.postMessage({ eventId: Number(eventId), command });
-  } catch {
-    /* ignore */
-  }
-}
-
-export function readOpDisplay(eventId: string | number): OpDisplayCommand | null {
-  try {
-    const raw = localStorage.getItem(KEY(eventId));
-    if (!raw) return null;
-    return asCommand(JSON.parse(raw) as OpDisplayCommand);
-  } catch {
-    return null;
-  }
-}
-
-export function onOpDisplay(listener: (eventId: number, command: OpDisplayCommand) => void): () => void {
-  const seen = new Map<string, number>();
-  const emit = (id: number, command: OpDisplayCommand) => {
-    const stamp = `${id}:${command.nonce}:${command.reactAt}:${command.answerCount}`;
-    const prev = seen.get(stamp) || 0;
-    if (Date.now() - prev < 400) return;
-    seen.set(stamp, Date.now());
-    listener(id, command);
-  };
-  const onStorage = (event: StorageEvent) => {
-    const key = String(event.key || '');
-    if (!key.startsWith('opDisplayCommand:') || !event.newValue) return;
-    const id = Number(key.slice('opDisplayCommand:'.length));
-    if (!Number.isFinite(id)) return;
-    try {
-      const command = asCommand(JSON.parse(event.newValue) as OpDisplayCommand);
-      if (command) emit(id, command);
-    } catch {
-      /* ignore */
-    }
-  };
-  const onMessage = (event: MessageEvent) => {
-    const id = Number(event.data?.eventId);
-    const command = asCommand(event.data?.command as OpDisplayCommand);
-    if (!Number.isFinite(id) || !command) return;
-    emit(id, command);
-  };
-  window.addEventListener('storage', onStorage);
-  channel?.addEventListener('message', onMessage);
-  return () => {
-    window.removeEventListener('storage', onStorage);
-    channel?.removeEventListener('message', onMessage);
-  };
-}
-
-const PLAYER_FACE_KEY = (eventId: string | number) => `opPlayerFace:${eventId}`;
-const playerFaceChannel =
-  typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('opPlayerFace') : null;
-
 export type OpPlayerFace = 'idle' | 'lobby' | 'results' | '';
-
-export function writeOpPlayerFace(eventId: string | number, face: OpPlayerFace) {
-  const id = String(eventId);
-  try {
-    if (face) localStorage.setItem(PLAYER_FACE_KEY(id), face);
-    else localStorage.removeItem(PLAYER_FACE_KEY(id));
-  } catch {
-    /* private mode */
-  }
-  playerFaceChannel?.postMessage({ eventId: id, face });
-}
-
-export function readOpPlayerFace(eventId: string | number): OpPlayerFace {
-  try {
-    const face = String(localStorage.getItem(PLAYER_FACE_KEY(eventId)) || '').trim().toLowerCase();
-    if (face === 'idle' || face === 'lobby' || face === 'results') return face;
-  } catch {
-    /* private mode */
-  }
-  return '';
-}
-
-export function onOpPlayerFace(listener: (eventId: string, face: OpPlayerFace) => void) {
-  const onStorage = (event: StorageEvent) => {
-    const key = String(event.key || '');
-    if (!key.startsWith('opPlayerFace:')) return;
-    const id = key.slice('opPlayerFace:'.length);
-    const face = String(event.newValue || '').trim().toLowerCase();
-    listener(id, face === 'idle' || face === 'lobby' || face === 'results' ? face : '');
-  };
-  const onMessage = (event: MessageEvent) => {
-    const id = String(event.data?.eventId || '');
-    const face = String(event.data?.face || '').trim().toLowerCase();
-    if (!id) return;
-    listener(id, face === 'idle' || face === 'lobby' || face === 'results' ? face : '');
-  };
-  window.addEventListener('storage', onStorage);
-  playerFaceChannel?.addEventListener('message', onMessage);
-  return () => {
-    window.removeEventListener('storage', onStorage);
-    playerFaceChannel?.removeEventListener('message', onMessage);
-  };
-}

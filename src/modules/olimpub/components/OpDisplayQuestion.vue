@@ -13,12 +13,7 @@
           <span>{{ tipName }} tippel</span>
         </p>
         <p v-if="showCorrect && correctText" class="op-dq__solve">{{ correctText }}</p>
-        <div v-if="holding && !showCorrect" class="op-dq__hold">
-          <strong>{{ shownSec }}</strong>
-          <span>Kérdés</span>
-        </div>
-
-        <template v-else>
+        <template v-if="!holding || showCorrect">
         <div v-if="type === 'match'" class="op-dq__pair">
           <div>
             <p class="op-dq__kicker">Bal oldal</p>
@@ -288,7 +283,8 @@ function start() {
 function followClock() {
   stop();
   const phase = props.clockPhase;
-  if (props.clockHold || phase === 'paused') {
+  const readCountdown = phase === 'read' && props.clockEndsAt > 0;
+  if (phase === 'paused' || (props.clockHold && !readCountdown)) {
     leftMs.value = props.clockLeftMs > 0 ? props.clockLeftMs : leftMs.value;
     return;
   }

@@ -2,8 +2,11 @@
   <section class="op-break">
     <p class="op-break__kicker">{{ topic || 'Forduló' }}</p>
     <h1>Következő kérdés</h1>
-    <p class="op-break__type">{{ typeLabel }}</p>
-    <p v-if="remaining > 0" class="op-break__left">
+    <p v-if="position && total" class="op-break__count">
+      <strong>{{ position }}</strong>/{{ total }}
+    </p>
+    <p v-if="typeLabel" class="op-break__type">{{ typeLabel }}</p>
+    <p v-if="!(position && total) && remaining > 0" class="op-break__left">
       Még <strong>{{ remaining }}</strong> kérdés van hátra
     </p>
     <p class="op-break__cue">Várj a kvízmesterre</p>
@@ -15,9 +18,11 @@ withDefaults(
   defineProps<{
     typeLabel: string;
     remaining: number;
+    position?: number | null;
+    total?: number | null;
     topic?: string;
   }>(),
-  { topic: '' }
+  { topic: '', position: null, total: null }
 );
 </script>
 
@@ -48,6 +53,19 @@ withDefaults(
   font-size: clamp(32px, 8vw, 52px);
   font-weight: 900;
   line-height: 0.95;
+}
+
+.op-break__count {
+  margin: 4px 0 0;
+  font-size: 26px;
+  font-weight: 800;
+  color: rgba(255, 248, 242, 0.78);
+}
+
+.op-break__count strong {
+  font-size: 44px;
+  font-weight: 900;
+  color: #f5b942;
 }
 
 .op-break__type {

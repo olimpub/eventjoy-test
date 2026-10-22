@@ -55,6 +55,17 @@
       :tip-team="command.tipTeam"
     />
 
+    <OpResultsBoard
+      v-else-if="command.face === 'results' && (command.revealMode === 'auto' || command.revealMode === 'finale')"
+      :key="`res-${command.revealMode}-${command.revealStartedAt}-${command.nonce}`"
+      wall
+      :round-over="command.revealMode === 'finale'"
+      :topic="command.title"
+      :face="command.kind"
+      :precise="command.scoreDecimals === 2"
+      :rows="boardRows"
+    />
+
     <section v-else class="op-wall__sheet" :class="command.kind === 'game' ? 'is-game' : 'is-quiz'">
       <p v-if="command.sample" class="op-wall__sample">minta</p>
       <p class="op-wall__kicker">{{ kicker }}</p>
@@ -86,60 +97,6 @@
         </li>
         <li v-if="!command.topics.length" class="is-empty">Nincs nyitott kör.</li>
       </ul>
-
-      <TransitionGroup
-        v-else-if="command.revealMode === 'auto'"
-        name="op-rank"
-        tag="ol"
-        class="op-wall__crawl"
-      >
-        <li
-          v-for="row in standingRows"
-          :key="row.name"
-          :class="{
-            'is-up': standingPlayed && row.previous > 0 && row.delta > 0,
-            'is-down': standingPlayed && row.previous > 0 && row.delta < 0,
-          }"
-        >
-          <b>{{ row.place }}</b>
-          <span>
-            {{ row.name }}
-            <small v-if="row.team">{{ row.team }}</small>
-          </span>
-          <strong>{{ formatWallScore(standingPlayed ? row.points : row.previous) }}</strong>
-          <i
-            v-if="standingPlayed && row.previous > 0 && row.delta !== 0"
-            class="op-wall__delta"
-            :class="{ 'is-up': row.delta > 0, 'is-down': row.delta < 0 }"
-          >
-            {{ formatWallDelta(row.delta) }}
-          </i>
-        </li>
-      </TransitionGroup>
-
-      <TransitionGroup
-        v-else-if="command.revealMode === 'finale'"
-        name="op-rise"
-        tag="ol"
-        class="op-wall__crawl"
-      >
-        <li
-          v-for="row in finaleRows"
-          :key="row.rank"
-          :class="{
-            'is-gold': row.rank === 1,
-            'is-silver': row.rank === 2,
-            'is-bronze': row.rank === 3,
-          }"
-        >
-          <b>{{ row.rank }}</b>
-          <span>
-            {{ row.name }}
-            <small v-if="row.team">{{ row.team }}</small>
-          </span>
-          <strong>{{ formatWallScore(row.points) }}</strong>
-        </li>
-      </TransitionGroup>
 
       <div
         v-else-if="command.revealMode === 'ceremony' || command.podiumStep >= 0"
@@ -211,14 +168,24 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { OLIMPUB_BRAND } from 'src/assets/brand/olimpub';
-import { disconnectEventLive, isEventLiveJoinRoute } from 'src/services/signalrService';
+import { openPtaDisplaySession, readStoredDisplayToken } from 'src/modules/profitability/ptaDisplayApi';
+import {
+  connectToEventLive,
+  disconnectEventLive,
+  eventLiveJoinedId,
+  isEventLiveJoinRoute,
+  setSignalRDisplayToken,
+} from 'src/services/signalrService';
+import { useAuthStore } from 'src/stores/auth';
 import { useOlimpubStore } from 'src/stores/olimpub';
 import OpDisplayQuestion from '../components/OpDisplayQuestion.vue';
 import OpJoinSplash from '../components/OpJoinSplash.vue';
+import OpResultsBoard from '../components/OpResultsBoard.vue';
 import OpWaitingRoom from '../components/OpWaitingRoom.vue';
 import { opReactGlyph } from '../constants';
 import { fetchOpLeaderboard } from '../opApi';
-import { commandFromCast, displayScoreScope, onOpDisplay, readOpDisplay, type OpDisplayCommand } from '../opDisplayChannel';
+import { commandFromCast, displayScoreScope, type OpDisplayCommand } from '../opDisplayChannel';
+import { useOpLiveResync } from '../useOpLiveResync';
 import '../theme.css';
 
 const brand = OLIMPUB_BRAND;
@@ -249,6 +216,7 @@ function wallGain(points: number, previousPoints: number | null | undefined) {
 const route = useRoute();
 const router = useRouter();
 const store = useOlimpubStore();
+const authStore = useAuthStore();
 const command = ref<OpDisplayCommand | null>(null);
 const drawnTitle = ref('');
 const drawLive = ref(false);
@@ -258,7 +226,7 @@ const standingRanked = ref(false);
 let drawTimer = 0;
 let revealTimer = 0;
 let standingTimer = 0;
-let stopListen = () => {};
+let lastCastKey = '';
 
 const eventId = computed(() => {
   const id = Number(route.params.id);
@@ -274,7 +242,7 @@ const lobbyTeams = computed(() => {
     imageUrl: team.imageUrl,
     people: team.members.map((member) => ({
       name: String(member.nickname || '').trim() || 'Játékos',
-      online: true,
+      online: member.online !== false,
     })),
   }));
 });
@@ -340,6 +308,14 @@ function placeBy(list: { previous: number; points: number; name: string }[], key
     return { ...row, place };
   });
 }
+
+const boardRows = computed(() =>
+  (command.value?.rows || []).map((row) => ({
+    name: row.name,
+    points: Number(row.points) || 0,
+    previous: Number.isFinite(Number(row.previousPoints)) ? Number(row.previousPoints) : 0,
+  }))
+);
 
 const standingRows = computed(() => {
   const current = command.value;
@@ -471,9 +447,13 @@ async function scopedResultRows(next: OpDisplayCommand) {
   return null;
 }
 
+/** Újabb vetítés érvényteleníti a még töltő régebbit (a ShowLeaderboard GET ne írja felül a QM animált tábláját). */
+let castSeq = 0;
+
 async function applyCast(raw: unknown) {
   const next = commandFromCast(raw);
   if (!next) return;
+  const seq = ++castSeq;
   if (next.face !== 'results') {
     apply(next);
     return;
@@ -484,6 +464,7 @@ async function applyCast(raw: unknown) {
     current?.face === 'results' &&
     next.nonce > 0 &&
     next.nonce === current.nonce &&
+    next.revealStartedAt === current.revealStartedAt &&
     current.rows.length
   ) {
     return;
@@ -491,7 +472,18 @@ async function applyCast(raw: unknown) {
   try {
     const scoped = await scopedResultRows(next);
     if (scoped) next.rows = scoped;
-    else if (!next.rows.length && eventId.value) {
+    else if (next.board === 'raw' && eventId.value) {
+      /* Forduló közbeni állás: a válaszpontok a `raw` listán vannak, a `quiz` lista (F pont) csak a forduló zárásakor tölt.
+         A ping Payload hordozza a RoundID-t; az aktív forduló csak régebbi pingek tartaléka. */
+      const roundId = next.roundId ?? store.getGame(eventId.value).live.ActiveRoundID ?? null;
+      if (roundId != null) {
+        const rows = await fetchOpLeaderboard(eventId.value, 'raw', { roundId });
+        if (rows.length) {
+          next.rows = mapBoardRows(rows);
+          next.scoreDecimals = 2;
+        }
+      }
+    } else if (!next.rows.length && eventId.value) {
       const board =
         next.board === 'games' || next.kind === 'game'
           ? 'games'
@@ -506,6 +498,7 @@ async function applyCast(raw: unknown) {
   } catch {
     /* a helyi Cast sorai maradnak */
   }
+  if (seq !== castSeq) return;
   apply(next);
 }
 
@@ -526,10 +519,60 @@ function applyPingCast() {
     ) {
       return;
     }
-    void applyCast({ ...body, Face: 'results', face: 'results' });
+    /* A kvízmester az `Op.ShowLeaderboard` után azonnal küldi a teljes `Op.CastDisplay` vetítést (sorok, reveal).
+       A ShowLeaderboard önmagában nyers listát adna (0 pontos sorokkal), ami felvillanna: ezért késleltetjük.
+       Ha a CastDisplay megérkezik, az újraütemezi a betöltést; ha elmarad, a késleltetett GET a tartalék. */
+    scheduleFullCast(1400);
     return;
   }
   if (action !== 'Op.CastDisplay') return;
+  applyDisplayCast(raw);
+}
+
+function castKey(raw: unknown) {
+  try {
+    return JSON.stringify(raw ?? null);
+  } catch {
+    return '';
+  }
+}
+
+/** A ping nem viszi a teljes vetítést (csak face / óra): a tartalom a mentett `DisplayCast`-ban van. */
+function isThinCast(next: OpDisplayCommand | null) {
+  if (!next) return false;
+  if (next.face === 'question') return !next.prompt;
+  if (next.face === 'draw' || next.face === 'topics') return !next.topics.length;
+  if (next.face === 'lobby') return !next.teams.length;
+  /* A CastDisplay ping results-nál is csak Face/Screen: a sorok, a reveal mód és a nonce a mentett Castban vannak. */
+  if (next.face === 'results') return !next.rows.length;
+  return false;
+}
+
+let fullCastTimer = 0;
+function scheduleFullCast(delayMs = 250) {
+  window.clearTimeout(fullCastTimer);
+  fullCastTimer = window.setTimeout(() => {
+    fullCastTimer = 0;
+    void resyncDisplay().catch(() => undefined);
+  }, delayMs);
+}
+
+function clockEndsAtFrom(next: OpDisplayCommand, fallback: number) {
+  if (next.clockPhase === 'paused' || next.clockPhase === 'done') return 0;
+  if (next.clockHold && next.clockPhase !== 'read') return 0;
+  if (next.clockEndsAt > 0) return next.clockEndsAt;
+  if ((next.clockPhase === 'play' || next.clockPhase === 'read') && next.clockLeftMs > 0) {
+    return Date.now() + next.clockLeftMs;
+  }
+  return fallback;
+}
+
+/**
+ * Op.CastDisplay ping és a GET `displayCast` közös útja.
+ * Vékony pingnél (`fromServer` = false) az óra azonnal frissül, a tartalom a mentett Castból jön.
+ */
+function applyDisplayCast(raw: unknown, fromServer = false) {
+  lastCastKey = castKey(raw);
   const next = commandFromCast(raw);
   const current = command.value;
   if (next?.face === 'question' && !next.prompt) {
@@ -539,11 +582,18 @@ function applyPingCast() {
         clockPhase: next.clockPhase || current.clockPhase,
         clockHold: next.clockHold,
         clockLeftMs: next.clockLeftMs || current.clockLeftMs,
-        clockEndsAt: next.clockHold ? 0 : current.clockEndsAt,
+        clockTotalMs: next.clockTotalMs || current.clockTotalMs,
+        clockEndsAt: clockEndsAtFrom(next, current.clockEndsAt),
         tipName: next.tipName || current.tipName,
         tipTeam: next.tipTeam || current.tipTeam,
       };
+    } else if (!fromServer) {
+      scheduleFullCast();
     }
+    return;
+  }
+  if (!fromServer && isThinCast(next)) {
+    scheduleFullCast();
     return;
   }
   void applyCast(raw);
@@ -590,12 +640,88 @@ watch(
   () => spinDraw()
 );
 
+function questionSlide(body: Record<string, unknown>, phase: 'read' | 'play' | 'paused' | 'done') {
+  const timeSec = Number(body.TimeSec ?? body.timeSec) || command.value?.timeSec || 20;
+  const started = Date.parse(String(body.AnswerStartedAtUtc ?? body.answerStartedAtUtc ?? ''));
+  const endsAt = phase === 'play' ? (Number.isFinite(started) ? started : Date.now()) + timeSec * 1000 : 0;
+  const image = String(body.ImageUrl ?? body.imageUrl ?? body.MediaUrl ?? body.mediaUrl ?? '');
+  return commandFromCast({
+    ...body,
+    Face: 'question',
+    Type: body.TypeCode ?? body.Type ?? body.type ?? command.value?.type,
+    MediaUrl: image || command.value?.mediaUrl || '',
+    TimeSec: timeSec,
+    ClockPhase: phase,
+    ClockHold: phase === 'read',
+    ClockTotalMs: timeSec * 1000,
+    ClockLeftMs: phase === 'paused' ? Number(body.ClockLeftMs ?? body.LeftMs ?? body.leftMs) || 0 : 0,
+    ClockEndsAt: endsAt,
+  });
+}
+
 watch(
   () => store.pingAt,
   () => {
     const current = command.value;
     if (store.lastPingEventId !== eventId.value) return;
-    if (store.lastPingAction === 'Op.CastDisplay' || store.lastPingAction === 'Op.ShowLeaderboard') {
+    const action = store.lastPingAction;
+    const body = (store.lastPingCast || {}) as Record<string, unknown>;
+    if (
+      action === 'Op.StartQuestion' ||
+      action === 'Op.NextQuestion' ||
+      action === 'Op.ReopenQuestion' ||
+      action === 'Op.StartExtraQuestion'
+    ) {
+      const next = questionSlide(body, 'read');
+      if (next?.prompt || next?.mediaUrl) apply(next);
+      else void resyncDisplay().catch(() => undefined);
+      return;
+    }
+    if (action === 'Op.StartClock') {
+      const timeSec = Number(body.TimeSec ?? body.timeSec) || current?.timeSec || 20;
+      const started = Date.parse(String(body.AnswerStartedAtUtc ?? body.answerStartedAtUtc ?? ''));
+      const endsAt = (Number.isFinite(started) ? started : Date.now()) + timeSec * 1000;
+      if (current?.face === 'question') {
+        command.value = {
+          ...current,
+          clockPhase: 'play',
+          clockHold: false,
+          clockTotalMs: timeSec * 1000,
+          clockLeftMs: timeSec * 1000,
+          clockEndsAt: endsAt,
+          timeSec,
+        };
+      } else {
+        const next = questionSlide(body, 'play');
+        if (next) apply(next);
+      }
+      return;
+    }
+    if (action === 'Op.PauseQuestion') {
+      if (current?.face !== 'question') return;
+      const hold = store.lastPingHold !== false;
+      const left = Number(body.ClockLeftMs ?? body.LeftMs ?? body.leftMs) || current.clockLeftMs;
+      command.value = {
+        ...current,
+        clockPhase: hold ? 'paused' : 'play',
+        clockHold: false,
+        clockLeftMs: left,
+        clockEndsAt: hold ? 0 : Date.now() + left,
+      };
+      return;
+    }
+    if (action === 'Op.StopQuestion' || action === 'Op.StopExtraQuestion') {
+      if (current?.face !== 'question') return;
+      command.value = { ...current, clockPhase: 'done', clockHold: false, clockLeftMs: 0, clockEndsAt: 0 };
+      return;
+    }
+    if (action === 'Op.ShowLobby' || action === 'Op.ShowTopics' || action === 'Op.ShowDraw') {
+      const face = action === 'Op.ShowLobby' ? 'lobby' : action === 'Op.ShowTopics' ? 'topics' : 'draw';
+      const next = commandFromCast({ ...body, Face: face });
+      if (next) apply(next);
+      return;
+    }
+    if (action === 'Op.CastDisplay' || action === 'Op.ShowLeaderboard') {
       applyPingCast();
       return;
     }
@@ -624,26 +750,122 @@ watch(
   }
 );
 
+/** GET után a szerveren tárolt Cast; ugyanazt a vetítést nem indítja újra (óra, reveal, sorsolás). */
+async function resyncDisplay() {
+  const id = eventId.value;
+  if (!id) return;
+  await store.loadGame(id);
+  const game = store.getGame(id);
+  const live = game.live;
+  const qid = live.ActiveEventQuestionID;
+  const question = qid != null ? game.questions.find((row) => row.id === qid) : undefined;
+  /* A szerver `Screen` mezője dönti el, mi van kint. A lezárt kérdés `stopped` állapota nem jelenti azt, hogy a
+     kérdés még kivetítve van: állás / lobby / sorsolás alatt a GET-ből nem épülhet vissza a kérdés. */
+  const screen = String(live.Screen || '').trim().toLowerCase();
+  const questionOnScreen = screen === 'question' || screen === '';
+  if (
+    question &&
+    questionOnScreen &&
+    (live.Screen === 'question' || live.QuestionStatus === 'active' || live.QuestionStatus === 'stopped')
+  ) {
+    const phase = live.QuestionStatus === 'stopped'
+      ? 'done'
+      : live.AnswerStartedAtUtc
+        ? live.ClockPaused
+          ? 'paused'
+          : 'play'
+        : 'read';
+    const next = questionSlide(
+      {
+        Prompt: question.Prompt,
+        TypeCode: question.TypeCode,
+        TimeSec: live.TimeSec || question.TimeSec,
+        Answers: question.Answers,
+        Matches: question.Matches,
+        Categories: question.Categories,
+        ImageUrl: question.ImageUrl || question.MediaUrl,
+        MediaUrl: question.MediaUrl || question.ImageUrl,
+        TopicName: question.TopicName,
+        AnswerStartedAtUtc: live.AnswerStartedAtUtc,
+        ClockLeftMs: live.ClockLeftMs,
+      },
+      phase
+    );
+    if (next) {
+      apply(next);
+      return;
+    }
+  }
+  const cast = game.displayCast;
+  if (!cast) return;
+  const key = castKey(cast);
+  if (key && key === lastCastKey) return;
+  const next = commandFromCast(cast);
+  const current = command.value;
+  if (
+    next &&
+    current &&
+    next.nonce > 0 &&
+    next.nonce === current.nonce &&
+    next.face === current.face &&
+    next.prompt === current.prompt &&
+    next.revealStartedAt === current.revealStartedAt
+  ) {
+    lastCastKey = key;
+    if (current.face === 'question') {
+      command.value = { ...current, answerCount: Math.max(current.answerCount ?? 0, game.live.AnswerCount || 0) };
+    }
+    return;
+  }
+  applyDisplayCast(cast, true);
+}
+
+/** TV = `display` csatorna. Staff JWT-vel, vagy PIN-nel / tárolt kivetítő tokennel (Module 'op'). */
+async function connectDisplayLive() {
+  const id = eventId.value;
+  if (!id) return;
+  const pin = String(route.query.pin || '').replace(/\D/g, '');
+  let token = '';
+  try {
+    if (pin.length === 4) {
+      token = (await openPtaDisplaySession({ eventId: id, pin, module: 'op' })).token;
+      const query = { ...route.query };
+      delete query.pin;
+      await router.replace({ name: 'olimpub-display', params: { id }, query });
+    } else if (!authStore.isAuthenticated) {
+      token = readStoredDisplayToken(id);
+    }
+    if (!token && !authStore.isAuthenticated) return;
+    setSignalRDisplayToken(token || null);
+    await connectToEventLive({
+      eventId: id,
+      eventUserId: null,
+      roleName: 'organizer',
+      displayOnly: true,
+      displayToken: token || null,
+    });
+  } catch (err) {
+    console.error('Olimpub kivetítő: SignalR csatlakozás sikertelen:', err);
+  }
+}
+
+useOpLiveResync(eventId, resyncDisplay);
+
 onMounted(() => {
-  apply(readOpDisplay(eventId.value));
-  stopListen = onOpDisplay((id, next) => {
-    if (id !== eventId.value) return;
-    apply(next);
-  });
-  void store.loadGame(eventId.value).then(() => {
-    if (command.value?.face === 'results' && command.value.rows.length) return;
-    const cast = store.getGame(eventId.value).displayCast;
-    if (cast) void applyCast(cast);
-  });
+  void (async () => {
+    await connectDisplayLive();
+    if (eventLiveJoinedId.value !== eventId.value) await resyncDisplay().catch(() => undefined);
+  })();
 });
 
 onUnmounted(() => {
+  window.clearTimeout(fullCastTimer);
   stopDraw();
   stopReveal();
   stopStanding();
-  stopListen();
   if (!isEventLiveJoinRoute(router.currentRoute.value.name)) {
     disconnectEventLive();
+    setSignalRDisplayToken(null);
   }
 });
 </script>

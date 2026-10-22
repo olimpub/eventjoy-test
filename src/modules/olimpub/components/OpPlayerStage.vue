@@ -209,10 +209,12 @@ const props = withDefaults(
     questionNo?: number;
     questionTotal?: number;
     skipIntro?: boolean;
+    holdRead?: boolean;
     introMs?: number;
     listenOnly?: boolean;
     accepting?: boolean;
     paused?: boolean;
+    submitFailed?: number;
   }>(),
   {
     mediaUrl: null,
@@ -224,10 +226,12 @@ const props = withDefaults(
     questionNo: 1,
     questionTotal: 8,
     skipIntro: false,
+    holdRead: false,
     introMs: 3000,
     listenOnly: false,
     accepting: true,
     paused: false,
+    submitFailed: 0,
   }
 );
 
@@ -318,6 +322,10 @@ function finishIntro() {
 
 function startIntro() {
   stopIntro();
+  if (props.holdRead && props.phase !== 'wait' && props.question?.prompt && props.face !== 'game') {
+    intro.value = 'read';
+    return;
+  }
   const hold = Math.max(0, Number(props.introMs) || 0);
   if (
     props.phase === 'wait' ||
@@ -376,14 +384,7 @@ const cats = computed(() => {
 
 const catItems = computed(() => mixList(options.value.slice(0, 6), mixSeed.value + 13));
 const orderItems = computed(() => mixList(rawOptions.value.slice(0, 5), mixSeed.value + 29));
-const orderRows = computed(() => {
-  const list = orderItems.value;
-  const chosen = new Set(picked.value);
-  const top = picked.value
-    .map((index) => list.find((row) => row.i === index))
-    .filter((row): row is (typeof list)[number] => Boolean(row));
-  return [...top, ...list.filter((row) => !chosen.has(row.i))];
-});
+const orderRows = computed(() => orderItems.value);
 
 const canSend = computed(() => {
   if (!props.accepting || props.listenOnly) return false;
@@ -435,9 +436,9 @@ function send() {
   if (locked.value || !canSend.value) return;
   if ((props.remainingSec ?? 1) <= 0 || props.paused) return;
   locked.value = true;
-  verdict.value = judgeLocal() ? 'ok' : 'bad';
+  const correct = judgeLocal();
+  verdict.value = correct ? 'ok' : 'bad';
   reactArmed.value = leftSec.value >= 3;
-  const correct = verdict.value === 'ok';
   emit('submitted', {
     TypeCode: type.value,
     Indexes: picked.value.slice(),
@@ -448,6 +449,15 @@ function send() {
     Ratio: correct ? 1 : 0,
   });
 }
+
+watch(
+  () => props.submitFailed,
+  (n, prev) => {
+    if (!n || n === prev) return;
+    locked.value = false;
+    verdict.value = null;
+  }
+);
 
 function pickReact(id: string) {
   if (reaction.value) return;
@@ -539,10 +549,16 @@ function tapCatItem(index: number) {
   itemCat[index] = pickCat.value;
 }
 
+let seededPrompt: string | null = null;
 watch(
-  () => [props.phase, props.question?.prompt] as const,
+  () => `${props.phase}\0${props.question?.prompt || ''}`,
   () => {
-    mixSeed.value = Math.floor(Math.random() * 1e9) + 1;
+    /* Új kérdésnél új sorrend; ugyanazon a kérdésen belül (kattintás, fázisváltás) a sorrend állandó. */
+    const prompt = props.question?.prompt || '';
+    if (prompt !== seededPrompt) {
+      seededPrompt = prompt;
+      mixSeed.value = Math.floor(Math.random() * 1e9) + 1;
+    }
     locked.value = false;
     verdict.value = null;
     reaction.value = null;
@@ -557,6 +573,34 @@ watch(
     if (!intro.value) focusFreeInput();
   },
   { immediate: true }
+);
+
+/**
+ * Felolvasás tartása (`holdRead`): a szerver még nem indította a válaszidőt.
+ * - Feloldáskor (Op.StartClock) a felolvasó nézet véget ér, és megjelennek az opciók.
+ * - Újranyitáskor (Op.ReopenQuestion ugyanarra a kérdésre) a nézet visszalép a felolvasásra, és a korábbi tipp törlődik.
+ */
+watch(
+  () => props.holdRead,
+  (hold, was) => {
+    if (hold === was) return;
+    if (!hold) {
+      if (intro.value === 'read' && introTimer == null) finishIntro();
+      return;
+    }
+    if (props.phase === 'wait' || !props.question?.prompt || props.face === 'game') return;
+    locked.value = false;
+    verdict.value = null;
+    reaction.value = null;
+    reactArmed.value = false;
+    picked.value = [];
+    pickLeft.value = null;
+    pickCat.value = cats.value[0] || '';
+    freeText.value = '';
+    Object.keys(itemCat).forEach((key) => delete itemCat[Number(key)]);
+    Object.keys(matchBind).forEach((key) => delete matchBind[Number(key)]);
+    startIntro();
+  }
 );
 
 watch(

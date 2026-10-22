@@ -123,6 +123,27 @@ const connectionIdRef = ref<string | null>(null);
 const joinedGroupsRef = ref<string[]>([]);
 const hubStateRef = ref<string>(signalR.HubConnectionState.Disconnected);
 
+/** A `/signalr/join` 401 / 403 státusza; sikeres joinnál null. */
+const joinDeniedRef = ref<number | null>(null);
+/** Elutasított join után a watchdog ennyi ideig nem próbálja újra ugyanazt. */
+const JOIN_DENIED_BACKOFF_MS = 120_000;
+
+function authDeniedStatus(err: unknown): number | null {
+  const status = (err as { response?: { status?: unknown } } | null)?.response?.status;
+  return status === 401 || status === 403 ? status : null;
+}
+
+const joinListeners = new Set<(join: EventLiveJoin) => void>();
+
+/** Minden sikeres csoport-join után (első, reconnect, ébredés, watchdog). A hub nem pótolja a kihagyott pinget. */
+export function onEventLiveJoined(listener: (join: EventLiveJoin) => void): () => void {
+  joinListeners.add(listener);
+  return () => {
+    joinListeners.delete(listener);
+  };
+}
+
+export const eventLiveJoinDenied = readonly(joinDeniedRef);
 export const eventLiveJoinedId = readonly(joinedEventIdRef);
 export const eventLiveConnectionId = readonly(connectionIdRef);
 export const eventLiveJoinedGroups = readonly(joinedGroupsRef);
@@ -247,6 +268,8 @@ class EventLiveService {
   private stopInFlight: Promise<void> | null = null;
   private stopRequested = false;
   private lastJoinAt = 0;
+  private deniedJoinKey = '';
+  private deniedAt = 0;
 
   get eventId(): number | null {
     return this.joinedEventId;
@@ -353,6 +376,13 @@ class EventLiveService {
   public async resumeIfNeeded(): Promise<void> {
     if (this.stopRequested || !this.desiredJoin) return;
     if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+    if (
+      this.deniedJoinKey &&
+      this.deniedJoinKey === joinKey(this.desiredJoin) &&
+      Date.now() - this.deniedAt < JOIN_DENIED_BACKOFF_MS
+    ) {
+      return;
+    }
     const state = this.connection?.state;
     const staleJoin =
       this.joinedEventId == null || this.joinedEventId !== this.desiredJoin.eventId;
@@ -552,11 +582,27 @@ class EventLiveService {
           continue;
         }
         this.setJoined(join);
+        joinDeniedRef.value = null;
+        this.deniedJoinKey = '';
+        for (const listener of joinListeners) {
+          try {
+            listener(join);
+          } catch (err) {
+            console.error('SignalR join listener hiba:', err);
+          }
+        }
         return;
       } catch (err) {
         lastError = err;
         if (isAxiosNetworkError(err)) markNetworkFailure();
         this.setJoined(null);
+        const denied = authDeniedStatus(err);
+        if (denied != null) {
+          joinDeniedRef.value = denied;
+          this.deniedJoinKey = joinKey(join);
+          this.deniedAt = Date.now();
+          throw err;
+        }
         await delay(500 * (attempt + 1));
       }
     }
