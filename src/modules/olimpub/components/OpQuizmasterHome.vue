@@ -1716,13 +1716,58 @@ function rowQuestionActive(row: CatalogItem) {
   );
 }
 
-function enter(row: CatalogItem) {
+const OPEN_ROUND_STATUSES = ['active', 'live', 'running', 'open', 'started'];
+
+/** Másik, még nyitott forduló (vagy játék): ezt előbb le kell zárni, párhuzamosan nem futhat kettő. */
+function otherOpenRound(roundId: number | null | undefined) {
+  if (!props.eventId || roundId == null) return null;
+  const game = store.getGame(props.eventId);
+  const byStatus = game.rounds.find(
+    (round) =>
+      round.id !== roundId && OPEN_ROUND_STATUSES.includes(String(round.StatusCode || '').toLowerCase())
+  );
+  if (byStatus) return byStatus;
+  const live = game.live;
+  if (
+    live.ActiveRoundID != null &&
+    live.ActiveRoundID !== roundId &&
+    String(live.QuestionStatus || '').toLowerCase() === 'active'
+  ) {
+    return game.rounds.find((round) => round.id === live.ActiveRoundID) || null;
+  }
+  return null;
+}
+
+/** Igaz, ha a forduló nem indítható / nem folytatható, mert másik forduló nyitva van. Hibaüzenetet ad. */
+function blockedByOtherRound(row: CatalogItem | null) {
+  if (!row || !fromLive.value) return false;
+  const other = otherOpenRound(row.roundId);
+  if (!other) return false;
+  $q.notify({
+    type: 'negative',
+    message: `Nem indítható: a(z) „${other.TopicName || `${other.id}. forduló`}” forduló még nyitva van. Előbb azt zárd le.`,
+    position: 'top',
+    timeout: 4200,
+  });
+  return true;
+}
+
+async function enter(row: CatalogItem) {
+  if (fromLive.value && props.eventId) {
+    /* A döntés friss adatból születik: a másik forduló állapota közben változhatott. */
+    await store.loadGame(props.eventId).catch(() => undefined);
+    if (blockedByOtherRound(row)) return;
+  }
   openItem.value = row;
   if (!rowQuestionActive(row)) projectLobby(row);
 }
 
 async function onBegin(row: CatalogItem | null) {
   if (!row) return;
+  if (blockedByOtherRound(row)) {
+    openItem.value = null;
+    return;
+  }
   resetProjectedPoints();
   if (fromLive.value && props.eventId && row.roundId != null) {
     try {

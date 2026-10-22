@@ -380,6 +380,7 @@ const inQuestionGap = computed(
   () =>
     questionIsActive() &&
     !stageRendered.value &&
+    !mosaicOut.value &&
     liveInRound() &&
     playPhase.value !== 'ended' &&
     playPhase.value !== 'ceremony'
@@ -1156,8 +1157,36 @@ onMounted(() => {
   }, 200);
 });
 
+/* Ha a kérdés aktív, de a telefon még nem tud kirajzolni (a GET késve vagy üresen jött, a StartClock ping pedig nem tölt újra),
+   addig kérdezzük újra a szervert, amíg a kérdés meg nem jelenik. */
+let gapTimer: number | null = null;
+
+function stopGapPolling() {
+  if (gapTimer != null) window.clearInterval(gapTimer);
+  gapTimer = null;
+}
+
+watch(
+  inQuestionGap,
+  (gap) => {
+    stopGapPolling();
+    if (!gap) return;
+    let tries = 0;
+    gapTimer = window.setInterval(() => {
+      tries += 1;
+      if (!inQuestionGap.value || tries > 20) {
+        stopGapPolling();
+        return;
+      }
+      void store.loadGame(String(numericEventId.value)).catch(() => undefined);
+    }, 700);
+  },
+  { immediate: true }
+);
+
 onUnmounted(() => {
   if (tick != null) window.clearInterval(tick);
+  stopGapPolling();
 });
 </script>
 
