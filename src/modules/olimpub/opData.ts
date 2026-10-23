@@ -1,5 +1,5 @@
 import { isTruthyFlag, nullableNumericId } from 'src/utils/apiPayload';
-import { matchOpExtraGame, normalizeOpTypeCode, opDefaultTimeSec } from './constants';
+import { isOpTextType, matchOpExtraGame, normalizeOpTypeCode, opDefaultTimeSec } from './constants';
 
 export function eventTypeHasOpFlag(eventType: Record<string, unknown> | null | undefined): boolean {
   if (!eventType) return false;
@@ -250,7 +250,7 @@ export function opQuestionTopic(
 export function previewModelFromQuestion(row: OpEventQuestion): OpQuestionPreviewModel {
   const answers = (row.Answers || []).map((item) => String(item ?? ''));
   const synonyms =
-    String(row.TypeCode || '') === 'freetext'
+    isOpTextType(row.TypeCode)
       ? extractOpFreetextSynonyms(row as unknown as Record<string, unknown>)
       : [];
   return {
@@ -259,7 +259,7 @@ export function previewModelFromQuestion(row: OpEventQuestion): OpQuestionPrevie
     timeSec: row.TimeSec,
     sortIndex: row.SortIndex,
     topic: row.TopicName?.trim() || '',
-    answers: row.TypeCode === 'freetext' ? [] : answers,
+    answers: isOpTextType(row.TypeCode) ? [] : answers,
     matches: row.Matches || [],
     categories: row.Categories || [],
     isCorrect: row.IsCorrect || [],
@@ -378,7 +378,7 @@ export function toOpQuestionSavePayload(
   }
   if (next.imageKey !== undefined && next.imageKey !== row.ImageKey) body.ImageKey = next.imageKey;
   if (next.audioKey !== undefined && next.audioKey !== row.AudioKey) body.AudioKey = next.audioKey;
-  if (type === 'freetext') {
+  if (isOpTextType(type)) {
     body.Answer1 = next.synonyms.map((item) => item.trim()).filter(Boolean).join('|');
     return body;
   }
@@ -918,7 +918,7 @@ export function buildOpAnswerItems(
   payload: Record<string, unknown>
 ): Record<string, unknown>[] {
   const type = String(payload.TypeCode || '').toLowerCase();
-  if (type === 'freetext') {
+  if (isOpTextType(type)) {
     const text = String(payload.Text ?? '').trim();
     return text ? [{ TextValue: text }] : [];
   }
@@ -1187,7 +1187,7 @@ export function formatOpQuestionCorrect(row: {
     }).filter(Boolean);
     if (pairs.length) return pairs.join(', ');
   }
-  if (type === 'freetext') {
+  if (isOpTextType(type)) {
     const fromAnswer = String(row.Answers[0] || '')
       .split('|')
       .map((part) => part.trim())
@@ -1214,7 +1214,7 @@ export function formatOpCorrect(typeCode: string, correctJson: string | null, op
   if (!parsed || typeof parsed !== 'object') return String(correctJson);
 
   const rec = parsed as Record<string, unknown>;
-  if (type === 'freetext' || rec.Synonyms != null) {
+  if (isOpTextType(type) || rec.Synonyms != null) {
     const list = Array.isArray(rec.Synonyms) ? rec.Synonyms : parseStringList(rec.Synonyms);
     return list.join(', ') || '—';
   }
@@ -1345,7 +1345,7 @@ export function normalizeOpEventQuestions(
       TopicName: String(row.TopicName ?? row.topicName ?? row.Topic ?? '').trim(),
       ExtraGameId,
       Answers:
-        TypeCode === 'freetext'
+        isOpTextType(TypeCode)
           ? (() => {
               const synonyms = extractOpFreetextSynonyms(row);
               return synonyms.length ? [synonyms.join('|')] : fromJson.answers;
@@ -1613,7 +1613,7 @@ export function normalizeOpRepoQuestions(rows: unknown[]): OpRepoQuestion[] {
       UsedFlg: isTruthyFlag(row.UsedFlg ?? row.usedFlg ?? row.InEventFlg),
       SortIndex: nullableNumericId(row.SortIndex ?? row.sortIndex ?? row.OrderNo),
       ExtraGameId,
-      Answers: TypeCode === 'freetext' ? extraFreetextAnswers(row, fromJson.answers) : fromJson.answers,
+      Answers: isOpTextType(TypeCode) ? extraFreetextAnswers(row, fromJson.answers) : fromJson.answers,
       IsCorrect: readCorrectFlags(row, fromJson.optionItems),
     });
   }

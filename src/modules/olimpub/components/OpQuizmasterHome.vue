@@ -15,6 +15,7 @@
     :initial-face="openItem.kind"
     :resume-label="resumeFor(openItem)"
     :ender="openItem.total == null"
+    :spoken="stageSpoken"
     :show-back="true"
     :event-question-id="liveQuestionId"
     :round-id="openItem.roundId ?? null"
@@ -270,6 +271,8 @@ import {
   stopOpQuestion,
 } from '../opApi';
 import {
+  isNoOptionsType,
+  isOpTextType,
   normalizeRoundTypeCode,
   opDefaultTimeSec,
   opJoinAbsoluteUrl,
@@ -456,9 +459,17 @@ function currentStageQuestion(row: CatalogItem): OpEventQuestion | null {
   return game.questions.find((item) => item.id === liveId) || null;
 }
 
+function isSpokenRow(row: CatalogItem | null | undefined) {
+  if (!row) return false;
+  return isNoOptionsType(currentStageQuestion(row)?.TypeCode);
+}
+
+const stageSpoken = computed(() => isSpokenRow(openItem.value));
+
 function stageTimeSec(row: CatalogItem) {
   if (row.kind === 'game' && row.total == null) return 0;
   const q = currentStageQuestion(row);
+  if (isNoOptionsType(q?.TypeCode)) return 0;
   if (props.eventId && q?.QuestionID != null) {
     const repo = store.getGame(props.eventId).repoQuestions.find((item) => item.id === q.QuestionID);
     if (repo?.TimeSec != null && repo.TimeSec > 0) return repo.TimeSec;
@@ -1256,7 +1267,7 @@ function questionCast(
   const live = props.eventId ? store.getGame(props.eventId).live : null;
   const mosaic = isMosaicRow(row);
   const type = String(q?.TypeCode || '').toLowerCase();
-  const freetext = type === 'freetext' || mosaic;
+  const freetext = isOpTextType(type) || mosaic;
   return {
     type: mosaic ? 'mosaic' : q?.TypeCode || '',
     answers: freetext ? [] : q?.Answers || [],

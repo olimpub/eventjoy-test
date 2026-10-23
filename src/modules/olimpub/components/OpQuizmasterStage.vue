@@ -116,7 +116,7 @@
         </div>
       </section>
       <section
-        v-else
+        v-else-if="!spoken"
         class="op-qm__clock"
         :class="{ 'is-read': phase === 'read' || (phase === 'paused' && pausedFrom === 'read') }"
         :style="{ '--p': clockRatio }"
@@ -136,7 +136,7 @@
       </button>
       <i v-else aria-hidden="true" />
     </div>
-    <p v-if="extraGameId !== 'EG2'" class="op-qm__sent" aria-live="polite">
+    <p v-if="extraGameId !== 'EG2' && !spoken" class="op-qm__sent" aria-live="polite">
       <strong>{{ submitted }}</strong> / {{ roster }} beküldte
       <template v-if="correctCount != null"> · <strong>{{ correctCount }}</strong> jó</template>
     </p>
@@ -144,7 +144,7 @@
     <h2>{{ prompt || 'A kérdés szövege' }}</h2>
     <img v-if="mediaUrl" class="op-qm__pic" :src="mediaUrl" alt="" />
     <p class="op-qm__correct">
-      <small>Helyes válasz</small>
+      <small>{{ spoken ? 'Megoldás (csak neked látszik)' : 'Helyes válasz' }}</small>
       <strong>{{ correct || '—' }}</strong>
     </p>
     </div>
@@ -171,7 +171,12 @@
     </button>
 
     <div class="op-qm__row">
-      <button type="button" class="op-qm__tool is-answer" :disabled="phase !== 'done'" @click="emit('revealAnswer')">
+      <button
+        type="button"
+        class="op-qm__tool is-answer"
+        :disabled="spoken ? phase === 'ready' : phase !== 'done'"
+        @click="emit('revealAnswer')"
+      >
         <q-icon name="sym_r_visibility" size="28px" />
         Válasz
       </button>
@@ -313,6 +318,8 @@ const props = withDefaults(
     showBack?: boolean;
     resumeLabel?: string;
     ender?: boolean;
+    /** Szóbeli feladat (no_options): nincs óra, válaszszámláló és típus; csak instrukció, megoldás és pluszpont. */
+    spoken?: boolean;
     initialFace?: 'quiz' | 'game';
     eventQuestionId?: number | null;
     roundId?: number | null;
@@ -336,6 +343,7 @@ const props = withDefaults(
     showBack: false,
     resumeLabel: '',
     ender: false,
+    spoken: false,
     initialFace: 'quiz',
     eventQuestionId: null,
     roundId: null,
@@ -520,7 +528,7 @@ let lastTick = 0;
 let answerGap = 0;
 let runUntil = 0;
 
-const noClock = computed(() => props.ender || props.timeSec === 0);
+const noClock = computed(() => props.ender || props.spoken || props.timeSec === 0);
 const answerMs = computed(() => {
   if (noClock.value) return 0;
   if (props.extraGameId === 'EG1' || face.value === 'game') return Math.max(5, props.timeSec || 10) * 1000;
@@ -627,7 +635,8 @@ const canNext = computed(() => {
     phase.value !== 'read' &&
     !(phase.value === 'paused' && pausedFrom.value === 'read');
   if (!answering) return false;
-  if (noClock.value) return false;
+  /* Szóbeli feladatnál nincs lejárat és beküldés: a kvízmester bármikor léptethet. */
+  if (noClock.value) return props.spoken;
   return playLeft.value <= 0 || submitted.value >= roster.value;
 });
 const atLastQuestion = computed(() => {

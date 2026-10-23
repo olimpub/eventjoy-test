@@ -160,9 +160,21 @@ export const OP_QUESTION_TYPES = [
   { code: 'match', label: 'Párosítás', timeSec: 30 },
   { code: 'category', label: 'Kategorizálás', timeSec: 30 },
   { code: 'freetext', label: 'Szabad szöveg', timeSec: 40 },
+  { code: 'no_options', label: 'Szóbeli (nincs válasz)', timeSec: 30 },
 ] as const;
 
 export type OpQuestionTypeCode = (typeof OP_QUESTION_TYPES)[number]['code'];
+
+/** Szóbeli feladat: a játékos nem válaszol és nem tippel, csak a megoldás (kvízmesternek) és a pluszpont van. */
+export function isNoOptionsType(code: unknown): boolean {
+  return String(code || '').trim().toLowerCase() === 'no_options';
+}
+
+/** Szöveges megoldású típus: a megoldás (szinonimák) az `Answer1`-ben, `|` jellel elválasztva. */
+export function isOpTextType(code: unknown): boolean {
+  const key = String(code || '').trim().toLowerCase();
+  return key === 'freetext' || key === 'no_options';
+}
 
 const TYPE_ALIASES: Record<string, OpQuestionTypeCode> = {
   single: 'single',
@@ -196,6 +208,14 @@ const TYPE_ALIASES: Record<string, OpQuestionTypeCode> = {
   szabadszoveg: 'freetext',
   'free text': 'freetext',
   text: 'freetext',
+  no_options: 'no_options',
+  nooptions: 'no_options',
+  szobeli: 'no_options',
+  szóbeli: 'no_options',
+  'szobeli feladat': 'no_options',
+  'szóbeli feladat': 'no_options',
+  'nincs valasz': 'no_options',
+  'nincs válasz': 'no_options',
 };
 
 function foldTypeKey(raw: string): string {
@@ -239,6 +259,7 @@ export function opTypeIcon(code: string): string {
   if (key === 'match') return 'sym_r_join_inner';
   if (key === 'category') return 'sym_r_account_tree';
   if (key === 'freetext') return 'sym_r_text_fields';
+  if (key === 'no_options') return 'sym_r_record_voice_over';
   return 'sym_r_help';
 }
 

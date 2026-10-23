@@ -138,6 +138,13 @@
         </button>
       </template>
 
+      <!-- no_options: szóbeli feladat, a megoldás csak a kvízmesternek látszik -->
+      <template v-else-if="draft.type === 'no_options'">
+        <label class="op-edit__label">Megoldás — csak a kvízmesternek látszik (nem kötelező)</label>
+        <input v-model="draft.synonyms[0]" class="op-edit__input" placeholder="megoldás" />
+        <p class="op-edit__note">Nincs válaszlehetőség és nincs tipp. A pluszpontot a kvízmester adja.</p>
+      </template>
+
       <!-- freetext -->
       <template v-else>
         <label class="op-edit__label">Elfogadott válaszok</label>
@@ -194,6 +201,8 @@ import { useQuasar } from 'quasar';
 import { readAxiosErrorMessage } from 'src/utils/apiPayload';
 import {
   OP_QUESTION_TYPES,
+  isNoOptionsType,
+  isOpTextType,
   opDefaultTimeSec,
   opQuestionStatusLabel,
   opTypeIcon,
@@ -281,7 +290,7 @@ const previewModel = computed<OpQuestionPreviewModel>(() => ({
     props.question ? store.getGame(props.question.EventID) : null,
     store.topics
   ),
-  answers: draft.type === 'freetext' ? [] : draft.answers,
+  answers: isOpTextType(draft.type) ? [] : draft.answers,
   matches: draft.type === 'category' ? draft.itemCats : draft.matches,
   categories:
     draft.type === 'category'
@@ -330,7 +339,7 @@ function setType(code: OpQuestionTypeCode) {
     draft.isCorrect = padFlags(draft.isCorrect, draft.answers.length);
     draft.itemCats = pad(draft.itemCats, draft.answers.length);
   }
-  if (code === 'freetext') draft.synonyms = pad(draft.synonyms, 2);
+  if (isOpTextType(code)) draft.synonyms = pad(draft.synonyms, 2);
 }
 
 function pad(list: string[], min: number): string[] {
@@ -396,7 +405,7 @@ function hydrate(row: OpEventQuestion) {
 
   const correct = parseJson(row.CorrectJson);
   const corr = asRecord(correct);
-  if (draft.type === 'freetext') {
+  if (isOpTextType(draft.type)) {
     draft.synonyms = pad(
       extractOpFreetextSynonyms({
         ...(row as unknown as Record<string, unknown>),
@@ -481,14 +490,14 @@ function filled(list: string[]): string[] {
 }
 
 function buildOptions(): unknown {
-  if (draft.type === 'freetext') return null;
+  if (isOpTextType(draft.type)) return null;
   if (draft.type === 'match') return { Left: filled(draft.answers), Right: filled(draft.matches) };
   if (draft.type === 'category') return { Items: filled(draft.answers), Cats: filled(draft.matches) };
   return filled(draft.answers);
 }
 
 function buildCorrect(): unknown {
-  if (draft.type === 'freetext') return { Synonyms: filled(draft.synonyms) };
+  if (isOpTextType(draft.type)) return { Synonyms: filled(draft.synonyms) };
   if (draft.type === 'single') return { Index: Math.max(0, draft.isCorrect.findIndex(Boolean)) };
   if (draft.type === 'multi') {
     return { Indexes: draft.isCorrect.map((on, i) => (on ? i : -1)).filter((i) => i >= 0) };
@@ -520,7 +529,8 @@ function validate(): string {
   if (!draft.prompt.trim()) return 'A kérdés szövege hiányzik.';
   const time = Number(draft.timeSec);
   if (!Number.isFinite(time) || time < 5 || time > 180) return 'Az idő 5–180 mp legyen.';
-  if (draft.type === 'freetext') {
+  if (isNoOptionsType(draft.type)) return '';
+  if (isOpTextType(draft.type)) {
     return filled(draft.synonyms).length ? '' : 'Legalább egy elfogadott válasz kell.';
   }
   const answers = filled(draft.answers);
@@ -551,7 +561,7 @@ function validate(): string {
 
 function localPatch(row: OpEventQuestion): Partial<OpEventQuestion> {
   const answers =
-    draft.type === 'freetext' ? [filled(draft.synonyms).join('|')].filter(Boolean) : filled(draft.answers);
+    isOpTextType(draft.type) ? [filled(draft.synonyms).join('|')].filter(Boolean) : filled(draft.answers);
   const matches =
     draft.type === 'category'
       ? draft.answers.map((_, i) => String(draft.itemCats[i] || '').trim())

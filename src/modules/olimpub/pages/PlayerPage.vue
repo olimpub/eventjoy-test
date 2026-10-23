@@ -119,7 +119,14 @@ import {
   teamsFromKabalaIds,
 } from '../opData';
 import { readOpNextCue } from '../opDisplayChannel';
-import { normalizeOpTypeCode, normalizeRoundTypeCode, stageMarkForRound, opDefaultTimeSec, opTypeLabel } from '../constants';
+import {
+  isNoOptionsType,
+  normalizeOpTypeCode,
+  normalizeRoundTypeCode,
+  stageMarkForRound,
+  opDefaultTimeSec,
+  opTypeLabel,
+} from '../constants';
 import { resolveOpMediaUrl } from '../opMediaCache';
 import { useOpLiveResync } from '../useOpLiveResync';
 import { eventLiveJoinDenied } from 'src/services/signalrService';
@@ -325,9 +332,16 @@ const nextBreak = computed(() => {
   let total: number | null = null;
   let typeCode = '';
   if (next) {
-    position = qs.findIndex((row) => row.id === next.id) + 1;
-    total = qs.length;
     typeCode = next.TypeCode || '';
+    /* A játékos GET-je csak az aktív / fókuszban lévő kérdést adja (1–2 sor), ezért a helyi darabszám nem igaz:
+       a sorszám a sor SortIndexe, az összes a szerver (vagy a QM jelzése) értéke. */
+    if (serverTotal != null) {
+      position = next.SortIndex > 0 ? next.SortIndex : serverNo;
+      total = serverTotal;
+    } else if (cue) {
+      position = cue.no;
+      total = cue.total;
+    }
   } else if (cue) {
     position = cue.no;
     total = cue.total;
@@ -343,7 +357,11 @@ const nextBreak = computed(() => {
     typeCode = '';
   }
   return {
-    typeLabel: typeCode ? opTypeLabel(normalizeOpTypeCode(typeCode) || typeCode) : '',
+    /* Szóbeli feladatnál (no_options) a típus nem látszik. */
+    typeLabel:
+      typeCode && !isNoOptionsType(normalizeOpTypeCode(typeCode) || typeCode)
+        ? opTypeLabel(normalizeOpTypeCode(typeCode) || typeCode)
+        : '',
     remaining: remaining.length,
     position,
     total,
@@ -412,16 +430,6 @@ const showWaitingRoom = computed(
         playPhase.value !== 'ended' &&
         playPhase.value !== 'ceremony' &&
         playPhase.value !== 'before'))
-);
-
-watch(
-  [showBreak, showWaitingRoom, nextBreak],
-  () => {
-    if (questionIsActive()) return;
-    idleScreen.value = showBreak.value ? 'break' : showWaitingRoom.value ? 'wait' : '';
-    if (showBreak.value) lastBreak.value = nextBreak.value;
-  },
-  { immediate: true }
 );
 
 const waitingImage = computed(() =>
@@ -785,12 +793,26 @@ const mosaicTopic = computed(
 const mosaicSort = computed(() => {
   const row = focusedQuestion.value;
   if (!row) return '';
-  const total = game.value.questions.filter((item) => item.RoundID === row.RoundID).length;
+  /* A játékos listája szűkített, ezért a forduló összes kérdését a szerver adja (ha van). */
+  const counted = game.value.questions.filter((item) => item.RoundID === row.RoundID).length;
+  const total = Math.max(counted, game.value.live.RoundQuestionCount ?? 0);
   const index = row.SortIndex || 1;
   return total > 0 ? `${index}/${total}` : String(index);
 });
 const mosaicCanTip = computed(
   () => mosaicLive.value && showQuestionStage.value && !mosaicOut.value && !mosaicHold.value && !mosaicBusy.value
+);
+
+/* Az azonnali watch minden függőségét (mosaicOut, stageRendered) azok deklarációja UTÁN kell létrehozni,
+   különben oldalfrissítéskor (csapattal) "Cannot access ... before initialization" hiba jön. */
+watch(
+  [showBreak, showWaitingRoom, nextBreak],
+  () => {
+    if (questionIsActive()) return;
+    idleScreen.value = showBreak.value ? 'break' : showWaitingRoom.value ? 'wait' : '';
+    if (showBreak.value) lastBreak.value = nextBreak.value;
+  },
+  { immediate: true }
 );
 
 function armAnswerClock() {

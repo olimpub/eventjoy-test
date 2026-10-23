@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia';
+import { isOpTextType } from 'src/modules/olimpub/constants';
 import {
   fetchOpEvent,
   fetchOpMaster,
@@ -35,6 +36,7 @@ export interface OpGameState {
 const emptyLive = (): OpLiveState => emptyOpLive();
 
 const pingReloadTimers = new Map<string, number>();
+const loadInflight = new Map<string, { dirty: boolean; promise: Promise<unknown> }>();
 const recentPingKeys: { key: string; at: number }[] = [];
 
 function pingStrings(value: unknown): string[] {
@@ -464,6 +466,19 @@ export const useOlimpubStore = defineStore('olimpub', {
         return;
       }
       const prev = pingReloadTimers.get(key);
+      /* Beküldött válasznál nem kell azonnal újratölteni (a darabszám a pingből jön). Sok játékosnál ez minden
+         kliensnél egy teljes GET-et jelentett válaszonként, ezért itt lassabb, nem újraindított időzítő fut. */
+      if (action === 'Op.SubmitAnswer' && !versionGap) {
+        if (prev) return;
+        pingReloadTimers.set(
+          key,
+          window.setTimeout(() => {
+            pingReloadTimers.delete(key);
+            if (eventId != null) void this.loadGame(eventId);
+          }, 1500)
+        );
+        return;
+      }
       if (prev) window.clearTimeout(prev);
       pingReloadTimers.set(
         key,
@@ -554,7 +569,35 @@ export const useOlimpubStore = defineStore('olimpub', {
         ),
       };
     },
-    async loadEvent(eventId: number | string) {
+    /* Egyszerre egy GET fut eseményenként. Ha közben újabb kérés jön, az nem indul párhuzamosan: a futó betöltés
+       végén egyetlen friss betöltés követi (a kérések összevonódnak). */
+    loadEvent(eventId: number | string): Promise<unknown> {
+      const key = String(eventId);
+      const running = loadInflight.get(key);
+      if (running) {
+        running.dirty = true;
+        return running.promise;
+      }
+      const slot: { dirty: boolean; promise: Promise<unknown> } = {
+        dirty: false,
+        promise: Promise.resolve(null),
+      };
+      slot.promise = (async () => {
+        try {
+          let result: unknown;
+          do {
+            slot.dirty = false;
+            result = await this.loadEventNow(eventId);
+          } while (slot.dirty);
+          return result;
+        } finally {
+          loadInflight.delete(key);
+        }
+      })();
+      loadInflight.set(key, slot);
+      return slot.promise;
+    },
+    async loadEventNow(eventId: number | string) {
       const payload = await fetchOpEvent(eventId);
       this.replaceSettings(payload.settings);
       const key = String(eventId);
@@ -678,7 +721,7 @@ export const useOlimpubStore = defineStore('olimpub', {
           if (!kept) return row;
           const incomingKey = (row.IsCorrect || []).some(Boolean);
           const keptKey = (kept.IsCorrect || []).some(Boolean);
-          const freetext = String(row.TypeCode || '').toLowerCase() === 'freetext';
+          const freetext = isOpTextType(row.TypeCode);
           const lostSynonyms = freetext && !(row.Answers || []).some(Boolean) && (kept.Answers || []).some(Boolean);
           if (incomingKey && row.CorrectJson && !lostSynonyms) return row;
           return {

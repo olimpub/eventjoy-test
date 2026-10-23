@@ -165,7 +165,7 @@ const options = computed(() =>
 const synonyms = computed(() => (props.question?.synonyms || []).map((item) => item.trim()).filter(Boolean));
 
 const correctText = computed(() => {
-  if (type.value === 'freetext') return synonyms.value.join(', ') || '—';
+  if (type.value === 'freetext' || type.value === 'no_options') return synonyms.value.join(', ') || '—';
   if (type.value === 'single' || type.value === 'multi') {
     return options.value.filter((row) => row.on).map((row) => row.text).join(', ') || '—';
   }

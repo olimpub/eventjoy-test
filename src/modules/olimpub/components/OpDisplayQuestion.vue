@@ -72,7 +72,7 @@
       </div>
     </div>
 
-        <div v-if="!holding" class="op-dq__stage">
+        <div v-if="!holding && !isSpoken" class="op-dq__stage">
       <div class="op-dq__bar">
         <div class="op-dq__bar-time">
           <i :style="{ width: `${ratio * 100}%` }" />
@@ -164,8 +164,10 @@ const props = withDefaults(
 
 const isMosaic = computed(() => String(props.type || '').toLowerCase() === 'mosaic');
 const isFreetext = computed(() => String(props.type || '').toLowerCase() === 'freetext' || isMosaic.value);
+/** Szóbeli feladat (no_options): csak az instrukció, nincs opció, óra, beküldésszámláló. */
+const isSpoken = computed(() => String(props.type || '').toLowerCase() === 'no_options');
 const choiceRows = computed(() =>
-  isFreetext.value ? [] : (props.answers || []).map((item) => item.trim()).filter(Boolean)
+  isFreetext.value || isSpoken.value ? [] : (props.answers || []).map((item) => item.trim()).filter(Boolean)
 );
 const matchRows = computed(() => (props.matches || []).map((item) => item.trim()).filter(Boolean));
 const categoryRows = computed(() => {
@@ -197,7 +199,7 @@ let alive = true;
 
 const synced = computed(() => props.clockPhase !== '');
 const holding = computed(
-  () => !isMosaic.value && (props.clockHold || props.clockPhase === 'read')
+  () => !isMosaic.value && !isSpoken.value && (props.clockHold || props.clockPhase === 'read')
 );
 const totalMs = computed(() =>
   synced.value && props.clockTotalMs > 0 ? props.clockTotalMs : Math.max(5, props.timeSec || 20) * 1000

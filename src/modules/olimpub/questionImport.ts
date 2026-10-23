@@ -6,7 +6,14 @@ import {
   readApiReturnDescription,
   unwrapApiPayload,
 } from 'src/utils/apiPayload';
-import { normalizeOpTypeCode, opDefaultTimeSec, roundTypeFromImportGame, type OpQuestionTypeCode } from './constants';
+import {
+  isNoOptionsType,
+  isOpTextType,
+  normalizeOpTypeCode,
+  opDefaultTimeSec,
+  roundTypeFromImportGame,
+  type OpQuestionTypeCode,
+} from './constants';
 
 export interface OpImportQuestion {
   Topic: string;
@@ -133,7 +140,7 @@ function normalizeOpGame(raw: string, rowNumber: number): string | null {
   };
   const game = aliases[folded];
   if (game) return game;
-  throw new Error(`A(z) ${rowNumber}. sor játéka ismeretlen: „${raw}”. Üres, kviz, EG1, EG2, vagy EG4–EG8.`);
+  throw new Error(`A(z) ${rowNumber}. sor játéka ismeretlen: „${raw}”. Üres, kviz, vagy EG1–EG8.`);
 }
 
 function parsePairs(raw: string): Array<{ left: string; right: string }> {
@@ -185,7 +192,7 @@ function toPayloadRow(q: OpImportQuestion): Record<string, unknown> {
   }
   if (q.MediaKey && !row.ImageKey) row.ImageKey = q.MediaKey;
 
-  if (q.Type === 'freetext') {
+  if (isOpTextType(q.Type)) {
     row.Answer1 = q.CorrectRaw || q.Options[0] || '';
     return row;
   }
@@ -260,13 +267,15 @@ export function parseOpQuestionGrid(grid: string[][]): OpImportQuestion[] {
     const excelFlags = collectBoolFlags(row, headers, ['iscorrect', 'helyes', 'correct']);
     const hasExcelFlags = excelFlags.some((flag) => flag != null);
     let correctRaw = cell(row, correctIdx);
-    if (type === 'freetext' && !correctRaw) correctRaw = options[0] || '';
+    if (isOpTextType(type) && !correctRaw) correctRaw = options[0] || '';
     if (type === 'single' || type === 'multi') {
       if (!correctRaw && !hasExcelFlags) {
         throw new Error(`A(z) ${r + 1}. sorban hiányzik a helyes válasz.`);
       }
     } else if (!correctRaw) {
       const hasContent =
+        /* Szóbeli feladatnál a megoldás (a kvízmesternek) nem kötelező: a kérdés maga az instrukció. */
+        isNoOptionsType(type) ||
         (type === 'freetext' && (correctRaw || options[0])) ||
         (type === 'order' && options.length >= 2) ||
         (type === 'match' && options.length && matches.length) ||
@@ -294,7 +303,7 @@ export function parseOpQuestionGrid(grid: string[][]): OpImportQuestion[] {
       Topic: topic,
       Type: type,
       Prompt: prompt,
-      Options: type === 'freetext' ? [] : options,
+      Options: isOpTextType(type) ? [] : options,
       Cats: uniqueCats,
       Matches: matches,
       CorrectRaw: correctRaw,
@@ -648,6 +657,17 @@ export function downloadOpQuestionTemplate() {
       time: 20,
       note: 'Ki beszél? Szabad szöveg. A hangot a kérdésre töltöd.',
     }),
+    sampleRow({
+      topic: 'Karaoke',
+      game: 'EG3',
+      type: 'no_options',
+      sort: 1,
+      prompt: 'Énekeld el a dal első versszakát!',
+      answers: ['Take On Me – A-ha'],
+      correct: '',
+      time: 30,
+      note: 'Szóbeli feladat. Nincs válaszlehetőség és nincs tipp, a megoldás csak a kvízmesternek látszik. A pluszpontot a kvízmester adja.',
+    }),
   ]);
   applyTemplateCols(samples);
   samples['!cols'] = [...(samples['!cols'] || []), { wch: 62 }];
@@ -662,11 +682,12 @@ export function downloadOpQuestionTemplate() {
     ['match', 'Párosítás, legfeljebb 4 pár', 'bal=jobb|bal2=jobb2'],
     ['category', 'Kategorizálás. Válasz = darab, Kategória = csoport', 'dal=pop|dal2=grunge'],
     ['freetext', 'Szabad szöveg', 'Szinonimák a Válasz1-ben: a|b'],
+    ['no_options', 'Szóbeli feladat: nincs válasz és tipp, a megoldás csak a kvízmesternek látszik', 'Megoldás a Válasz1-ben (nem kötelező)'],
     ['Sorszám', '1–8 a fordulóban, üres = csak a kérdésbank', ''],
     ['IdőMp', 'Üresen a típus alapideje. Mozaiknál hagyd üresen.', ''],
     ['EG1 Párbaj', 'Saját egyválasztós sorok, Játék = EG1. Induláskor ebből jön az 5 kérdés.', '1 = első válasz'],
     ['EG2 Mozaik', 'Szabad szöveg. Az idő üres. A hang a kérdésen.', 'Válasz1: cím|előadó'],
-    ['EG3 Karaoke', 'Nincs kérdés sor. A pont a játékmester pluszpontja.', ''],
+    ['EG3 Karaoke', 'Szóbeli feladat (no_options). A pont a kvízmester pluszpontja.', 'Megoldás a Válasz1-ben (nem kötelező)'],
     ['EG4 Reverse', 'Szabad szöveg, cím vagy előadó.', ''],
     ['EG5 Generációk', 'Rövid egyválasztós.', ''],
     ['EG6 Műsorvezető', 'Szabad szöveg. A kép a kérdésen.', ''],

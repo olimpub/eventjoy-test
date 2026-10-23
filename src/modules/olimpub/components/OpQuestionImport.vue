@@ -17,8 +17,8 @@
       <p class="op-import__hint">
         Töltsd le a sablont, és a <strong>Kérdések</strong> lapot töltsd ki.
         A <strong>Minták</strong> lapon minden kérdéstípus és játék szerepel.
-        A <strong>Típus</strong> oszlopba a kód kell: single, multi, order, match, category, freetext.
-        A <strong>Játék</strong> üresen vagy kviz a forduló. EG1 a párbaj, EG2 és EG4–EG8 a többi extra játék.
+        A <strong>Típus</strong> oszlopba a kód kell: single, multi, order, match, category, freetext, no_options (szóbeli feladat).
+        A <strong>Játék</strong> üresen vagy kviz a forduló. EG1 a párbaj, EG3 a karaoke (szóbeli feladat), EG2 és EG4–EG8 a többi extra játék.
       </p>
 
       <div class="op-import__actions">

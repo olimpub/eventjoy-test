@@ -12,15 +12,15 @@
       <small v-if="face === 'game'">Csak a leggyorsabb helyes kap pontot.</small>
     </p>
     <div
-      v-if="!intro"
+      v-if="!intro && !spoken"
       class="op-play__frame"
       :style="{ '--p': shownRatio, '--c': frameColor }"
       aria-hidden="true"
     />
 
-    <header v-if="!intro && !verdict && phase !== 'wait'" class="op-play__top">
+    <header v-if="!intro && !verdict && phase !== 'wait' && !spoken" class="op-play__top">
       <button
-        v-if="!listenOnly"
+        v-if="!listen"
         type="button"
         class="op-play__send"
         :class="{ 'is-ready': canSend && !locked, 'is-done': locked }"
@@ -79,7 +79,7 @@
       <div class="op-play__stage">
         <div class="op-play__answers">
           <p class="op-play__prompt">{{ question?.prompt }}</p>
-          <p v-if="listenOnly" class="op-play__listen">Szóban válaszoltok.</p>
+          <p v-if="listen" class="op-play__listen">Szóban válaszoltok.</p>
           <template v-else>
           <div v-if="type === 'freetext'" class="op-play__free">
             <input
@@ -192,7 +192,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, reactive, ref, watch } from 'vue';
-import { normalizeOpTypeCode, opTypeLabel } from '../constants';
+import { isNoOptionsType, normalizeOpTypeCode, opTypeLabel } from '../constants';
 import { matchOpFreetext } from '../freetextMatch';
 import type { OpQuestionPreviewModel } from '../opData';
 import olimpubWordmark from 'src/assets/brand/modules/olimpub/olimpub_logo_full_knockout.png';
@@ -268,6 +268,9 @@ const type = computed(
   () => normalizeOpTypeCode(String(props.question?.type || '')) || String(props.question?.type || 'single')
 );
 const typeLabel = computed(() => opTypeLabel(type.value));
+/** Szóbeli feladat (no_options): csak az instrukció látszik, nincs típus, opció, tipp, bevezető és időkeret. */
+const spoken = computed(() => isNoOptionsType(type.value));
+const listen = computed(() => props.listenOnly || spoken.value);
 const topic = computed(() => props.question?.topic?.trim() || '');
 const hasQuestionMedia = computed(() => Boolean(props.mediaUrl));
 const mediaSrc = computed(() => props.mediaUrl || olimpubWordmark);
@@ -285,7 +288,7 @@ const verdictHint = computed(() => {
   if (props.face === 'game' && verdict.value === 'ok') return 'A pontot a leggyorsabb kapja.';
   return verdict.value === 'ok' ? 'Szép volt — várj a következőre.' : 'Most nem jött össze.';
 });
-const shownRatio = computed(() => (intro.value ? 1 : remainingRatio.value));
+const shownRatio = computed(() => (intro.value || spoken.value ? 1 : remainingRatio.value));
 const frameColor = computed(() => {
   if (props.face === 'game') {
     if (shownRatio.value > 0.45) return '#22d3ee';
@@ -322,7 +325,7 @@ function finishIntro() {
 
 function startIntro() {
   stopIntro();
-  if (props.holdRead && props.phase !== 'wait' && props.question?.prompt && props.face !== 'game') {
+  if (props.holdRead && !spoken.value && props.phase !== 'wait' && props.question?.prompt && props.face !== 'game') {
     intro.value = 'read';
     return;
   }
@@ -332,6 +335,7 @@ function startIntro() {
     !props.question?.prompt ||
     props.face === 'game' ||
     props.skipIntro ||
+    spoken.value ||
     hold <= 0
   ) {
     intro.value = null;
@@ -387,7 +391,7 @@ const orderItems = computed(() => mixList(rawOptions.value.slice(0, 5), mixSeed.
 const orderRows = computed(() => orderItems.value);
 
 const canSend = computed(() => {
-  if (!props.accepting || props.listenOnly) return false;
+  if (!props.accepting || listen.value) return false;
   if (type.value === 'freetext') return Boolean(freeText.value.trim());
   if (type.value === 'category') {
     return options.value.length > 0 && options.value.every((row) => itemCat[row.i]);
