@@ -37,7 +37,33 @@ const emptyLive = (): OpLiveState => emptyOpLive();
 
 const pingReloadTimers = new Map<string, number>();
 const loadInflight = new Map<string, { dirty: boolean; promise: Promise<unknown> }>();
+/** Játékos nézetben nyitott események, és amelyiknél a teljes (kérdéses) betöltés már megtörtént. */
+const playerSync = new Set<string>();
+const fullSynced = new Set<string>();
 const recentPingKeys: { key: string; at: number }[] = [];
+
+/**
+ * Könnyű (`?scope=live`) válasznál a kérdéssorok helyben maradnak, ezért a státuszukat az élő állapotból frissítjük:
+ * az aktív/lezárt kérdés a `QuestionStatus` szerint, a korábban aktív, de már nem aktív sor pedig `stopped`.
+ */
+function syncLocalQuestionStatuses(rows: OpEventQuestion[], live: OpLiveState): OpEventQuestion[] {
+  const lower = (value: unknown) => String(value || '').toLowerCase();
+  const mainId = live.ActiveEventQuestionID;
+  const mainStatus = lower(live.QuestionStatus);
+  const extraId = live.ActiveExtraQuestionID;
+  const extraStatus = lower(live.ExtraQuestionStatus);
+  return rows.map((row) => {
+    const current = lower(row.StatusCode);
+    const liveStatus = row.id === mainId ? mainStatus : row.id === extraId ? extraStatus : '';
+    if ((liveStatus === 'active' || liveStatus === 'stopped') && current !== liveStatus) {
+      return { ...row, StatusCode: liveStatus };
+    }
+    if (current === 'active' && row.id !== mainId && row.id !== extraId) {
+      return { ...row, StatusCode: 'stopped' };
+    }
+    return row;
+  });
+}
 
 function pingStrings(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
@@ -597,11 +623,36 @@ export const useOlimpubStore = defineStore('olimpub', {
       loadInflight.set(key, slot);
       return slot.promise;
     },
-    async loadEventNow(eventId: number | string) {
-      const payload = await fetchOpEvent(eventId);
-      this.replaceSettings(payload.settings);
+    /** Játékos: belépéskor teljes betöltés (kérdések megoldással), utána csak az állapotot kérjük. */
+    startPlayerSync(eventId: number | string) {
       const key = String(eventId);
+      playerSync.add(key);
+      fullSynced.delete(key);
+    },
+    stopPlayerSync(eventId: number | string) {
+      const key = String(eventId);
+      playerSync.delete(key);
+      fullSynced.delete(key);
+    },
+    /** A következő betöltés megint teljes (újracsatlakozás, hiányzó kérdés). */
+    resetFullSync(eventId: number | string) {
+      fullSynced.delete(String(eventId));
+    },
+    async loadEventNow(eventId: number | string) {
+      const key = String(eventId);
+      const lightRequest = playerSync.has(key) && fullSynced.has(key);
+      const payload = await fetchOpEvent(eventId, { live: lightRequest });
+      this.replaceSettings(payload.settings);
       const prev = this.games[key];
+      /* Könnyű válasznál (nincs / üres OpEventQuestions) a már betöltött kérdések és fordulók maradnak. */
+      const keepLocalQuestions = !payload.hasQuestionsDataset || (lightRequest && payload.questions.length === 0);
+      const questions = keepLocalQuestions
+        ? syncLocalQuestionStatuses(prev?.questions || [], payload.live)
+        : payload.questions;
+      const rounds = payload.rounds.length || !lightRequest ? payload.rounds : prev?.rounds || [];
+      if (playerSync.has(key) && !lightRequest && payload.hasQuestionsDataset && payload.questions.length > 0) {
+        fullSynced.add(key);
+      }
       const incomingStatus = opLiveQuestionStatus(payload.live);
       const questionChanged = Boolean(prev?.live) && !sameOpLiveQuestion(payload.live, prev.live);
       const pingCount =
@@ -638,8 +689,8 @@ export const useOlimpubStore = defineStore('olimpub', {
       const frozen = holdPing || keepMosaicHold;
       const castPhase = String(payload.live.DisplayClockPhase || '').toLowerCase();
       /* Párbajnál (duel_speed) nincs felolvasási fázis és Op.StartClock: a BE indításkor elindítja a válaszórát. */
-      const startedQuestion = payload.questions.find((row) => row.id === payload.live.ActiveEventQuestionID);
-      const startedRound = payload.rounds.find((row) => row.id === startedQuestion?.RoundID);
+      const startedQuestion = questions.find((row) => row.id === payload.live.ActiveEventQuestionID);
+      const startedRound = rounds.find((row) => row.id === startedQuestion?.RoundID);
       const serverStartsClock = String(startedRound?.RoundTypeCode || '').toLowerCase() === 'duel_speed';
       const live = {
         ...payload.live,
@@ -711,12 +762,12 @@ export const useOlimpubStore = defineStore('olimpub', {
       const carriedRow =
         activeId != null &&
         String(live.QuestionStatus || '').toLowerCase() === 'active' &&
-        !payload.questions.some((row) => row.id === activeId)
+        !questions.some((row) => row.id === activeId)
           ? prev?.questions.find((row) => row.id === activeId && String(row.StatusCode || '').toLowerCase() === 'active')
           : undefined;
       this.games[key] = {
-        rounds: payload.rounds,
-        questions: (carriedRow ? [...payload.questions, carriedRow] : payload.questions).map((row) => {
+        rounds,
+        questions: (carriedRow ? [...questions, carriedRow] : questions).map((row) => {
           const kept = prev?.questions.find((item) => item.id === row.id);
           if (!kept) return row;
           const incomingKey = (row.IsCorrect || []).some(Boolean);

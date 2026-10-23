@@ -1158,7 +1158,17 @@ async function onJoinTeam(teamId: number) {
     joining.value = false;
   }
 }
-useOpLiveResync(numericEventId, refreshLobby, { blocked: () => accessBlocked.value });
+/* Belépéskor teljes betöltés (kérdések megoldással), utána a GET csak az állapotot kéri (`?scope=live`). */
+store.startPlayerSync(eventId.value);
+useOpLiveResync(
+  numericEventId,
+  () => {
+    /* Újracsatlakozás / csend után biztosan teljes szinkron, hogy a lokális kérdéslista friss legyen. */
+    store.resetFullSync(eventId.value);
+    return refreshLobby();
+  },
+  { blocked: () => accessBlocked.value }
+);
 
 function rejoin() {
   void router.push({ name: 'olimpub-join' });
@@ -1200,6 +1210,8 @@ watch(
         stopGapPolling();
         return;
       }
+      /* Ha a kérdés itt azért nem rajzolható ki, mert a sor hiányzik a helyi listából, a teljes betöltés hozza meg. */
+      store.resetFullSync(String(numericEventId.value));
       void store.loadGame(String(numericEventId.value)).catch(() => undefined);
     }, 700);
   },
@@ -1209,6 +1221,7 @@ watch(
 onUnmounted(() => {
   if (tick != null) window.clearInterval(tick);
   stopGapPolling();
+  store.stopPlayerSync(eventId.value);
 });
 </script>
 

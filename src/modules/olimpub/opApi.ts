@@ -50,6 +50,8 @@ export interface OpEventPayload {
   teamMembers: OpTeamMember[];
   penalties: OpPenalty[];
   hasPenaltiesDataset: boolean;
+  /** Hamis, ha a válasz nem hozta az `OpEventQuestions` datasetet (könnyű, csak állapotot adó betöltés). */
+  hasQuestionsDataset: boolean;
   live: OpLiveState;
   displayCast: Record<string, unknown> | null;
 }
@@ -186,10 +188,18 @@ function kioskHeaders(eventId: number | string): Record<string, string> {
   return displayAuthHeaders(eventId);
 }
 
-export async function fetchOpEvent(eventId: number | string): Promise<OpEventPayload> {
+/**
+ * `live: true` → `?scope=live`: a BE-től csak az állapotot (hol tartunk, következő…) kérjük, kérdések nélkül.
+ * Ha a BE nem ismeri a paramétert, a teljes választ adja, amit az FE ugyanúgy feldolgoz.
+ */
+export async function fetchOpEvent(
+  eventId: number | string,
+  opts?: { live?: boolean }
+): Promise<OpEventPayload> {
   const response = await api.get(`/op/event/${eventId}`, {
     skipErrorNotify: true,
     headers: kioskHeaders(eventId),
+    ...(opts?.live ? { params: { scope: 'live' } } : {}),
   });
   const data = expandOpPayload(unwrapApiPayload(response.data));
   throwIfApiFailed(data, 'Az Olimpub esemény betöltése sikertelen.');
@@ -216,6 +226,7 @@ export async function fetchOpEvent(eventId: number | string): Promise<OpEventPay
       pickDataset(data, 'OpPenalties', 'opPenalties', 'Penalties', 'tblPenalty')
     ),
     hasPenaltiesDataset: hasDatasetKey(data, 'OpPenalties', 'opPenalties', 'Penalties', 'tblPenalty'),
+    hasQuestionsDataset: hasDatasetKey(data, 'OpEventQuestions', 'opEventQuestions', 'EventQuestions'),
     teamMembers: (() => {
       const teamRows = pickOpTeamRows(data);
       const named = pickFilledDataset(
