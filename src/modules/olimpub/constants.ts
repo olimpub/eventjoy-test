@@ -67,6 +67,58 @@ export const OP_PENALTY_LABELS: Record<string, string> = {
   manual_minus: 'Kézi mínusz',
 };
 
+export interface OpRoundScoringInfo {
+  summary: string;
+  rows: { label: string; text: string }[];
+  note?: string;
+}
+
+/** Kvízmesternek: hogyan számol a szerver fordulótípusonként (docs/olimpub-v2-struktura-fe.md, 2. pont). Csak tájékoztatás, a számítás a BE-n fut. */
+export const OP_ROUND_SCORING: Record<OpRoundTypeCode, OpRoundScoringInfo> = {
+  main_quiz: {
+    summary: 'Csapatátlag és sebesség, a forduló végén helyezés szerinti pont.',
+    rows: [
+      { label: 'Nyers pont', text: 'Csapatátlag + sebesség' },
+      { label: 'Mikor jár az F pont', text: 'A forduló lezárásakor' },
+      { label: 'F pont skála', text: 'Dinamikus: 100-tól lefelé, a résztvevő csapatok számától függően' },
+    ],
+    note: 'Csak az a csapat számít résztvevőnek, amelyik legalább 1 választ beküldött. A többi csapat 0 F pontot kap, és a legutolsó helyezést.',
+  },
+  duel_speed: {
+    summary: 'A leggyorsabb helyes válasz nyer, az F pont kérdésenként azonnal jár.',
+    rows: [
+      { label: 'Nyers pont', text: 'A leggyorsabb helyes csapattag ideje alapján (100000 − ms)' },
+      { label: 'Mikor jár az F pont', text: 'Minden kérdés leállításakor, azonnal' },
+      { label: 'F pont skála', text: 'Fix: 1. hely 20, 2. hely 10, 3. hely 5' },
+    ],
+  },
+  fast_5: {
+    summary: 'A leggyorsabb válasz számít, az F pont a forduló végén jár.',
+    rows: [
+      { label: 'Nyers pont', text: 'A leggyorsabb helyes válasz ideje alapján (100000 − ms)' },
+      { label: 'Mikor jár az F pont', text: 'A forduló lezárásakor' },
+      { label: 'F pont skála', text: 'Fix: 1–5. hely 50, 40, 30, 20, 10' },
+    ],
+    note: 'Csak az a csapat számít résztvevőnek, amelyik legalább 1 választ beküldött. A többi csapat 0 F pontot kap, és a legutolsó helyezést.',
+  },
+  manual_display: {
+    summary: 'Nincs automatikus pontozás, te adod a pontokat a + Pont / − Pont gombbal.',
+    rows: [
+      { label: 'Nyers pont', text: 'Nincs' },
+      { label: 'F pont', text: 'Nincs, nem zárul helyezéssel' },
+      { label: 'Mozaik', text: 'Helyes tipp: +10, kiesés: nem jár pont' },
+      { label: 'Karaoke', text: 'Karaoke pro: +20' },
+      { label: 'Kézi', text: '+ Pont / − Pont: a választott érték (1, 2, 5, 10 vagy 20). Csalás: −10' },
+    ],
+    note: 'A pontok a kvíz F pontjaihoz adódnak hozzá, a főtáblán látszanak.',
+  },
+};
+
+export function roundScoringInfo(code: unknown): OpRoundScoringInfo | null {
+  const key = normalizeRoundTypeCode(code);
+  return key ? OP_ROUND_SCORING[key] : null;
+}
+
 export function normalizeRoundTypeCode(raw: unknown): OpRoundTypeCode | '' {
   const key = String(raw || '').trim().toLowerCase();
   const hit = OP_ROUND_TYPES.find((row) => row.code === key);
@@ -83,7 +135,9 @@ export function roundTypeKind(code: string): 'quiz' | 'game' {
 
 /** A színpadi felület régi jelzése. A szervernek nem megy ki. */
 export function stageMarkForRound(code: string, title = ''): string {
-  if (code === 'manual_display') return /karaoke/i.test(title) ? 'EG3' : 'EG2';
+  /* Színpadi játék tipp nélkül (Karaoke, Folytasd): EG3. Minden más `manual_display` forduló Mozaik (EG2, tippelős).
+     Ideiglenes, cím alapú jelzés, amíg a szerver nem ad forduló-szintű „tipp engedélyezve” jelzést. */
+  if (code === 'manual_display') return /karaoke|folytasd/i.test(title) ? 'EG3' : 'EG2';
   if (code === 'duel_speed') return 'EG1';
   return '';
 }

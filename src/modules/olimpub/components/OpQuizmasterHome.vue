@@ -23,6 +23,7 @@
     :question-total="openItem.total"
     :question-status="stageQuestionStatus"
     :extra-game-id="stageMarkForRound(openItem.roundTypeCode || '', openItem.title)"
+    :round-type-code="openItem.roundTypeCode || ''"
     :extra-question-id="liveExtraQuestionId"
     :extra-run-id="liveExtraRunId"
     :result-rows="roundScoreRows"
@@ -89,6 +90,16 @@
           <span class="op-qh__launch-copy">
             <strong>Eredmények</strong>
             <small>Állás és ceremónia</small>
+          </span>
+          <q-icon name="sym_r_chevron_right" size="22px" class="op-qh__launch-go" aria-hidden="true" />
+        </button>
+        <button v-if="eventId" type="button" class="op-qh__launch is-link" @click="area = 'connections'">
+          <span class="op-qh__launch-icon" aria-hidden="true">
+            <q-icon name="sym_r_devices" size="32px" />
+          </span>
+          <span class="op-qh__launch-copy">
+            <strong>Kapcsolatok</strong>
+            <small>Játékosok és kijelzők, leválasztás</small>
           </span>
           <q-icon name="sym_r_chevron_right" size="22px" class="op-qh__launch-go" aria-hidden="true" />
         </button>
@@ -164,8 +175,13 @@
               <q-tooltip>{{ roundVisible(row) ? 'Látható' : 'Rejtett' }}</q-tooltip>
             </button>
           </div>
+          <OpRoundScoring v-if="row.roundTypeCode" class="op-qh__scoring" :code="row.roundTypeCode" />
         </li>
       </ul>
+    </section>
+
+    <section v-else-if="area === 'connections' && eventId" class="op-qh__panel">
+      <OpQuizmasterConnections :event-id="eventId" />
     </section>
 
     <section v-else-if="area === 'results'" class="op-qh__wall">
@@ -307,6 +323,8 @@ import { useOpLeaderboards, type OpStandingsSource } from '../useOpLeaderboards'
 import { useOpLiveResync } from '../useOpLiveResync';
 
 const OpQuizmasterStage = defineAsyncComponent(() => import('./OpQuizmasterStage.vue'));
+const OpRoundScoring = defineAsyncComponent(() => import('./OpRoundScoring.vue'));
+const OpQuizmasterConnections = defineAsyncComponent(() => import('./OpQuizmasterConnections.vue'));
 
 type CatalogItem = QmCatalogItem;
 
@@ -370,7 +388,7 @@ const items = computed(() => {
   return SAMPLE_ITEMS;
 });
 
-const area = ref<'quiz' | 'game' | 'results' | null>(
+const area = ref<'quiz' | 'game' | 'results' | 'connections' | null>(
   props.initialArea === 'quiz' || props.initialArea === 'game' || props.initialArea === 'results'
     ? props.initialArea
     : null
@@ -483,6 +501,7 @@ const heading = computed(() => {
   if (area.value === 'quiz') return 'Kvíz';
   if (area.value === 'game') return 'Játék';
   if (area.value === 'results') return 'Eredmények';
+  if (area.value === 'connections') return 'Kapcsolatok';
   return 'Kvízmester';
 });
 
@@ -2314,6 +2333,20 @@ watch(
   background: rgba(26, 11, 36, 0.12);
 }
 
+.op-qh__launch.is-link {
+  grid-column: 1 / -1;
+  flex-direction: row;
+  align-items: center;
+  min-height: 92px;
+  padding: 14px 16px;
+  background: linear-gradient(135deg, #d8b4fe 0%, #a855f7 52%, #7e22ce 100%);
+  color: #1f0638;
+}
+
+.op-qh__launch.is-link .op-qh__launch-icon {
+  background: rgba(31, 6, 56, 0.16);
+}
+
 .op-qh__cast {
   display: flex;
   gap: 8px;
@@ -2403,9 +2436,15 @@ watch(
   gap: 8px;
 }
 
+.op-qh__scoring {
+  flex: 0 0 100%;
+  padding: 0 6px 4px;
+}
+
 .op-qh__item {
   display: flex;
   flex-direction: row;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   padding: 6px 8px 6px 6px;

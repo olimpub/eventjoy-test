@@ -154,6 +154,10 @@ export const useOlimpubStore = defineStore('olimpub', {
     lastPingCorrectFlg: null as boolean | null,
     lastPingEventUserId: null as number | null,
     lastPingCast: null as Record<string, unknown> | null,
+    /** Op.DisconnectDisplays: a kvízmester leválasztotta a kijelzőt (`null` DisplayID = az összeset). */
+    detachSeq: 0,
+    detachEventId: null as number | null,
+    detachDisplayId: null as number | null,
     clearedExtraGames: {} as Record<string, string[]>,
   }),
   getters: {
@@ -203,6 +207,14 @@ export const useOlimpubStore = defineStore('olimpub', {
       const body = payload && typeof payload === 'object' ? payload : {};
       if (isDuplicatePing(pingKey(eventId, action, body))) return;
       const key = eventId != null && eventId !== '' ? String(eventId) : '';
+      /* Mindenkit kiléptettek: a helyi tagok azonnal törlődnek (az üres GET-válasz egyébként nem írná felül őket). */
+      if (key && action === 'Op.ClearTeamMembers') this.clearTeamMembers(key);
+      if (key && action === 'Op.DisconnectDisplays') {
+        const displayId = Number(body.DisplayID ?? body.displayID ?? body.DisplayId ?? body.displayId);
+        this.detachEventId = Number(eventId);
+        this.detachDisplayId = Number.isFinite(displayId) && displayId > 0 ? displayId : null;
+        this.detachSeq += 1;
+      }
       const prevGame = key ? this.games[key] || this.getGame(eventId as number | string) : null;
       /* Az Op.MosaicBuzz-t a BE már csak az első érvényes tippnél küldi szét; a helyi ClockPaused alapján
          nem dobjuk el (egy beragadt ClockPaused elnyelte a tippet a kvízmesternél). */
@@ -286,6 +298,8 @@ export const useOlimpubStore = defineStore('olimpub', {
       ) {
         this.lastPingCast = body;
       }
+      /* A kapcsolatok változása és a kijelző leválasztása nem érinti a játék állapotát: nincs szükség GET-re. */
+      if (action === 'Op.ConnectionsChanged' || action === 'Op.DisconnectDisplays') return;
       if (!key) return;
       if (action === 'Op.Presence' && !versionGap) {
         const game = prevGame || this.getGame(key);
@@ -537,6 +551,15 @@ export const useOlimpubStore = defineStore('olimpub', {
       const key = String(eventId);
       const prev = this.getGame(eventId);
       this.games[key] = { ...prev, teams };
+    },
+    clearTeamMembers(eventId: number | string) {
+      const key = String(eventId);
+      const prev = this.getGame(eventId);
+      this.games[key] = {
+        ...prev,
+        teamMembers: [],
+        teams: prev.teams.map((team) => ({ ...team, MemberCount: 0 })),
+      };
     },
     dropOwnTeam(eventId: number | string, eventUserId: number | null) {
       const key = String(eventId);

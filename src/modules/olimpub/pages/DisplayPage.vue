@@ -1,6 +1,33 @@
 <template>
   <div class="op-scope op-wall">
-    <div v-if="!command" class="op-wall__idle">
+    <div v-if="detached" class="op-wall__idle">
+      <div class="op-glow" aria-hidden="true" />
+      <div class="op-watermark" aria-hidden="true">
+        <img :src="brand.iconTransparent" alt="" />
+      </div>
+      <div class="relative z-10 text-center px-6">
+        <img :src="brand.logoDark" alt="Olimpub" class="h-20 mx-auto mb-6 object-contain" />
+        <p class="text-xl m-0" style="color: var(--op-cream)">Leválasztva</p>
+        <p class="text-base m-0 mt-2" style="color: var(--op-muted)">
+          A kvízmester leválasztotta ezt a kijelzőt. Új PIN-nel csatlakozhatsz újra.
+        </p>
+        <form class="op-wall__pin" @submit.prevent="reconnectWithPin">
+          <input
+            v-model="pinInput"
+            type="text"
+            inputmode="numeric"
+            maxlength="4"
+            autocomplete="off"
+            placeholder="PIN"
+            aria-label="Kijelző PIN"
+          />
+          <button type="submit" :disabled="pinBusy || pinInput.replace(/\D/g, '').length !== 4">Csatlakozás</button>
+        </form>
+        <p v-if="pinError" class="text-base m-0 mt-3" style="color: #ffb4b4">{{ pinError }}</p>
+      </div>
+    </div>
+
+    <div v-else-if="!command" class="op-wall__idle">
       <div class="op-glow" aria-hidden="true" />
       <div class="op-watermark" aria-hidden="true">
         <img :src="brand.iconTransparent" alt="" />
@@ -168,7 +195,13 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { OLIMPUB_BRAND } from 'src/assets/brand/olimpub';
-import { openPtaDisplaySession, readStoredDisplayToken } from 'src/modules/profitability/ptaDisplayApi';
+import {
+  clearDisplayToken,
+  openPtaDisplaySession,
+  readStoredDisplayId,
+  readStoredDisplayToken,
+} from 'src/modules/profitability/ptaDisplayApi';
+import { readAxiosHttpStatus } from 'src/utils/apiPayload';
 import {
   connectToEventLive,
   disconnectEventLive,
@@ -218,6 +251,12 @@ const router = useRouter();
 const store = useOlimpubStore();
 const authStore = useAuthStore();
 const command = ref<OpDisplayCommand | null>(null);
+/** A kvízmester leválasztotta ezt a kijelzőt (vagy a token érvénytelen): nincs újracsatlakozás, csak új PIN. */
+const detached = ref(false);
+const pinInput = ref('');
+const pinBusy = ref(false);
+const pinError = ref('');
+const connectError = ref('');
 const drawnTitle = ref('');
 const drawLive = ref(false);
 const revealShown = ref(0);
@@ -753,8 +792,16 @@ watch(
 /** GET után a szerveren tárolt Cast; ugyanazt a vetítést nem indítja újra (óra, reveal, sorsolás). */
 async function resyncDisplay() {
   const id = eventId.value;
-  if (!id) return;
-  await store.loadGame(id);
+  if (!id || detached.value) return;
+  try {
+    await store.loadGame(id);
+  } catch (error) {
+    /* Érvénytelenített kijelző-token (leválasztás után): nem próbálkozunk tovább, új PIN kell. */
+    const status = readAxiosHttpStatus(error);
+    if ((status === 401 || status === 403) && !authStore.isAuthenticated) detach();
+    throw error;
+  }
+  if (detached.value) return;
   const game = store.getGame(id);
   const live = game.live;
   const qid = live.ActiveEventQuestionID;
@@ -820,10 +867,59 @@ async function resyncDisplay() {
   applyDisplayCast(cast, true);
 }
 
-/** TV = `display` csatorna. Staff JWT-vel, vagy PIN-nel / tárolt kivetítő tokennel (Module 'op'). */
-async function connectDisplayLive() {
+/** A kvízmester leválasztotta a kijelzőt: token törlés, SignalR leállítás, nincs automatikus újracsatlakozás. */
+function detach() {
+  if (detached.value) return;
+  detached.value = true;
   const id = eventId.value;
-  if (!id) return;
+  if (id) clearDisplayToken(id);
+  setSignalRDisplayToken(null);
+  disconnectEventLive();
+  window.clearTimeout(fullCastTimer);
+  stopDraw();
+  stopReveal();
+  stopStanding();
+  command.value = null;
+  lastCastKey = '';
+}
+
+watch(
+  () => store.detachSeq,
+  () => {
+    if (store.detachEventId !== eventId.value) return;
+    const target = store.detachDisplayId;
+    /* DisplayID nélkül az összes kijelzőt leválasztották; egyébként csak a megadottat. */
+    if (target == null || target === readStoredDisplayId(eventId.value)) detach();
+  }
+);
+
+async function reconnectWithPin() {
+  const id = eventId.value;
+  const pin = pinInput.value.replace(/\D/g, '');
+  if (!id || pin.length !== 4 || pinBusy.value) return;
+  pinBusy.value = true;
+  pinError.value = '';
+  try {
+    await router.replace({ name: 'olimpub-display', params: { id }, query: { ...route.query, pin } });
+    detached.value = false;
+    const ok = await connectDisplayLive();
+    if (!ok) {
+      detached.value = true;
+      pinError.value = connectError.value || 'Érvénytelen vagy lejárt PIN.';
+      return;
+    }
+    pinInput.value = '';
+    await resyncDisplay().catch(() => undefined);
+  } finally {
+    pinBusy.value = false;
+  }
+}
+
+/** TV = `display` csatorna. Staff JWT-vel, vagy PIN-nel / tárolt kivetítő tokennel (Module 'op'). */
+async function connectDisplayLive(): Promise<boolean> {
+  const id = eventId.value;
+  if (!id) return false;
+  connectError.value = '';
   const pin = String(route.query.pin || '').replace(/\D/g, '');
   let token = '';
   try {
@@ -835,7 +931,7 @@ async function connectDisplayLive() {
     } else if (!authStore.isAuthenticated) {
       token = readStoredDisplayToken(id);
     }
-    if (!token && !authStore.isAuthenticated) return;
+    if (!token && !authStore.isAuthenticated) return false;
     setSignalRDisplayToken(token || null);
     await connectToEventLive({
       eventId: id,
@@ -844,8 +940,14 @@ async function connectDisplayLive() {
       displayOnly: true,
       displayToken: token || null,
     });
+    return true;
   } catch (err) {
     console.error('Olimpub kivetítő: SignalR csatlakozás sikertelen:', err);
+    connectError.value = err instanceof Error && err.message ? err.message : '';
+    /* Tárolt, de érvénytelenített token (leválasztás után): nincs újrapróbálkozás. */
+    const status = readAxiosHttpStatus(err);
+    if (pin.length !== 4 && (status === 401 || status === 403) && !authStore.isAuthenticated) detach();
+    return false;
   }
 }
 
@@ -876,6 +978,44 @@ onUnmounted(() => {
   padding: 0;
   background: #120814;
   color: #fff8f2;
+}
+
+.op-wall__pin {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 28px;
+}
+
+.op-wall__pin input {
+  width: 9rem;
+  min-height: 56px;
+  padding: 0 16px;
+  border: 2px solid rgba(255, 248, 242, 0.25);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--op-cream);
+  font-size: 1.6rem;
+  font-weight: 800;
+  letter-spacing: 0.4em;
+  text-align: center;
+}
+
+.op-wall__pin button {
+  min-height: 56px;
+  padding: 0 22px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--op-gold);
+  color: #1a1408;
+  font-size: 1.1rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.op-wall__pin button:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .op-wall__idle {

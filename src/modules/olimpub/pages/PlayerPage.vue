@@ -312,10 +312,16 @@ const nextBreak = computed(() => {
     .sort((a, b) => a.SortIndex - b.SortIndex || a.id - b.id);
   const qStatus = String(live.QuestionStatus || '').toLowerCase();
   const currentId = live.ActiveEventQuestionID ?? live.FocusedEventQuestionID;
+  /* A kvízmester kérdést is kihagyhat (léptetés előre): a nála korábbi sorszámú, de le nem játszott kérdés
+     nem „következő" a játékosnak, és nem számít a hátralévők közé. */
+  const currentSort = currentId != null ? qs.find((row) => row.id === currentId)?.SortIndex ?? null : null;
   const remaining = qs.filter((row) => {
     const st = String(row.StatusCode || '').toLowerCase();
     if (st === 'stopped' || st === 'closed') return false;
     if (qStatus === 'stopped' && currentId != null && row.id === currentId) return false;
+    if (currentSort != null && currentSort > 0 && row.id !== currentId && row.SortIndex > 0 && row.SortIndex < currentSort) {
+      return false;
+    }
     return true;
   });
   if (qStatus === 'active') return null;
@@ -920,6 +926,13 @@ watch(
   () => {
     if (store.lastPingEventId != null && String(store.lastPingEventId) !== eventId.value) return;
     const action = store.lastPingAction;
+    if (action === 'Op.ClearTeamMembers') {
+      /* A kvízmester mindenkit kiléptetett: a helyi csapat-emlék is törlődik, a játékos újra csapatot választ. */
+      localTeamId.value = null;
+      if (teamKey.value) localStorage.removeItem(teamKey.value);
+      joinError.value = '';
+      return;
+    }
     if (action === 'Op.StartExtraQuestion' || action === 'Op.StartExtra') {
       resetMosaicQuestion();
       return;

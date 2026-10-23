@@ -11,13 +11,22 @@
       <div class="op-wait__sparks" aria-hidden="true">
         <span v-for="n in 7" :key="n" class="op-wait__spark" />
       </div>
-      <div class="op-wait__mascot">
+      <div
+        class="op-wait__mascot"
+        :class="{ 'is-busy': leaving }"
+        role="button"
+        tabindex="0"
+        aria-label="Csapat módosítása"
+        @click="onMascot"
+        @keydown.enter.prevent="onMascot"
+        @keydown.space.prevent="onMascot"
+      >
         <button
           type="button"
           class="op-wait__swap"
           aria-label="Csapat módosítása"
           :disabled="leaving"
-          @click="$emit('changeTeam')"
+          @click.stop="onMascot"
         >
           <q-icon name="swap_horiz" size="22px" />
         </button>
@@ -28,6 +37,7 @@
 
     <p class="op-wait__team">{{ teamName }}</p>
     <p class="op-wait__count">{{ countLabel }}</p>
+    <p class="op-wait__hint">Koppints a plüssre a csapatváltáshoz.</p>
 
     <ul v-if="mates.length" class="op-wait__mates">
       <li
@@ -70,9 +80,14 @@ const props = withDefaults(
   }
 );
 
-defineEmits<{
+const emit = defineEmits<{
   changeTeam: [];
 }>();
+
+function onMascot() {
+  if (props.leaving) return;
+  emit('changeTeam');
+}
 
 const initial = computed(() => {
   const letter = String(props.teamName || '').trim().charAt(0);
@@ -255,6 +270,33 @@ h1 {
     0 0 0 6px rgba(7, 10, 20, 0.55),
     0 22px 48px rgba(0, 0, 0, 0.45),
     0 0 40px rgba(245, 185, 66, 0.18);
+}
+
+.op-wait__mascot {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.15s ease;
+}
+
+.op-wait__mascot:active {
+  transform: scale(0.96);
+}
+
+.op-wait__mascot:focus-visible {
+  outline: 3px solid var(--op-gold);
+  outline-offset: 4px;
+}
+
+.op-wait__mascot.is-busy {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.op-wait__hint {
+  margin: -4px 0 0;
+  font-size: 0.8rem;
+  color: var(--op-muted);
+  opacity: 0.85;
 }
 
 .op-wait__mascot img {

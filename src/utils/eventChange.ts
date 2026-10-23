@@ -339,6 +339,9 @@ export const SIGNALR_LIVE_ACTIONS = [
   'Op.SetCurrent',
   'Op.JoinTeam',
   'Op.LeaveTeam',
+  'Op.ClearTeamMembers',
+  'Op.DisconnectDisplays',
+  'Op.ConnectionsChanged',
   'Op.AdjustTeam',
   'Op.MosaicJudge',
   'Op.MosaicBuzz',
@@ -367,7 +370,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 }
 
 const OP_ACTION_BARE =
-  /^(SubmitAnswer|React|StartQuestion|StartClock|StartRound|StopQuestion|NextQuestion|ReopenQuestion|PauseQuestion|StartExtra|StopExtra|StartExtraQuestion|StopExtraQuestion|JoinTeam|LeaveTeam|MosaicBuzz|MosaicJudge|ShowLeaderboard|CastDisplay|CloseRound|ResetRound|ResetExtra|PublishRound|SetCurrent|AdjustTeam|Penalty|SetPlayerFace|Presence)$/i;
+  /^(SubmitAnswer|React|StartQuestion|StartClock|StartRound|StopQuestion|NextQuestion|ReopenQuestion|PauseQuestion|StartExtra|StopExtra|StartExtraQuestion|StopExtraQuestion|JoinTeam|LeaveTeam|ClearTeamMembers|DisconnectDisplays|ConnectionsChanged|MosaicBuzz|MosaicJudge|ShowLeaderboard|CastDisplay|CloseRound|ResetRound|ResetExtra|PublishRound|SetCurrent|AdjustTeam|Penalty|SetPlayerFace|Presence)$/i;
 
 function asOpAction(action: string) {
   const text = String(action || '').trim();

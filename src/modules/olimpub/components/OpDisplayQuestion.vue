@@ -28,7 +28,7 @@
             <p class="op-dq__kicker">Jobb oldal</p>
             <ul class="op-dq__opts is-dark">
               <li v-for="(row, n) in matchRows" :key="`r-${n}`" :class="`c-${n % 6}`">
-                <b>{{ n + 1 }}</b>
+                <b>{{ showCorrect ? letter(n) : n + 1 }}</b>
                 <span>{{ row }}</span>
               </li>
             </ul>
@@ -56,8 +56,12 @@
         </div>
 
         <ul v-else-if="choiceRows.length" class="op-dq__opts" :class="{ 'is-split': choiceRows.length > 4 }">
-          <li v-for="(row, n) in choiceRows" :key="`a-${n}`" :class="[`c-${n % 6}`, { 'is-ok': showCorrect && corrects[n] }]">
-            <b>{{ letter(n) }}</b>
+          <li
+            v-for="(row, n) in choiceRows"
+            :key="`a-${n}`"
+            :class="[`c-${n % 6}`, { 'is-ok': showCorrect && !isOrder && corrects[n] }]"
+          >
+            <b>{{ isOrder && showCorrect ? n + 1 : letter(n) }}</b>
             <span>{{ row }}</span>
           </li>
         </ul>
@@ -166,10 +170,52 @@ const isMosaic = computed(() => String(props.type || '').toLowerCase() === 'mosa
 const isFreetext = computed(() => String(props.type || '').toLowerCase() === 'freetext' || isMosaic.value);
 /** Szóbeli feladat (no_options): csak az instrukció, nincs opció, óra, beküldésszámláló. */
 const isSpoken = computed(() => String(props.type || '').toLowerCase() === 'no_options');
-const choiceRows = computed(() =>
+const isOrder = computed(() => String(props.type || '').toLowerCase() === 'order');
+const isMatch = computed(() => String(props.type || '').toLowerCase() === 'match');
+const storedRows = computed(() =>
   isFreetext.value || isSpoken.value ? [] : (props.answers || []).map((item) => item.trim()).filter(Boolean)
 );
-const matchRows = computed(() => (props.matches || []).map((item) => item.trim()).filter(Boolean));
+const storedMatchRows = computed(() => (props.matches || []).map((item) => item.trim()).filter(Boolean));
+
+/** Stabil (kérdésenként azonos) keverés: a kivetítő újratöltése után is ugyanaz a sorrend marad. */
+function seedOf(text: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i += 1) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0 || 1;
+}
+
+/** Összekeveri a listát, és soha nem adja vissza az eredeti sorrendet (2+ elemnél). */
+function scramble(list: string[], seed: number): string[] {
+  const out = [...list];
+  let s = seed;
+  for (let i = out.length - 1; i > 0; i -= 1) {
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+    const j = s % (i + 1);
+    const keep = out[i] as string;
+    out[i] = out[j] as string;
+    out[j] = keep;
+  }
+  if (out.length > 1 && out.every((item, i) => item === list[i])) {
+    out.push(out.shift() as string);
+  }
+  return out;
+}
+
+const scrambleSeed = computed(() => seedOf(`${props.prompt}|${storedRows.value.join('|')}|${storedMatchRows.value.join('|')}`));
+
+/* Sorbarendezés: a tárolt sorrend a helyes; a kérdés alatt keverve látszik, a megoldásnál helyes sorrendben. */
+const choiceRows = computed(() =>
+  isOrder.value && !props.showCorrect ? scramble(storedRows.value, scrambleSeed.value) : storedRows.value
+);
+/* Párosítás: a jobb oldal a kérdés alatt keverve látszik, a megoldásnál a bal oldallal egy sorban. */
+const matchRows = computed(() =>
+  isMatch.value && !props.showCorrect
+    ? scramble(storedMatchRows.value, scrambleSeed.value + 7)
+    : storedMatchRows.value
+);
 const categoryRows = computed(() => {
   const named = (props.categories || []).map((item) => item.trim()).filter(Boolean);
   const source = named.length ? named : matchRows.value;

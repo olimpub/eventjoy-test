@@ -8,6 +8,16 @@
       <div class="op-qm__id">
         <p class="op-qm__ord">{{ face === 'game' ? 'Játék' : 'Kvíz' }}</p>
         <p v-if="started" class="op-qm__topic">{{ [topic, sortLabel].filter(Boolean).join(' · ') }}</p>
+        <button
+          v-if="started && scoringInfo"
+          type="button"
+          class="op-qm__rules"
+          aria-label="Pontozás"
+          @click="rulesOpen = true"
+        >
+          <q-icon name="sym_r_calculate" size="18px" />
+          Pontozás
+        </button>
       </div>
       <button
         v-if="showSound"
@@ -24,6 +34,12 @@
         <q-icon name="close" size="22px" />
       </button>
     </header>
+    <q-dialog v-model="rulesOpen" position="bottom" transition-show="slide-up" transition-hide="slide-down">
+      <div class="op-qm__rules-sheet">
+        <OpRoundScoring :code="roundTypeCode" card />
+        <button type="button" class="op-qm__rules-close" @click="rulesOpen = false">Bezár</button>
+      </div>
+    </q-dialog>
     <Transition name="op-mixer">
       <div v-if="showSound && soundOpen" class="op-qm__mixer" @click.self="soundOpen = false">
         <div class="op-qm__mixer-card">
@@ -78,6 +94,7 @@
     </div>
     <section v-if="!started" class="op-qm__gate">
       <h2>{{ topic || (face === 'game' ? 'Párbaj' : 'Forduló') }}</h2>
+      <OpRoundScoring v-if="scoringInfo" class="op-qm__scoring" :code="roundTypeCode" card />
       <p v-if="resumeLabel" class="op-qm__resume">{{ resumeLabel }}</p>
       <div v-if="!showBack" class="op-qm__pick" role="tablist" aria-label="Indítás típusa">
         <button type="button" :class="{ 'is-on': face === 'quiz' }" @click="face = 'quiz'">Kvíz</button>
@@ -245,7 +262,21 @@
           Vissza
         </button>
         <p>{{ adjust === 'plus' ? 'Pluszpont' : 'Büntetőpont' }}</p>
-        <span>Ugyanarra a csapatra többször is lehet. Bezárás: Vissza vagy Kész.</span>
+        <span>Válaszd ki a pontot, majd koppints a csapatra: azonnal elküldi. Ugyanarra a csapatra többször is lehet.</span>
+        <div class="op-qm__amounts" role="radiogroup" aria-label="Pont">
+          <button
+            v-for="value in ADJUST_AMOUNTS"
+            :key="value"
+            type="button"
+            role="radio"
+            :aria-checked="adjustPoints === value"
+            :class="{ 'is-on': adjustPoints === value }"
+            :disabled="sending"
+            @click="adjustPoints = value"
+          >
+            {{ adjust === 'minus' ? '−' : '+' }}{{ value }}
+          </button>
+        </div>
         <span v-if="!teamList.length">Még egyetlen csapatban sincs belépett játékos.</span>
         <button
           v-for="team in teamList"
@@ -270,15 +301,15 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useQuasar } from 'quasar';
 import { useOlimpubStore } from 'src/stores/olimpub';
 import { readAxiosErrorMessage } from 'src/utils/apiPayload';
-import { opReactGlyph } from '../constants';
+import { opReactGlyph, roundScoringInfo } from '../constants';
 import {
-  countOpPenaltiesByTeam,
   formatOpPenaltySum,
   liveAnswerCountFor,
   opTeamPlayerCount,
   opTeamsWithPlayers,
   parseOpUtcMs,
   sumOpPenaltiesByTeam,
+  sumOpPenaltyPointsByTeam,
 } from '../opData';
 import {
   postOpGameChange,
@@ -290,6 +321,7 @@ import {
 } from '../opApi';
 import AppConfirmDialog from 'src/components/ui/AppConfirmDialog.vue';
 import OpResultsBoard from './OpResultsBoard.vue';
+import OpRoundScoring from './OpRoundScoring.vue';
 
 const emit = defineEmits<{
   close: [];
@@ -324,6 +356,8 @@ const props = withDefaults(
     eventQuestionId?: number | null;
     roundId?: number | null;
     extraGameId?: string;
+    /** A forduló típusa (OpRounds.RoundTypeCode): a pontozási leírás ebből jön. */
+    roundTypeCode?: string;
     extraQuestionId?: number | null;
     extraRunId?: number | null;
     questionIndex?: number;
@@ -348,6 +382,7 @@ const props = withDefaults(
     eventQuestionId: null,
     roundId: null,
     extraGameId: '',
+    roundTypeCode: '',
     extraQuestionId: null,
     extraRunId: null,
     questionIndex: 0,
@@ -360,6 +395,8 @@ const props = withDefaults(
 );
 
 const $q = useQuasar();
+const rulesOpen = ref(false);
+const scoringInfo = computed(() => roundScoringInfo(props.roundTypeCode));
 const store = useOlimpubStore();
 
 type Phase = 'ready' | 'read' | 'play' | 'paused' | 'done';
@@ -443,6 +480,9 @@ const teams = ref<QmTeam[]>(props.eventId ? teamsFromStore() : SAMPLE_TEAMS);
 const face = ref<'quiz' | 'game'>(props.initialFace);
 const started = ref(false);
 const adjust = ref<'plus' | 'minus' | null>(null);
+/* A QM által választható kézi pont; a szervernek `Points` mezőben megy (pozitív szám, az irányt a PenaltyTypeCode adja). */
+const ADJUST_AMOUNTS = [1, 2, 5, 10, 20] as const;
+const adjustPoints = ref<number>(1);
 const sending = ref(false);
 const liveBusy = ref(false);
 const stoppedOnServer = ref(false);
@@ -454,8 +494,8 @@ const teamList = computed(() =>
 const penaltyByTeam = computed(() =>
   sumOpPenaltiesByTeam(props.eventId ? store.getGame(props.eventId).penalties : [])
 );
-const penaltyCounts = computed(() =>
-  countOpPenaltiesByTeam(props.eventId ? store.getGame(props.eventId).penalties : [])
+const penaltyPoints = computed(() =>
+  sumOpPenaltyPointsByTeam(props.eventId ? store.getGame(props.eventId).penalties : [])
 );
 
 function penaltyLabel(teamId: number | null) {
@@ -465,7 +505,7 @@ function penaltyLabel(teamId: number | null) {
 
 function adjustCountLabel(teamId: number | null) {
   if (teamId == null) return adjust.value === 'minus' ? '−0' : '+0';
-  const slot = penaltyCounts.value[teamId] || { plus: 0, minus: 0 };
+  const slot = penaltyPoints.value[teamId] || { plus: 0, minus: 0 };
   if (adjust.value === 'minus') return `−${slot.minus}`;
   return `+${slot.plus}`;
 }
@@ -1066,8 +1106,14 @@ const questionPlayed = computed(() =>
     String(props.questionStatus || '').toLowerCase()
   )
 );
+/* A Játék (párbaj, karaoke, extra körök) kérdései között nincs léptetés, csak a Kvíz fordulóiban. */
 const canStep = computed(
-  () => started.value && !isExtra() && props.questionTotal != null && props.questionTotal > 1
+  () =>
+    started.value &&
+    face.value !== 'game' &&
+    !isExtra() &&
+    props.questionTotal != null &&
+    props.questionTotal > 1
 );
 const pendingStep = ref<-1 | 1 | null>(null);
 
@@ -1183,6 +1229,7 @@ async function jump() {
 
 function openAdjust(direction: 'plus' | 'minus') {
   adjust.value = direction;
+  adjustPoints.value = 1;
 }
 
 function applyBuzzTip(name: string, teamName: string, teamId: number | null) {
@@ -1309,6 +1356,7 @@ async function sendAdjust(team: QmTeam) {
       Payload: {
         TeamID: team.id,
         PenaltyTypeCode: adjust.value === 'minus' ? 'manual_minus' : 'manual_plus',
+        Points: adjustPoints.value,
       },
     });
     try {
@@ -1406,7 +1454,7 @@ watch(
   () => store.pingAt,
   () => {
     if (store.lastPingEventId !== props.eventId) return;
-    if (store.lastPingAction === 'Op.AdjustTeam') {
+    if (store.lastPingAction === 'Op.AdjustTeam' || store.lastPingAction === 'Op.ClearTeamMembers') {
       teams.value = teamsFromStore();
       return;
     }
@@ -1722,6 +1770,45 @@ onUnmounted(() => {
   align-items: center;
   gap: 8px;
   min-width: 0;
+}
+
+.op-qm__rules {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid rgba(245, 185, 66, 0.35);
+  border-radius: 999px;
+  background: rgba(245, 185, 66, 0.14);
+  color: #f5b942;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.op-qm__scoring {
+  margin: 0 0 12px;
+}
+
+.op-qm__rules-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(560px, 100vw);
+  padding: 16px 16px 20px;
+  border-radius: 22px 22px 0 0;
+  background: #1a1330;
+}
+
+.op-qm__rules-close {
+  min-height: 48px;
+  border: 0;
+  border-radius: 14px;
+  background: rgba(255, 248, 242, 0.12);
+  color: #fff8f2;
+  font-weight: 800;
+  cursor: pointer;
 }
 
 .op-qm__topic {
@@ -2352,6 +2439,29 @@ onUnmounted(() => {
   font-size: 22px;
   font-weight: 900;
   font-variant-numeric: tabular-nums;
+}
+
+.op-qm__amounts {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.op-qm__sheet .op-qm__amounts button {
+  justify-content: center;
+  min-height: 52px;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff8f2;
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+}
+
+.op-qm__sheet .op-qm__amounts button.is-on {
+  background: #f5b942;
+  color: #2a1c04;
+  box-shadow: 0 0 0 3px rgba(245, 185, 66, 0.45);
 }
 
 .op-qm__sheet button:disabled {

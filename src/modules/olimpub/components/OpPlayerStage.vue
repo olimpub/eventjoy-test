@@ -19,16 +19,6 @@
     />
 
     <header v-if="!intro && !verdict && phase !== 'wait' && !spoken" class="op-play__top">
-      <button
-        v-if="!listen"
-        type="button"
-        class="op-play__send"
-        :class="{ 'is-ready': canSend && !locked, 'is-done': locked }"
-        :disabled="locked || !canSend"
-        @click="send"
-      >
-        {{ locked ? 'Bent van' : 'Küldés' }}
-      </button>
       <div class="op-play__meta">
         <span class="op-play__kind">{{ typeLabel }}</span>
       </div>
@@ -179,6 +169,16 @@
               {{ row.text }}
             </button>
           </div>
+          <button
+            v-if="!listen"
+            type="button"
+            class="op-play__send"
+            :class="{ 'is-ready': canSend && !locked, 'is-done': locked }"
+            :disabled="locked || !canSend"
+            @click="send"
+          >
+            {{ locked ? 'Bent van' : 'Küldés' }}
+          </button>
           </template>
         </div>
 
@@ -786,7 +786,9 @@ onUnmounted(stopIntro);
 }
 
 .op-play__send {
-  min-width: 168px;
+  display: block;
+  width: 100%;
+  margin-top: 16px;
   min-height: 68px;
   padding: 0 22px;
   border: 0;
@@ -830,6 +832,7 @@ onUnmounted(stopIntro);
 }
 
 .op-play__meta {
+  margin-left: auto;
   display: flex;
   align-items: center;
   gap: 10px;

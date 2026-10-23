@@ -442,6 +442,99 @@ export async function leaveOpTeam(eventId: number): Promise<unknown> {
   });
 }
 
+/** Kvízmester / szervező: csapattagság törlése. Játékos nélkül mindenkié, `eventUserId`-val csak az adott játékosé. */
+export async function clearOpTeamMembers(eventId: number, eventUserId?: number | null): Promise<unknown> {
+  return postOpGameChange({
+    EventID: eventId,
+    Action: 'Op.ClearTeamMembers',
+    Payload: eventUserId != null ? { EventUserID: eventUserId } : {},
+  });
+}
+
+/** Kvízmester / szervező: a kijelzők leválasztása. `displayId` nélkül mindegyiké. A BE érvényteleníti a tokent. */
+export async function disconnectOpDisplays(eventId: number, displayId?: number | null): Promise<unknown> {
+  return postOpGameChange({
+    EventID: eventId,
+    Action: 'Op.DisconnectDisplays',
+    Payload: displayId != null ? { DisplayID: displayId } : {},
+  });
+}
+
+export interface OpConnectedPlayer {
+  eventUserId: number;
+  nickname: string;
+  teamId: number | null;
+  teamName: string;
+  online: boolean;
+  deviceCount: number;
+  lastSeenUtc: string;
+}
+
+export interface OpConnectedDisplay {
+  displayId: number;
+  label: string;
+  online: boolean;
+  connectionCount: number;
+  connectedAtUtc: string;
+  lastSeenUtc: string;
+}
+
+export interface OpConnections {
+  players: OpConnectedPlayer[];
+  displays: OpConnectedDisplay[];
+  playersOnline: number;
+  playersInTeams: number;
+  displaysOnline: number;
+}
+
+function flag(value: unknown): boolean {
+  return value === true || value === 1 || value === '1' || String(value ?? '').toLowerCase() === 'true';
+}
+
+function recordOf(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+/** GET /op/connections/{eventId}: csak kvízmester / szervező. Játékosok EventUserID szerint, kijelzők DisplayID szerint. */
+export async function fetchOpConnections(eventId: number): Promise<OpConnections> {
+  const response = await api.get(`/op/connections/${eventId}`, { skipErrorNotify: true });
+  const data = unwrapApiPayload(response.data);
+  throwIfApiFailed(data, 'A kapcsolatok betöltése sikertelen.');
+  /* Diagnosztika: üres lista esetén a Console-ban látszik, mit adott a szerver. */
+  console.info('[op connections]', { eventId, status: response.status, keys: Object.keys(data), data: response.data });
+  const players = pickDataset(data, 'Players', 'OpPlayers', 'Result1')
+    .map(recordOf)
+    .map((row) => ({
+      eventUserId: nullableNumericId(row.EventUserID ?? row.eventUserID ?? row.EventUserId) ?? 0,
+      nickname: String(row.Nickname ?? row.nickname ?? '').trim(),
+      teamId: nullableNumericId(row.TeamID ?? row.teamID ?? row.TeamId),
+      teamName: String(row.TeamName ?? row.teamName ?? '').trim(),
+      online: flag(row.Online ?? row.online),
+      deviceCount: Number(row.DeviceCount ?? row.deviceCount) || 0,
+      lastSeenUtc: String(row.LastSeenUtc ?? row.lastSeenUtc ?? ''),
+    }))
+    .filter((row) => row.eventUserId > 0);
+  const displays = pickDataset(data, 'Displays', 'OpDisplays', 'Result2')
+    .map(recordOf)
+    .map((row, index) => ({
+      displayId: nullableNumericId(row.DisplayID ?? row.displayID ?? row.DisplayId) ?? 0,
+      label: String(row.Label ?? row.label ?? '').trim() || `Kijelző ${index + 1}`,
+      online: flag(row.Online ?? row.online),
+      connectionCount: Number(row.ConnectionCount ?? row.connectionCount) || 0,
+      connectedAtUtc: String(row.ConnectedAtUtc ?? row.connectedAtUtc ?? ''),
+      lastSeenUtc: String(row.LastSeenUtc ?? row.lastSeenUtc ?? ''),
+    }))
+    .filter((row) => row.displayId > 0);
+  const totals = recordOf(data.Totals ?? data.totals);
+  return {
+    players,
+    displays,
+    playersOnline: Number(totals.PlayersOnline ?? totals.playersOnline) || players.filter((row) => row.online).length,
+    playersInTeams: Number(totals.PlayersInTeams ?? totals.playersInTeams) || players.filter((row) => row.teamId != null).length,
+    displaysOnline: Number(totals.DisplaysOnline ?? totals.displaysOnline) || displays.filter((row) => row.online).length,
+  };
+}
+
 export async function pauseOpQuestion(
   eventId: number,
   input: { eventQuestionId?: number | null; extraQuestionId?: number | null; hold: boolean; leftMs: number }

@@ -11,6 +11,7 @@ import type { EventGroupingKey } from 'src/modules/profitability/ptaData';
 import type { ResultsScope } from 'src/modules/profitability/standings';
 
 const TOKEN_KEY = (eventId: string | number) => `ptaDisplayToken:${eventId}`;
+const DISPLAY_ID_KEY = (eventId: string | number) => `ptaDisplayId:${eventId}`;
 const PIN_CACHE_KEY = (eventId: string | number) => `ptaDisplayPin:${eventId}`;
 const COMMAND_KEY = (eventId: string | number) => `ptaDisplayCommand:${eventId}`;
 
@@ -43,6 +44,7 @@ export interface PtaDisplayTokenResult {
 export interface PtaDisplaySessionResult {
   eventId: number;
   token: string;
+  displayId: number | null;
   expiresAtUtc: string;
 }
 
@@ -133,6 +135,19 @@ export function storeDisplayToken(eventId: string | number, token: string) {
 export function clearDisplayToken(eventId: string | number) {
   if (typeof sessionStorage === 'undefined') return;
   sessionStorage.removeItem(TOKEN_KEY(eventId));
+  sessionStorage.removeItem(DISPLAY_ID_KEY(eventId));
+}
+
+/** A BE a PIN-beütéskor kiadott munkamenet azonosítója (Op.DisconnectDisplays ezzel célozza a kijelzőt). */
+export function readStoredDisplayId(eventId: string | number): number | null {
+  if (typeof sessionStorage === 'undefined') return null;
+  return nullableNumericId(sessionStorage.getItem(DISPLAY_ID_KEY(eventId)));
+}
+
+function storeDisplayId(eventId: string | number, displayId: number | null) {
+  if (typeof sessionStorage === 'undefined') return;
+  if (displayId == null) sessionStorage.removeItem(DISPLAY_ID_KEY(eventId));
+  else sessionStorage.setItem(DISPLAY_ID_KEY(eventId), String(displayId));
 }
 
 export function hasDisplaySession(eventId: string | number): boolean {
@@ -291,9 +306,12 @@ export async function openPtaDisplaySession(args: {
   const token = String(data.Token ?? data.token ?? data.DisplayToken ?? '').trim();
   if (!token) throw new Error('Érvénytelen vagy lejárt PIN.');
   storeDisplayToken(eventId, token);
+  const displayId = nullableNumericId(data.DisplayID ?? data.displayID ?? data.DisplayId ?? data.displayId);
+  storeDisplayId(eventId, displayId);
   return {
     eventId,
     token,
+    displayId,
     expiresAtUtc: String(data.ExpiresAtUtc ?? data.expiresAtUtc ?? ''),
   };
 }

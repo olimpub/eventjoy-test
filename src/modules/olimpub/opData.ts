@@ -491,6 +491,17 @@ export function countOpPenaltiesByTeam(rows: OpPenalty[]): Record<number, { plus
   return out;
 }
 
+/** Csapatonként az összes pluszpont és az összes mínuszpont (abszolút érték), nem a tételek darabszáma. */
+export function sumOpPenaltyPointsByTeam(rows: OpPenalty[]): Record<number, { plus: number; minus: number }> {
+  const out: Record<number, { plus: number; minus: number }> = {};
+  for (const row of rows) {
+    const slot = out[row.TeamID] || (out[row.TeamID] = { plus: 0, minus: 0 });
+    if (row.Points > 0) slot.plus += row.Points;
+    else if (row.Points < 0) slot.minus += Math.abs(row.Points);
+  }
+  return out;
+}
+
 function opMemberNickname(row: Record<string, unknown> | null, depth = 0): string | null {
   if (!row) return null;
   const first = String(row.FirstName ?? row.firstName ?? '').trim();
