@@ -30,7 +30,11 @@ function isLoopbackHost(host: string) {
 }
 
 function resolveApiBaseUrl(): string {
-  const configured = String(import.meta.env.VITE_API_URL || 'https://testapi.eventjoy.hu/api');
+  const hostDefault =
+    typeof window !== 'undefined' && window.location.hostname === 'app.eventjoy.hu'
+      ? 'https://api.eventjoy.hu/api'
+      : 'https://apitest.eventjoy.hu/api';
+  const configured = String(import.meta.env.VITE_API_URL || hostDefault);
   if (typeof window === 'undefined') return configured;
   const pageHost = window.location.hostname;
   if (isLoopbackHost(pageHost)) return configured;

@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     name: Build and Deploy (prod)
     env:
-      VITE_API_URL: ${{ vars.VITE_API_URL_PROD }}
+      VITE_API_URL: ${{ vars.VITE_API_URL_PROD || 'https://api.eventjoy.hu/api' }}
     steps:
       - name: Require production API URL
         run: |

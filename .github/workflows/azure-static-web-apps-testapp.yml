@@ -1,4 +1,4 @@
-name: SWA — testapp.eventjoy.hu
+name: SWA — apptest.eventjoy.hu
 
 on:
   push:
@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     name: Build and Deploy (test)
     env:
-      VITE_API_URL: ${{ vars.VITE_API_URL_TEST || 'https://testapi.eventjoy.hu/api' }}
+      VITE_API_URL: ${{ vars.VITE_API_URL_TEST || 'https://apitest.eventjoy.hu/api' }}
     steps:
       - uses: actions/checkout@v5
         with:
