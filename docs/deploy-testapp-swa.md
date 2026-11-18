@@ -1,5 +1,7 @@
 # Teszt frontend: `testapp.eventjoy.hu` — Azure Static Web Apps + GitHub
 
+> **Frissítés:** a környezetek átnevezésre kerültek. Teszt: https://apptest.eventjoy.hu (API: https://apitest.eventjoy.hu/api, SWA: eventjoy-apptest-swa). Éles: https://app.eventjoy.hu (API: https://api.eventjoy.hu/api). A 	estapp.eventjoy.hu 301-gyel átirányít pp.eventjoy.hu-ra. Az alábbi runbook az eredeti 	estapp/	estapi bevezetést írja le (történeti); az aktuális CI/CD: rontend-cicd.md.
+
 Pontos runbook. Az API (`testapi.eventjoy.hu`) **már él**. Static Web App a frontendnek **még nincs** ebben a subscriptionben.
 
 **Subscription:** `Pulsator - prod` (`26bb209d-f1c7-4ea6-8495-72f117d5c0c8`)  

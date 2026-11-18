@@ -16,7 +16,7 @@ Ez **nem** a jegy-QR, **nem** a meghívó link, **nem** a szervező `+` walk-in.
 
 A QR **HTTPS URL**, nem nyers GUID — a kamera megnyitja a böngészőt.
 
-Példa: `https://testapp.eventjoy.hu/join/{EventUID}`
+Példa: `https://apptest.eventjoy.hu/join/{EventUID}`
 
 Útvonal: **`/join/:eventUid`**. (`quicklocalregistration` túl hosszú, a kamera és a kivetítő is rövidebbet bír.) Router: `history` mód, nincs `#`.
 
