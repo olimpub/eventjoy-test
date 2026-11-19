@@ -105,6 +105,17 @@
         </button>
       </div>
 
+      <button
+        v-if="checkInAllRows.length"
+        type="button"
+        class="part-checkin-all"
+        :disabled="checkingInAll"
+        @click="onCheckInAll"
+      >
+        <q-icon name="sym_r_login" size="20px" />
+        {{ checkingInAll ? 'Beléptetés…' : `Mindenki belép (${checkInAllRows.length})` }}
+      </button>
+
       <div class="part-toolbar" :class="{ 'has-chips': activeFilterChips.length > 0 }">
         <q-input
           v-model="searchQuery"
@@ -464,15 +475,16 @@ import { useEventStore, nicknameFromRow, type EventUser } from 'src/stores/event
 import { useMasterDataStore, ORGANIZER_ROLE_TYPE_ID } from 'src/stores/masterData';
 import { useOlimpubStore } from 'src/stores/olimpub';
 import { nullableNumericId, readAxiosErrorMessage } from 'src/utils/apiPayload';
-import { EVENT_USER_FLOW_TEMPLATE_CODE, type EventUserStatusTransition, withOrganizerDoorCheckInTransition } from 'src/utils/eventUserFlow';
+import { EVENT_USER_FLOW_TEMPLATE_CODE, doorCheckInBlocked, findEnteredEventUserStatusId, type EventUserStatusTransition, withOrganizerDoorCheckInTransition } from 'src/utils/eventUserFlow';
 import { participantListRank } from 'src/utils/eventUserStatus';
-import { setEventUserStatus } from 'src/utils/eventChange';
+import { checkInAllEventUsers, setEventUserStatus } from 'src/utils/eventChange';
 import { downloadExcelSheet, excelFileBase } from 'src/utils/excelExport';
 import InviteExcelImport from 'src/components/event/InviteExcelImport.vue';
 import WalkInRegisterSheet from 'src/components/event/WalkInRegisterSheet.vue';
 import JoinQrSheet from 'src/components/event/JoinQrSheet.vue';
 import ParticipantContactSheet from 'src/components/event/ParticipantContactSheet.vue';
 import { eventOrganizerManagePath, eventReachedCheckIn, isEventUserCheckedInName } from 'src/utils/eventRoleNav';
+import { allowTestTools } from 'src/utils/runtimeSurface';
 import AppConfirmDialog from 'src/components/ui/AppConfirmDialog.vue';
 import { OLIMPUB_BRAND } from 'src/assets/brand/olimpub';
 import { isOlimpubRouteName } from 'src/modules/olimpub/constants';
@@ -509,6 +521,7 @@ const eventStore = useEventStore();
 const olimpubStore = useOlimpubStore();
 const masterDataStore = useMasterDataStore();
 
+const checkingInAll = ref(false);
 const isImportOpen = ref(false);
 const isWalkInOpen = ref(false);
 const isJoinQrOpen = ref(false);
@@ -683,6 +696,50 @@ function mapParticipant(eu: EventUser): ParticipantRow {
 const participants = computed(() =>
   eventStore.getEventParticipantsForEvent(eventId.value).map(mapParticipant)
 );
+
+const checkInAllRows = computed(() => {
+  if (!allowTestTools()) return [];
+  return participants.value.filter((row) => !row.checkedIn && !doorCheckInBlocked(row.statusName));
+});
+
+async function onCheckInAll() {
+  if (!allowTestTools() || checkingInAll.value) return;
+  const rows = checkInAllRows.value;
+  const eventNumericId = nullableNumericId(eventId.value);
+  const toStatusId = findEnteredEventUserStatusId(masterDataStore.eventUserStatuses);
+  if (!rows.length || eventNumericId == null || toStatusId == null) return;
+  const confirmed = await askConfirm({
+    title: 'Mindenki belép',
+    message: `${rows.length} résztvevő Belépett státuszt kap. Aki lemondta vagy elutasította, kimarad.`,
+    okLabel: 'Beléptetés',
+  });
+  if (!confirmed) return;
+  checkingInAll.value = true;
+  try {
+    await checkInAllEventUsers({
+      eventId: eventNumericId,
+      toStatusId,
+      rows: rows.map((row) => ({ id: row.id, statusId: row.statusId })),
+    });
+    refreshSelected();
+    $q.notify({
+      message: `${rows.length} résztvevő belépett.`,
+      color: 'dark',
+      textColor: 'orange-4',
+      position: 'top',
+      timeout: 1800,
+    });
+  } catch (error) {
+    $q.notify({
+      message: readAxiosErrorMessage(error, 'A beléptetés sikertelen.'),
+      color: 'dark',
+      textColor: 'red-4',
+      position: 'top',
+    });
+  } finally {
+    checkingInAll.value = false;
+  }
+}
 
 const forwardTransitions = computed(() => {
   if (!selected.value) return [];
@@ -1135,6 +1192,28 @@ function comingSoon(label: string) {
   grid-template-columns: repeat(3, 1fr);
   gap: 8px;
   margin-bottom: 14px;
+}
+
+.part-checkin-all {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  margin: -2px 0 14px;
+  padding: 12px 16px;
+  border: 1px solid rgba(242, 184, 75, 0.55);
+  border-radius: 16px;
+  background: rgba(242, 184, 75, 0.14);
+  color: #f2e74b;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.part-checkin-all:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .part-kpi {

@@ -113,6 +113,17 @@
         </button>
       </div>
 
+      <button
+        v-if="checkInAllRows.length"
+        type="button"
+        class="part-checkin-all"
+        :disabled="checkingInAll"
+        @click="onCheckInAll"
+      >
+        <q-icon name="sym_r_login" size="20px" />
+        {{ checkingInAll ? 'Beléptetés…' : `Mindenki belép (${checkInAllRows.length})` }}
+      </button>
+
       <div class="part-toolbar" :class="{ 'has-chips': activeFilterChips.length > 0 }">
         <q-input
           v-model="searchQuery"
@@ -468,6 +479,11 @@
       :email="selected?.email"
       :phone="selected?.phone"
       variant="pta"
+      :show-score-count="selectedIsPlayer"
+      :score-count="selectedScoreCounts"
+      :score-count-enabled="!!selectedEventPlayer"
+      :score-count-busy="scoreCountSaving"
+      @score-count="onScoreCount"
       @saved="onContactSaved"
     />
 
@@ -517,15 +533,18 @@ import { useAuthStore } from 'src/stores/auth';
 import { useEventStore, isGameMasterRole, type EventUser } from 'src/stores/event';
 import { useMasterDataStore, ORGANIZER_ROLE_TYPE_ID } from 'src/stores/masterData';
 import { nullableNumericId, readAxiosErrorMessage } from 'src/utils/apiPayload';
-import { EVENT_USER_FLOW_TEMPLATE_CODE, type EventUserStatusTransition, withOrganizerDoorCheckInTransition } from 'src/utils/eventUserFlow';
+import { EVENT_USER_FLOW_TEMPLATE_CODE, doorCheckInBlocked, findEnteredEventUserStatusId, type EventUserStatusTransition, withOrganizerDoorCheckInTransition } from 'src/utils/eventUserFlow';
 import { membershipRoleKind, participantListRank } from 'src/utils/eventUserStatus';
-import { setEventUserStatus } from 'src/utils/eventChange';
+import { checkInAllEventUsers, setEventUserStatus, setPtaScoreCount } from 'src/utils/eventChange';
 import { downloadExcelSheet, excelFileBase } from 'src/utils/excelExport';
 import AppConfirmDialog from 'src/components/ui/AppConfirmDialog.vue';
 import {
   findPtaPlayerForEventUser,
   listEnabledGroupingAttrs,
   pickGroupingText,
+  ptaEventPlayerId,
+  ptaEventUserId,
+  scoreCountEnabled,
   type EventGroupingAttr,
 } from 'src/modules/profitability/ptaData';
 import {
@@ -535,6 +554,7 @@ import {
   eventRoleQuery,
   isEventUserCheckedInName,
 } from 'src/utils/eventRoleNav';
+import { allowTestTools } from 'src/utils/runtimeSurface';
 import '../theme.css';
 
 interface ParticipantRow {
@@ -581,6 +601,8 @@ const statusFilterIds = ref<number[]>([]);
 const isDetailOpen = ref(false);
 const isFilterSheetOpen = ref(false);
 const selected = ref<ParticipantRow | null>(null);
+const scoreCountSaving = ref(false);
+const checkingInAll = ref(false);
 const isStatusSheetOpen = ref(false);
 const sheetKind = ref<'status' | 'undo'>('status');
 const transitioning = ref(false);
@@ -963,6 +985,110 @@ function downloadParticipantsExcel() {
   }));
 }
 
+const selectedIsPlayer = computed(() => {
+  const row = selected.value;
+  if (!row || row.masterRoleId == null) return false;
+  const roleTypeName = masterDataStore.getRoleTypeNameByRoleId(row.masterRoleId);
+  if (isGameMasterRole(row.masterRoleId, row.roleName, roleTypeName)) return false;
+  const typeId = masterDataStore.getRoleTypeIdByRoleId(row.masterRoleId);
+  if (typeId === ORGANIZER_ROLE_TYPE_ID) return false;
+  if (typeId === 3) return true;
+  return (
+    membershipRoleKind({
+      isOrganizer: false,
+      roleTypeName,
+      roleName: row.roleName,
+    }) === 'participant'
+  );
+});
+
+const selectedEventPlayer = computed(() => {
+  const row = selected.value;
+  if (!row || !selectedIsPlayer.value) return null;
+  const eventKey = String(eventId.value);
+  return (
+    eventStore.ptaEventPlayers.find((player) => {
+      const rowEvent = String(player.EventID ?? player.eventID ?? player.EventId ?? '');
+      if (rowEvent && rowEvent !== eventKey) return false;
+      return ptaEventUserId(player) === row.id;
+    }) ?? null
+  );
+});
+
+const selectedScoreCounts = computed(() => scoreCountEnabled(selectedEventPlayer.value));
+
+async function onScoreCount(value: unknown) {
+  const player = selectedEventPlayer.value;
+  const playerId = ptaEventPlayerId(player);
+  const eventNumericId = nullableNumericId(eventId.value);
+  if (!player || playerId == null || eventNumericId == null || scoreCountSaving.value) return;
+  const previous = scoreCountEnabled(player);
+  const next = value === true;
+  eventStore.setPtaPlayerScoreCount(playerId, next);
+  scoreCountSaving.value = true;
+  try {
+    await setPtaScoreCount({
+      eventId: eventNumericId,
+      eventPlayerId: playerId,
+      scoreCount: next,
+    });
+  } catch (error) {
+    eventStore.setPtaPlayerScoreCount(playerId, previous);
+    $q.notify({
+      message: readAxiosErrorMessage(error, 'A pontszámítás nem módosítható.'),
+      color: 'dark',
+      textColor: 'red-4',
+      position: 'top',
+    });
+  } finally {
+    scoreCountSaving.value = false;
+  }
+}
+
+const checkInAllRows = computed(() => {
+  if (!allowTestTools() || isReadOnly.value) return [];
+  return participants.value.filter((row) => !row.checkedIn && !doorCheckInBlocked(row.statusName));
+});
+
+async function onCheckInAll() {
+  if (!allowTestTools() || checkingInAll.value || isReadOnly.value) return;
+  const rows = checkInAllRows.value;
+  const eventNumericId = nullableNumericId(eventId.value);
+  const toStatusId = findEnteredEventUserStatusId(masterDataStore.eventUserStatuses);
+  if (!rows.length || eventNumericId == null || toStatusId == null) return;
+  const confirmed = await askConfirm({
+    title: 'Mindenki belép',
+    message: `${rows.length} résztvevő Belépett státuszt kap. Aki lemondta vagy elutasította, kimarad.`,
+    okLabel: 'Beléptetés',
+  });
+  if (!confirmed) return;
+  checkingInAll.value = true;
+  try {
+    await checkInAllEventUsers({
+      eventId: eventNumericId,
+      toStatusId,
+      rows: rows.map((row) => ({ id: row.id, statusId: row.statusId })),
+    });
+    refreshSelected();
+    $q.notify({
+      message: `${rows.length} résztvevő belépett.`,
+      color: 'dark',
+      textColor: 'orange-4',
+      position: 'top',
+      timeout: 1800,
+    });
+  } catch (error) {
+    $q.notify({
+      message: readAxiosErrorMessage(error, 'A beléptetés sikertelen.'),
+      color: 'dark',
+      textColor: 'red-4',
+      position: 'top',
+    });
+  } finally {
+    checkingInAll.value = false;
+  }
+}
+
 function openDetail(row: ParticipantRow) {
   selected.value = row;
   isDetailOpen.value = true;
@@ -1273,6 +1399,28 @@ function comingSoon(label: string, icon = 'sym_r_schedule') {
   grid-template-columns: repeat(3, 1fr);
   gap: 8px;
   margin-bottom: 14px;
+}
+
+.part-checkin-all {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  margin: -2px 0 14px;
+  padding: 12px 16px;
+  border: 1px solid rgba(242, 184, 75, 0.55);
+  border-radius: 16px;
+  background: rgba(242, 184, 75, 0.14);
+  color: #f2e74b;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.part-checkin-all:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .part-kpi {

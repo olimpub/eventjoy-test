@@ -1,5 +1,6 @@
 import { nullableNumericId } from 'src/utils/apiPayload';
 import { PTA_SEAT_COLORS, PLAYERS_PER_DESK, seatPlayers } from './drawEngine';
+import { scoreCountEnabled } from './ptaData';
 import type { EventGroupingKey, PtaEventPlayer, PtaGameTypeRound } from './ptaData';
 
 export interface PtaDrawPlayerDraft {
@@ -100,6 +101,7 @@ function toPlayerRow(
     FinalPoint: draft.existingPlayer?.FinalPoint ?? null,
     FinalPosition: draft.existingPlayer?.FinalPosition ?? null,
     FinalTruckPoint: draft.existingPlayer?.FinalTruckPoint ?? null,
+    ScoreCountFlg: scoreCountEnabled(draft.existingPlayer),
     ...groupingFields(draft.groups),
   };
 }
@@ -136,9 +138,17 @@ export function buildPtaDraw(input: BuildPtaDrawInput): PtaDrawBuildResult {
     })
     .filter((row): row is { id: number; groups: Partial<Record<EventGroupingKey, string>> } => row != null);
 
+  const orderedTemplates = [...input.templateRounds].sort(
+    (a, b) => a.OrderIndex - b.OrderIndex || a.id - b.id
+  );
+  const preliminaryCount = orderedTemplates.filter((round) => !round.FinalRoundFlg).length;
+  if (preliminaryCount < 1) {
+    return { ok: false, message: 'Nincs elődöntő forduló a játéktípusban.' };
+  }
+
   const assignments = seatPlayers({
     players: drawPlayers,
-    roundCount: input.templateRounds.length,
+    roundCount: preliminaryCount,
     deskCount,
   });
 
@@ -161,30 +171,36 @@ export function buildPtaDraw(input: BuildPtaDrawInput): PtaDrawBuildResult {
     } as Record<string, unknown>;
   });
 
-  const rounds = input.templateRounds.map((template) => {
+  const rounds = orderedTemplates.map((template) => {
     const eventRoundId = roundSeq.next();
+    const isFinal = template.FinalRoundFlg === true;
     return {
       EventRoundID: eventRoundId,
       id: eventRoundId,
       RoundID: template.id,
       EventRoundStatusID: input.drawnStatusId,
-      NoOfDesks: deskCount,
+      NoOfDesks: isFinal ? 1 : deskCount,
       EventID: input.eventId,
       OrderIndex: template.OrderIndex,
       RName: template.RName,
+      FinalRoundFlg: isFinal,
       ActiveFlg: true,
     } as Record<string, unknown>;
   });
 
   const roundDesks: Record<string, unknown>[] = [];
   const schedules: Record<string, unknown>[] = [];
+  let preliminaryIndex = 0;
 
-  rounds.forEach((round, roundIndex) => {
+  rounds.forEach((round) => {
     const eventRoundId = Number(round.EventRoundID);
-    const roundAssignments = assignments[roundIndex] || [];
+    const isFinal = round.FinalRoundFlg === true;
+    const roundAssignments = isFinal ? [] : assignments[preliminaryIndex] || [];
+    if (!isFinal) preliminaryIndex += 1;
     const roundDeskIdByDesk = new Map<number, number>();
+    const desksForRound = isFinal ? desks.slice(0, 1) : desks;
 
-    desks.forEach((desk, deskIndex) => {
+    desksForRound.forEach((desk, deskIndex) => {
       const eventRoundDeskId = roundDeskSeq.next();
       roundDeskIdByDesk.set(deskIndex, eventRoundDeskId);
       roundDesks.push({

@@ -3,7 +3,7 @@ import { Notify } from 'quasar';
 import { nullableNumericId, throwIfApiFailed } from 'src/utils/apiPayload';
 import { useEventStore } from 'src/stores/event';
 import { useMasterDataStore } from 'src/stores/masterData';
-import { findPtaPlayerForEventUser, pickGroupingText, ptaDeskNumber, ptaEventPlayerId, ptaEventRoundId, ptaRoundDeskId, ptaSchedulePlayerId, ptaScheduleRoundDeskId } from 'src/modules/profitability/ptaData';
+import { findPtaPlayerForEventUser, pickGroupingText, ptaDeskNumber, ptaEventPlayerId, ptaEventRoundId, ptaRoundDeskId, ptaSchedulePlayerId, ptaScheduleRoundDeskId, scoreCountEnabled } from 'src/modules/profitability/ptaData';
 import { findEventStatusIdByNameHints } from 'src/utils/eventFlow';
 import type { SignalRLiveRole } from 'src/utils/eventRoleNav';
 import { recordSignalRInbound } from 'src/utils/signalrDebug';
@@ -48,6 +48,31 @@ export async function setEventUserStatus(args: {
     Action: 'EventUser.SetStatus',
     Payload: payload,
   });
+}
+
+/** Azonos előző státuszúakat egy EventUser.SetStatus hívás visz Belépettre. */
+export async function checkInAllEventUsers(args: {
+  eventId: number;
+  toStatusId: number;
+  rows: Array<{ id: number; statusId: number | null }>;
+}): Promise<void> {
+  const groups = new Map<string, { prev: number | null; ids: number[] }>();
+  for (const row of args.rows) {
+    const key = row.statusId == null ? 'null' : String(row.statusId);
+    const group = groups.get(key) ?? { prev: row.statusId, ids: [] };
+    group.ids.push(row.id);
+    groups.set(key, group);
+  }
+  const store = useEventStore();
+  for (const group of groups.values()) {
+    await setEventUserStatus({
+      eventId: args.eventId,
+      toStatusId: args.toStatusId,
+      prevStatusId: group.prev,
+      eventUserIds: group.ids,
+    });
+    for (const id of group.ids) store.applyEventUserStatus(id, args.toStatusId, group.prev);
+  }
 }
 
 export async function setEventUserRating(args: {
@@ -170,6 +195,7 @@ export async function replacePtaDraw(eventId: number): Promise<void> {
           EventUserID: nullableNumericId(row.EventUserID),
           UserID: nullableNumericId(row.UserID),
           ReserveFlg: row.ReserveFlg === true || row.ReserveFlg === 1,
+          ScoreCountFlg: scoreCountEnabled(row),
           Name: String(row.Name ?? row.DisplayName ?? ''),
           TeamName: pickGroupingText(row, 'team') || null,
           CompanyName: pickGroupingText(row, 'company') || null,
@@ -291,6 +317,58 @@ export async function closePtaRound(args: {
   });
 }
 
+export async function setPtaScoreCount(args: {
+  eventId: number;
+  eventPlayerId: number;
+  scoreCount: boolean;
+}): Promise<void> {
+  await changeEvent({
+    EventID: args.eventId,
+    Action: 'Pta.SetScoreCount',
+    Payload: {
+      EventPlayerID: args.eventPlayerId,
+      ScoreCountFlg: args.scoreCount,
+    },
+  });
+}
+
+export async function setPtaSpecialPrizeWinner(args: {
+  eventId: number;
+  prizeKind: 'surprise' | 'weighted';
+  winnerEventPlayerId: number;
+}): Promise<void> {
+  await changeEvent({
+    EventID: args.eventId,
+    Action: 'Pta.SetSpecialPrizeWinner',
+    Payload: {
+      PrizeKind: args.prizeKind,
+      WinnerEventPlayerID: args.winnerEventPlayerId,
+    },
+  });
+}
+
+export async function seatPtaFinal(args: {
+  eventId: number;
+  eventRoundId: number;
+  eventRoundDeskId: number;
+  seats: Array<{ playerId: number; colorHex: string; colorIndex: number; seatNo: number }>;
+}): Promise<void> {
+  await changeEvent({
+    EventID: args.eventId,
+    Action: 'Pta.SeatFinal',
+    Payload: {
+      EventRoundID: args.eventRoundId,
+      EventRoundDeskID: args.eventRoundDeskId,
+      Seats: args.seats.map((seat) => ({
+        PlayerID: seat.playerId,
+        ColorHex: seat.colorHex,
+        ColorIndex: seat.colorIndex,
+        SeatNo: seat.seatNo,
+      })),
+    },
+  });
+}
+
 export async function publishPtaRound(args: {
   eventId: number;
   eventRoundId: number;
@@ -312,6 +390,8 @@ export const SIGNALR_LIVE_ACTIONS = [
   'EventUser.Apply',
   'EventUser.Remove',
   'Pta.ReplaceDraw',
+  'Pta.SeatFinal',
+  'Pta.SetScoreCount',
   'Pta.SetRoundStatus',
   'Pta.CloseRound',
   'Pta.PublishRound',
@@ -728,6 +808,33 @@ export function applyLiveChange(
     const id = nullableNumericId(msg.Payload.EventUserID ?? msg.Payload.eventUserID);
     if (id != null) eventStore.removeEventUserLive(id);
     inbound(id != null, `EventUserID=${id}`);
+    return;
+  }
+
+  if (msg.Action === 'Pta.SetScoreCount') {
+    const playerId = nullableNumericId(msg.Payload.EventPlayerID ?? msg.Payload.eventPlayerID);
+    const raw = msg.Payload.ScoreCountFlg ?? msg.Payload.scoreCountFlg;
+    if (playerId == null || raw == null) {
+      inbound(false, 'skip missing ScoreCount payload');
+      return;
+    }
+    eventStore.setPtaPlayerScoreCount(playerId, raw === true || raw === 1 || raw === '1' || raw === 'true');
+    inbound(true, `player=${playerId}`);
+    return;
+  }
+
+  if (msg.Action === 'Pta.SeatFinal') {
+    if (eventId == null) {
+      inbound(false, 'skip missing EventID');
+      return;
+    }
+    const sheetId = context?.eventUserId ?? null;
+    if (sheetId != null) {
+      reloadPtaDrawFromUserdata(eventId, sheetId);
+      inbound(true, 'userdata GET after SeatFinal');
+      return;
+    }
+    inbound(true, `keys=${payloadKeyList(msg.Payload)}`);
     return;
   }
 

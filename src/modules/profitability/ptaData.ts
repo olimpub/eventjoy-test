@@ -119,7 +119,28 @@ export interface PtaEventPlayer {
   FinalPoint: number | null;
   FinalPosition: number | null;
   FinalTruckPoint: number | null;
+  /** Pontot kap. Hiányzó érték igaz. */
+  ScoreCountFlg?: boolean | number;
   [key: string]: unknown;
+}
+
+/** Hiányzó flag = pontot kap. */
+export function scoreCountEnabled(row: { ScoreCountFlg?: unknown; scoreCountFlg?: unknown } | null | undefined): boolean {
+  if (!row) return true;
+  const raw = row.ScoreCountFlg ?? row.scoreCountFlg;
+  if (raw == null || raw === '') return true;
+  return isTruthyFlag(raw);
+}
+
+export function scoringPlayerPredicate(
+  players: Array<{ EventPlayerID?: unknown; id?: unknown; ScoreCountFlg?: unknown; scoreCountFlg?: unknown }>
+): (playerId: number) => boolean {
+  const excluded = new Set<number>();
+  for (const row of players || []) {
+    const id = nullableNumericId(row.EventPlayerID ?? row.id);
+    if (id != null && !scoreCountEnabled(row)) excluded.add(id);
+  }
+  return (playerId) => !excluded.has(playerId);
 }
 
 export type EventGroupingKey = 'organization' | 'team' | 'region' | 'company';
@@ -861,14 +882,34 @@ export function normalizePtaRoundDesks(rows: unknown[]): Record<string, unknown>
 export function normalizePtaEventRounds(rows: unknown[]): Record<string, unknown>[] {
   return normalizePtaRows(rows).map((row) => {
     const eventRoundId = nullableNumericId(row.EventRoundID ?? row.eventRoundID ?? row.id);
-    const order = nullableNumericId(row.OrderIndex ?? row.Order ?? row.RoundID ?? row.roundID);
+    const order = nullableNumericId(row.OrderIndex ?? row.orderIndex ?? row.Order);
     const statusId = ptaRoundStatusId(row);
     return {
       ...row,
       EventRoundID: eventRoundId,
       id: eventRoundId ?? row.id,
-      OrderIndex: order ?? row.OrderIndex,
+      ...(order != null ? { OrderIndex: order } : {}),
       ...(statusId != null ? { EventRoundStatusID: statusId } : {}),
+    };
+  });
+}
+
+/** A mentett fordulón csak a sablon RoundID van. A sorszám és a név a játéktípus fordulójáról jön. */
+export function applyPtaRoundTemplate(
+  rounds: Record<string, unknown>[],
+  templates: PtaGameTypeRound[]
+): Record<string, unknown>[] {
+  if (!rounds.length || !templates.length) return rounds;
+  const byId = new Map(templates.map((row) => [Number(row.id), row]));
+  return rounds.map((row) => {
+    const templateId = nullableNumericId(row.RoundID ?? row.roundID);
+    const template = templateId != null ? byId.get(templateId) : undefined;
+    if (!template) return row;
+    return {
+      ...row,
+      OrderIndex: template.OrderIndex,
+      RName: template.RName,
+      FinalRoundFlg: template.FinalRoundFlg,
     };
   });
 }
@@ -909,6 +950,7 @@ export function normalizePtaEventPlayers(rows: unknown[]): PtaEventPlayer[] {
       FinalPoint: nullableDecimal(row.FinalPoint ?? row.finalPoint),
       FinalPosition: nullableNumericId(row.FinalPosition ?? row.finalPosition),
       FinalTruckPoint: nullableDecimal(row.FinalTruckPoint ?? row.finalTruckPoint),
+      ScoreCountFlg: scoreCountEnabled(row),
     };
   });
 }

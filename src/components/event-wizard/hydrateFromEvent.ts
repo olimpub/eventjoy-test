@@ -1,6 +1,7 @@
 import { useEventStore } from 'src/stores/event';
 import { useMasterDataStore } from 'src/stores/masterData';
 import { useOlimpubStore } from 'src/stores/olimpub';
+import { storedSpecialPrize } from 'src/modules/profitability/specialPrizes';
 import { typeIconToken } from './brandedTypeIcons';
 import {
   createEmptyBasics,
@@ -156,7 +157,13 @@ export function hydrateWizardFromEvent(
     basics.ptaCompanyGrpFlg = pta.CompanyGrpFlg;
     basics.ptaPhotoUploadMandatoryFlg = pta.PhotoUploadMadatoryFlg;
     basics.ptaExtraPrizeIds = collectEventPrizeIds(eventStore, eventId);
-    basics.ptaExtraPrizeFlg = pta.ExtraPrizeFlg || basics.ptaExtraPrizeIds.length > 0;
+    basics.ptaSurprisePrizeName = specialPrizeName(eventStore, eventId, 'surprise');
+    basics.ptaWeightedPrizeName = specialPrizeName(eventStore, eventId, 'weighted');
+    basics.ptaExtraPrizeFlg =
+      pta.ExtraPrizeFlg ||
+      basics.ptaExtraPrizeIds.length > 0 ||
+      !!basics.ptaSurprisePrizeName ||
+      !!basics.ptaWeightedPrizeName;
     basics.ptaShowUserPositionFlg = pta.ShowUserPositionFlg !== false;
   }
 
@@ -186,6 +193,14 @@ export function hydrateWizardFromEvent(
   return { selection, basics };
 }
 
+function specialPrizeName(
+  eventStore: ReturnType<typeof useEventStore>,
+  eventId: string | number,
+  kind: 'surprise' | 'weighted'
+): string {
+  return storedSpecialPrize(eventStore.ptaSpecialPrizes || [], eventId, kind)?.name || '';
+}
+
 function collectEventPrizeIds(
   eventStore: ReturnType<typeof useEventStore>,
   eventId: string | number
@@ -194,7 +209,7 @@ function collectEventPrizeIds(
   const ids: number[] = [];
   for (const row of eventStore.ptaEventPrizes || []) {
     if (!belongsToEvent(row, eventId)) continue;
-    const prizeId = Number(row.PrizeID ?? row.prizeID ?? row.PrizeId ?? row.id);
+    const prizeId = Number(row.PrizeID ?? row.prizeID ?? row.PrizeId ?? row.prizeId ?? row.id);
     if (!Number.isFinite(prizeId) || prizeId <= 0 || seen.has(prizeId)) continue;
     seen.add(prizeId);
     ids.push(prizeId);

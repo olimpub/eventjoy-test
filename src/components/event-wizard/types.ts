@@ -120,6 +120,8 @@ export interface WizardBasics {
   ptaPhotoUploadMandatoryFlg: boolean;
   ptaExtraPrizeFlg: boolean;
   ptaExtraPrizeIds: number[];
+  ptaSurprisePrizeName: string;
+  ptaWeightedPrizeName: string;
   ptaShowUserPositionFlg: boolean;
   /** OP Beállítások — OP.tblEventSettings */
   opDeskCountHint: number | null;
@@ -183,6 +185,8 @@ export function createEmptyBasics(): WizardBasics {
     ptaPhotoUploadMandatoryFlg: false,
     ptaExtraPrizeFlg: false,
     ptaExtraPrizeIds: [],
+    ptaSurprisePrizeName: '',
+    ptaWeightedPrizeName: '',
     ptaShowUserPositionFlg: true,
     opDeskCountHint: null,
     opMaxTeamSize: 6,
@@ -507,7 +511,12 @@ export function isPtaSettingsComplete(basics: WizardBasics): boolean {
   if (basics.ptaGameTypeId == null || basics.ptaPairModeId == null) return false;
   if (![1, 2, 3, 4].includes(basics.ptaCategory)) return false;
   if (basics.ptaChampionshipFlg && basics.ptaChampionshipId == null) return false;
-  if (basics.ptaExtraPrizeFlg && !(basics.ptaExtraPrizeIds || []).length) return false;
+  if (basics.ptaExtraPrizeFlg) {
+    const named = [basics.ptaSurprisePrizeName, basics.ptaWeightedPrizeName].some((name) =>
+      String(name || '').trim()
+    );
+    if (!(basics.ptaExtraPrizeIds || []).length && !named) return false;
+  }
   const points = [basics.ptaPoint1, basics.ptaPoint2, basics.ptaPoint3, basics.ptaPoint4];
   return points.every((n) => Number.isFinite(n));
 }

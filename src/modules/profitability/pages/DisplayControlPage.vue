@@ -87,6 +87,33 @@
           Várakozás
         </button>
       </div>
+      <p v-if="hasPrizeControl" class="vet-tv__label">Különdíjak</p>
+      <div v-if="hasPrizeControl" class="vet-modes">
+        <button
+          v-if="showPrizeKind('surprise')"
+          type="button"
+          class="vet-mode"
+          :class="{ 'is-on': controlMode === 'prize' && prizeKind === 'surprise' }"
+          :disabled="tvBusy"
+          @click="announcePrize('surprise')"
+        >
+          {{ prizeLabel('surprise') }}
+        </button>
+        <button
+          v-if="showPrizeKind('weighted')"
+          type="button"
+          class="vet-mode"
+          :class="{ 'is-on': controlMode === 'prize' && prizeKind === 'weighted' }"
+          :disabled="tvBusy"
+          @click="announcePrize('weighted')"
+        >
+          {{ prizeLabel('weighted') }}
+        </button>
+      </div>
+      <p v-if="hasPrizeControl" class="vet-hint">
+        A különdíj lezárt fordulóról is kimegy, publikálás nélkül.
+      </p>
+
       <p v-if="!canProjectResults" class="vet-hint">
         Még nincs lezárt vagy publikált forduló. Játékos, csoport és dobogó addig nem vetíthető.
       </p>
@@ -96,7 +123,7 @@
       <p class="vet-hint">Forduló állás: lezárt / összes asztal, pont nélkül.</p>
 
       <div
-        v-if="controlMode !== 'seating' && controlMode !== 'roundstand'"
+        v-if="controlMode !== 'seating' && controlMode !== 'roundstand' && controlMode !== 'prize'"
         class="vet-scope"
         role="tablist"
         aria-label="Vetítés nézet"
@@ -132,6 +159,40 @@
         >
           {{ round.label }}
         </button>
+      </div>
+
+      <div v-if="controlMode === 'prize'" class="vet-ceremony">
+        <p class="vet-hint">{{ prizeHint }}</p>
+        <p v-if="prizeWinnerName" class="vet-ceremony__place">{{ prizeWinnerName }}</p>
+        <div class="vet-modes">
+          <button
+            v-if="prizeKind === 'surprise'"
+            type="button"
+            class="vet-mode"
+            :disabled="tvBusy"
+            @click="revealSurprise"
+          >
+            Kihirdet
+          </button>
+          <button
+            v-if="prizeKind === 'weighted'"
+            type="button"
+            class="vet-mode"
+            :disabled="tvBusy"
+            @click="drawWeighted(false)"
+          >
+            {{ weightedStoredWinner ? 'Kihirdet' : 'Húzás' }}
+          </button>
+          <button
+            v-if="prizeKind === 'weighted' && weightedStoredWinner"
+            type="button"
+            class="vet-mode"
+            :disabled="tvBusy"
+            @click="drawWeighted(true)"
+          >
+            Újrahúzás
+          </button>
+        </div>
       </div>
 
       <div v-if="controlMode === 'ceremony'" class="vet-ceremony">
@@ -211,9 +272,18 @@ import { Notify } from 'quasar';
 import QRCode from 'qrcode';
 import { nullableNumericId, readAxiosErrorMessage } from 'src/utils/apiPayload';
 import { useEventStore } from 'src/stores/event';
+import { useMasterDataStore } from 'src/stores/masterData';
 import { useHelpStore } from 'src/stores/help';
 import { eventDatasheetKind, eventRolePath, eventRoleQuery } from 'src/utils/eventRoleNav';
-import { resolvePtaSeatName, type EventGroupingKey } from 'src/modules/profitability/ptaData';
+import { resolvePtaSeatName, scoringPlayerPredicate, type EventGroupingKey } from 'src/modules/profitability/ptaData';
+import {
+  drawWeightedWinner,
+  evaluateSpecialPrizes,
+  formatPrizeEuro,
+  storedSpecialPrize,
+  type PrizeKind,
+} from 'src/modules/profitability/specialPrizes';
+import { setPtaSpecialPrizeWinner } from 'src/utils/eventChange';
 import AppConfirmDialog from 'src/components/ui/AppConfirmDialog.vue';
 import {
   buildStandings,
@@ -252,7 +322,40 @@ const tvQr = ref('');
 const tvExpires = ref('');
 const tvBusy = ref(false);
 const tvError = ref('');
-const controlMode = ref<'players' | 'groups' | 'seating' | 'ceremony' | 'roundstand' | 'idle'>('idle');
+const controlMode = ref<'players' | 'groups' | 'seating' | 'ceremony' | 'roundstand' | 'idle' | 'prize'>('idle');
+const masterDataStore = useMasterDataStore();
+const prizeKind = ref<PrizeKind | null>(null);
+const prizeWinnerId = ref<number | null>(null);
+const prizeWinnerName = ref('');
+const prizeHint = ref('');
+
+function eventSpecialRows() {
+  const key = String(eventId.value ?? '');
+  return (eventStore.ptaSpecialPrizes || []).filter(
+    (row) => String(row.EventID ?? row.eventID ?? '') === key
+  );
+}
+
+const hasPrizeControl = computed(
+  () => showPrizeKind('surprise') || showPrizeKind('weighted')
+);
+
+function showPrizeKind(kind: PrizeKind) {
+  const rows = eventSpecialRows();
+  if (!rows.length) return true;
+  return storedSpecialPrize(rows, eventId.value, kind) != null;
+}
+
+function prizeLabel(kind: PrizeKind) {
+  return (
+    storedSpecialPrize(eventStore.ptaSpecialPrizes, eventId.value, kind)?.name ||
+    (kind === 'weighted' ? 'Sorsolás' : 'Meglepetés')
+  );
+}
+
+const weightedStoredWinner = computed(
+  () => storedSpecialPrize(eventStore.ptaSpecialPrizes, eventId.value, 'weighted')?.winnerId ?? null
+);
 const controlScope = ref<ResultsScope>('total');
 const controlRoundId = ref<number | null>(null);
 const controlGroupKey = ref<EventGroupingKey | null>(null);
@@ -337,7 +440,10 @@ function displayQuery(): Record<string, string> {
 }
 
 async function openDisplayOnThisDevice() {
-  const sent = await sendControl(controlMode.value);
+  if (controlMode.value === 'prize' && prizeKind.value) {
+    await showPrize(prizeKind.value, prizeWinnerId.value);
+  }
+  const sent = controlMode.value === 'prize' ? true : await sendControl(controlMode.value);
   if (!sent) return;
   const wall = router.resolve({
     name: 'profitability-display',
@@ -502,10 +608,137 @@ const ceremonyStandingCount = computed(() => {
     roundDesks: eventStore.getPtaRoundDesksForEvent(eventId.value),
     schedules: eventStore.getPtaSchedulesForEvent(eventId.value),
     playerName,
+    includePlayer: scoringPlayerPredicate(eventStore.getPtaPlayersForEvent(eventId.value)),
   }).length;
 });
 
 const ceremonyStartPlace = computed(() => Math.max(1, Math.min(8, ceremonyStandingCount.value)));
+
+function currentPrizes() {
+  return evaluateSpecialPrizes({
+    templates: masterDataStore.getPtaRoundsForGameType(
+      eventStore.getPtaSettingsForEvent(eventId.value)?.GameTypeID
+    ),
+    rounds: eventStore.getPtaRoundsForEvent(eventId.value),
+    roundDesks: eventStore.getPtaRoundDesksForEvent(eventId.value),
+    schedules: eventStore.getPtaSchedulesForEvent(eventId.value),
+    statusName: (row) => {
+      const statusId = nullableNumericId(row.EventRoundStatusID);
+      const fromMaster =
+        statusId != null ? masterDataStore.getPtaEventRoundStatusById(statusId)?.SName : '';
+      return String(fromMaster || row.SName || '');
+    },
+    playerName: (playerId) => playerName(playerId),
+    includePlayer: scoringPlayerPredicate(eventStore.getPtaPlayersForEvent(eventId.value)),
+  });
+}
+
+async function showPrize(kind: PrizeKind, winnerId: number | null) {
+  const id = nullableNumericId(eventId.value);
+  if (id == null) return;
+  controlMode.value = 'prize';
+  prizeKind.value = kind;
+  prizeWinnerId.value = winnerId;
+  tvBusy.value = true;
+  tvError.value = '';
+  try {
+    await showPtaDisplay({
+      eventId: id,
+      state: 'prize',
+      scope: 'total',
+      roundId: null,
+      groupKey: null,
+      prizeKind: kind,
+      winnerId,
+    });
+  } catch (error) {
+    tvError.value = readAxiosErrorMessage(error, 'A különdíj nem ment ki a falra.');
+  } finally {
+    tvBusy.value = false;
+  }
+}
+
+async function savePrizeWinner(kind: PrizeKind, winnerId: number): Promise<string> {
+  const id = nullableNumericId(eventId.value);
+  if (id == null) return '';
+  try {
+    await setPtaSpecialPrizeWinner({
+      eventId: id,
+      prizeKind: kind,
+      winnerEventPlayerId: winnerId,
+    });
+    eventStore.rememberSpecialPrizeWinner(id, kind, winnerId);
+    return '';
+  } catch (error) {
+    return readAxiosErrorMessage(error, 'A nyertes nem került be az eseménybe. A falra kiment.');
+  }
+}
+
+async function announcePrize(kind: PrizeKind) {
+  const prizes = currentPrizes();
+  const prize = kind === 'surprise' ? prizes.surprise : prizes.weighted;
+  if (!prize.ok) {
+    tvError.value = prize.message;
+    return;
+  }
+  const stored = storedSpecialPrize(eventStore.ptaSpecialPrizes, eventId.value, kind);
+  if (stored?.winnerId) {
+    const name =
+      kind === 'surprise' && prizes.surprise.ok
+        ? prizes.surprise.winner.name
+        : prizes.weighted.ok
+          ? prizes.weighted.pool.find((row) => row.playerId === stored.winnerId)?.name || ''
+          : '';
+    prizeWinnerName.value = name;
+    prizeHint.value = name ? `${prizeLabel(kind)} nyertese.` : '';
+    await showPrize(kind, stored.winnerId);
+    return;
+  }
+  prizeWinnerName.value = '';
+  prizeHint.value =
+    kind === 'surprise' && prizes.surprise.ok
+      ? `${prizes.surprise.hatSize} játékos a ${prizes.surprise.fieldSize} fős mezőny második feléből.`
+      : prizes.weighted.ok
+        ? `${prizes.weighted.players} név, ${prizes.weighted.cards} kártya. Az első négy nincs a kalapban.`
+        : '';
+  await showPrize(kind, null);
+}
+
+async function revealSurprise() {
+  const prize = currentPrizes().surprise;
+  if (!prize.ok) {
+    tvError.value = prize.message;
+    return;
+  }
+  prizeWinnerName.value = prize.winner.name;
+  prizeHint.value = `${formatPrizeEuro(prize.round3Amount)} a 3. fordulóban, kamion ${prize.round3Truck}. A 2. forduló után ${prize.placeAfterTwo}. volt.`;
+  const saveError = await savePrizeWinner('surprise', prize.winner.playerId);
+  await showPrize('surprise', prize.winner.playerId);
+  if (saveError) tvError.value = saveError;
+}
+
+async function drawWeighted(redraw: boolean) {
+  const prize = currentPrizes().weighted;
+  if (!prize.ok) {
+    tvError.value = prize.message;
+    return;
+  }
+  const storedId = redraw
+    ? null
+    : storedSpecialPrize(eventStore.ptaSpecialPrizes, eventId.value, 'weighted')?.winnerId ?? null;
+  const winner = storedId
+    ? prize.pool.find((row) => row.playerId === storedId) || null
+    : drawWeightedWinner(prize.pool);
+  if (!winner) {
+    tvError.value = storedId ? 'A kihúzott játékos nem található.' : 'A húzás nem sikerült.';
+    return;
+  }
+  prizeWinnerName.value = winner.name;
+  prizeHint.value = `${formatPrizeEuro(winner.amount)}, ${winner.tickets} kártya a ${prize.cards}-ból.`;
+  const saveError = storedId ? '' : await savePrizeWinner('weighted', winner.playerId);
+  await showPrize('weighted', winner.playerId);
+  if (saveError) tvError.value = saveError;
+}
 
 async function sendControl(
   mode: 'players' | 'groups' | 'seating' | 'ceremony' | 'roundstand' | 'idle',
@@ -607,7 +840,7 @@ function stepCeremony(delta: number) {
 
 function setControlScope(next: ResultsScope) {
   controlScope.value = next;
-  if (controlMode.value === 'idle') return;
+  if (controlMode.value === 'idle' || controlMode.value === 'prize') return;
   if (controlMode.value === 'ceremony') {
     enterCeremony();
     return;
@@ -620,7 +853,7 @@ function setControlRound(roundId: number) {
     roundPickedByUser.value = true;
   }
   controlRoundId.value = roundId;
-  if (controlMode.value === 'idle') return;
+  if (controlMode.value === 'idle' || controlMode.value === 'prize') return;
   if (controlMode.value === 'ceremony') {
     enterCeremony();
     return;

@@ -306,6 +306,20 @@ function applyHydration(payload: { selection: WizardSelection; basics: WizardBas
   Object.assign(basics, payload.basics);
 }
 
+async function reloadEventSheet(eventId: string | number) {
+  const ctx = eventStore.eventUserScreenContext;
+  let eventUserId =
+    ctx && String(ctx.eventId) === String(eventId) ? ctx.requestEventUserId : null;
+  if (eventUserId == null) {
+    const row = [...eventStore.eventUsers, ...eventStore.eventParticipants].find(
+      (item) => String(item.EventID) === String(eventId)
+    );
+    eventUserId = row?.id ?? null;
+  }
+  if (eventUserId == null) return;
+  await eventStore.loadEventUserDataSheet(eventUserId, eventId);
+}
+
 async function loadForEdit() {
   const id = props.eventId;
   if (id == null || id === '') {
@@ -323,6 +337,7 @@ async function loadForEdit() {
   await Promise.all([
     olimpubStore.loadMaster().catch(() => undefined),
     olimpubStore.loadEvent(id).catch(() => undefined),
+    reloadEventSheet(id).catch(() => undefined),
   ]);
   const hydrated = hydrateWizardFromEvent(id, eventStore, masterDataStore);
   if (!hydrated) {

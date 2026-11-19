@@ -118,7 +118,13 @@
             </span>
           </div>
 
-          <div v-if="roundResultVisible && currentSeat.resultPoint != null" class="player-seat__result">
+          <p v-if="currentRoundIsFinal && roundResultVisible && currentSeat.position" class="player-seat__pending">
+            Döntő helyezés: {{ currentSeat.position }}.
+          </p>
+          <p v-else-if="currentRoundIsFinal" class="player-seat__pending">
+            A döntő eredménye a forduló publikálása után jelenik meg.
+          </p>
+          <div v-else-if="roundResultVisible && currentSeat.resultPoint != null" class="player-seat__result">
             <div class="player-seat__stat">
               <img :src="scoreIcon" alt="Összeg" class="pta-icon" />
               <span>{{ formatScore(currentSeat.amount) }}</span>
@@ -132,6 +138,7 @@
             </div>
           </div>
           <p v-else class="player-seat__pending">Az eredmény a forduló publikálása után jelenik meg.</p>
+          <p v-if="!myScoreCounts" class="player-seat__pending">A pontod nem számít az állásba.</p>
         </section>
 
         <section v-else class="player-wait player-wait--compact">
@@ -166,8 +173,11 @@ import {
   ptaEventPlayerId,
   ptaEventRoundId,
   ptaEventUserId,
+  scoreCountEnabled,
+  scoringPlayerPredicate,
 } from 'src/modules/profitability/ptaData';
 import { findPlayerSeat, isReservePlayer } from 'src/modules/profitability/playerSheet';
+import { eventRoundIsFinal, finalTemplateIdSet } from 'src/modules/profitability/finalRound';
 import {
   catalogHasPublishedStatus,
   computePublishedPlayerFinals,
@@ -187,6 +197,7 @@ interface PlayerRoundRow {
   order: number;
   label: string;
   status: string;
+  final: boolean;
 }
 
 const route = useRoute();
@@ -329,17 +340,28 @@ const showUserPosition = computed(
   () => eventStore.getPtaSettingsForEvent(eventId.value)?.ShowUserPositionFlg !== false
 );
 
+const finalTemplateIds = computed(() =>
+  finalTemplateIdSet(
+    masterDataStore.getPtaRoundsForGameType(
+      eventStore.getPtaSettingsForEvent(eventId.value)?.GameTypeID
+    )
+  )
+);
+
 const publishedFinals = computed(() =>
   computePublishedPlayerFinals({
     rounds: eventStore.getPtaRoundsForEvent(eventId.value).map((row, index) => {
       const id = ptaEventRoundId(row) ?? nullableNumericId(row.id) ?? index + 1;
-      return { id, status: roundStatusName(row) };
+      return { id, status: roundStatusName(row), final: eventRoundIsFinal(row, finalTemplateIds.value) };
     }),
     roundDesks: eventStore.getPtaRoundDesksForEvent(eventId.value),
     schedules: eventStore.getPtaSchedulesForEvent(eventId.value),
     catalogHasPublished: catalogHasPublishedStatus(masterDataStore.ptaEventRoundStatuses),
+    includePlayer: scoringPlayerPredicate(eventStore.getPtaPlayersForEvent(eventId.value)),
   })
 );
+
+const myScoreCounts = computed(() => scoreCountEnabled(myPlayer.value));
 
 const myPublishedTotals = computed(() => {
   const id = myPlayerId.value;
@@ -389,6 +411,7 @@ const rounds = computed<PlayerRoundRow[]>(() =>
       order,
       label: name || `${order}. forduló`,
       status: roundStatusName(row),
+      final: eventRoundIsFinal(row, finalTemplateIds.value),
     };
   })
 );
@@ -424,6 +447,7 @@ watch(
 const currentRound = computed(
   () => rounds.value.find((round) => round.id === selectedRoundId.value) || rounds.value[0] || null
 );
+const currentRoundIsFinal = computed(() => currentRound.value?.final === true);
 
 const currentSeat = computed(() => {
   if (!showSeatBoard.value || (myPlayerId.value == null && ptaEventUserId(myPlayer.value) == null) || currentRound.value == null) {
@@ -448,6 +472,7 @@ const emptySeatMessage = computed(() => {
   if (isReservePlayer(myPlayer.value)) {
     return 'Tartalék játékos vagy. Ha asztalra ültetnek, itt jelenik meg a helyed.';
   }
+  if (currentRoundIsFinal.value) return 'Nem jutottál a döntőbe.';
   return 'Ebben a fordulóban még nincs asztalod.';
 });
 

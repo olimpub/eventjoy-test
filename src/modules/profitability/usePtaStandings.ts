@@ -12,15 +12,16 @@ import {
   ptaEventRoundId,
   ptaRoundStatusId,
   resolvePtaSeatName,
+  scoringPlayerPredicate,
   type EventGroupingKey,
 } from 'src/modules/profitability/ptaData';
+import { eventRoundIsFinal, finalTemplateIdSet } from 'src/modules/profitability/finalRound';
 import {
-  aggregateStandings,
-  buildStandings,
   deskHasRecordedResults,
   pickLatestReleasedRoundId,
   pickLatestSettledRoundId,
   pickOpenRoundId,
+  projectStandings,
   roundCanProjectResults,
   roundResultsReleased,
   type ResultsScope,
@@ -260,17 +261,28 @@ export function usePtaStandings(options?: { publishedOnly?: boolean; feed?: 'sto
     return visibleRounds.value.filter((round) => round.order <= current.order).map((round) => round.id);
   });
 
+  const finalRoundIds = computed(() => {
+    const templates = masterDataStore.getPtaRoundsForGameType(settingsRow()?.GameTypeID ?? null);
+    const templateIds = finalTemplateIdSet(templates);
+    return roundRows()
+      .filter((row) => eventRoundIsFinal(row, templateIds))
+      .map((row) => ptaEventRoundId(row))
+      .filter((id): id is number => id != null);
+  });
+
   const standings = computed<StandingRow[]>(() => {
-    const rows = buildStandings({
+    const key = groupKey.value;
+    const players = feed.value ? feed.value.players : eventStore.getPtaPlayersForEvent(eventId.value);
+    return projectStandings({
       roundIds: standingRoundIds.value,
+      finalRoundIds: finalRoundIds.value,
       rounds: rounds.value,
       roundDesks: roundDeskRows(),
       schedules: scheduleRows(),
       playerName,
+      includePlayer: scoringPlayerPredicate(players),
+      groupOf: key ? (playerId) => groupingValueForPlayer(playerId, key) : undefined,
     });
-    const key = groupKey.value;
-    if (!key) return rows;
-    return aggregateStandings(rows, (playerId) => groupingValueForPlayer(playerId, key));
   });
 
   const standingsCaption = computed(() => {

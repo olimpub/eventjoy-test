@@ -127,7 +127,8 @@ import { nullableNumericId, readAxiosErrorMessage } from 'src/utils/apiPayload';
 import { setEventUserRating } from 'src/utils/eventChange';
 import { downloadEventCertificatePdf } from 'src/utils/eventCertificate';
 import { eventDatasheetKind } from 'src/utils/eventRoleNav';
-import { findPtaPlayerForEventUser, ptaEventPlayerId, ptaEventRoundId } from 'src/modules/profitability/ptaData';
+import { findPtaPlayerForEventUser, ptaEventPlayerId, ptaEventRoundId, scoreCountEnabled, scoringPlayerPredicate } from 'src/modules/profitability/ptaData';
+import { eventRoundIsFinal, finalTemplateIdSet } from 'src/modules/profitability/finalRound';
 import {
   catalogHasPublishedStatus,
   computePublishedPlayerFinals,
@@ -236,12 +237,21 @@ const certificateResult = computed(() => {
     userId
   );
   const playerId = ptaEventPlayerId(player);
+  const finalIds = finalTemplateIdSet(
+    masterDataStore.getPtaRoundsForGameType(
+      eventStore.getPtaSettingsForEvent(props.eventId)?.GameTypeID
+    )
+  );
   const rounds = eventStore.getPtaRoundsForEvent(props.eventId).map((row, index) => {
     const id = ptaEventRoundId(row) ?? nullableNumericId(row.id) ?? index + 1;
     const statusId = nullableNumericId(row.EventRoundStatusID);
     const fromMaster =
       statusId != null ? masterDataStore.getPtaEventRoundStatusById(statusId)?.SName : '';
-    return { id, status: String(fromMaster || row.SName || '') };
+    return {
+      id,
+      status: String(fromMaster || row.SName || ''),
+      final: eventRoundIsFinal(row, finalIds),
+    };
   });
   const fromBoard =
     playerId == null
@@ -251,7 +261,9 @@ const certificateResult = computed(() => {
           roundDesks: eventStore.getPtaRoundDesksForEvent(props.eventId),
           schedules: eventStore.getPtaSchedulesForEvent(props.eventId),
           catalogHasPublished: catalogHasPublishedStatus(masterDataStore.ptaEventRoundStatuses),
+          includePlayer: scoringPlayerPredicate(eventStore.getPtaPlayersForEvent(props.eventId)),
         }).find((row) => row.playerId === playerId);
+  if (player && !scoreCountEnabled(player)) return { place: null, score: null };
   const placeRaw = fromBoard?.FinalPosition ?? (player ? Number(player.FinalPosition ?? 0) : 0);
   const scoreRaw = fromBoard?.FinalPoint ?? (player && player.FinalPoint != null ? Number(player.FinalPoint) : null);
   const place = placeRaw >= 1 && placeRaw <= 8 ? placeRaw : null;

@@ -180,9 +180,9 @@
                 playerGroupLine(row.playerId)
               }}</span>
             </span>
-            <span class="res-board__score">{{ row.amount }}</span>
-            <span class="res-board__truck">{{ row.onTrack }}</span>
-            <span class="res-board__points">{{ row.resultPoint }}</span>
+            <span class="res-board__score">{{ row.hidePoints ? '' : row.amount }}</span>
+            <span class="res-board__truck">{{ row.hidePoints ? '' : row.onTrack }}</span>
+            <span class="res-board__points">{{ row.hidePoints ? '' : row.resultPoint }}</span>
           </div>
         </div>
       </template>
@@ -207,14 +207,14 @@ import {
   resolvePtaSeatName,
   type EventGroupingKey,
 } from 'src/modules/profitability/ptaData';
+import { eventRoundIsFinal, finalTemplateIdSet } from 'src/modules/profitability/finalRound';
 import {
-  aggregateStandings,
-  buildStandings,
   deskHasRecordedResults,
   foldText,
   isClosedStatus,
   isLiveStatus,
   pickOpenRoundId,
+  projectStandings,
   roundResultsReleased,
   type ResultsScope,
 } from 'src/modules/profitability/standings';
@@ -393,17 +393,28 @@ const standingRoundIds = computed(() => {
   return visibleRounds.value.filter((round) => round.order <= current.order).map((round) => round.id);
 });
 
+const finalRoundIds = computed(() => {
+  const settings = eventStore.getPtaSettingsForEvent(eventId.value);
+  const templates = masterDataStore.getPtaRoundsForGameType(settings?.GameTypeID ?? null);
+  const templateIds = finalTemplateIdSet(templates);
+  return eventStore
+    .getPtaRoundsForEvent(eventId.value)
+    .filter((row) => eventRoundIsFinal(row, templateIds))
+    .map((row) => ptaEventRoundId(row))
+    .filter((id): id is number => id != null);
+});
+
 const standings = computed(() => {
-  const rows = buildStandings({
+  const key = groupKey.value;
+  return projectStandings({
     roundIds: standingRoundIds.value,
+    finalRoundIds: finalRoundIds.value,
     rounds: rounds.value,
     roundDesks: eventStore.getPtaRoundDesksForEvent(eventId.value),
     schedules: eventStore.getPtaSchedulesForEvent(eventId.value),
     playerName,
+    groupOf: key ? (playerId) => groupingValueForPlayer(playerId, key) : undefined,
   });
-  const key = groupKey.value;
-  if (!key) return rows;
-  return aggregateStandings(rows, (playerId) => groupingValueForPlayer(playerId, key));
 });
 
 const groupingAttrs = computed(() =>
@@ -458,9 +469,9 @@ function downloadResultsExcel() {
           base[attr.label] = groupingValueForPlayer(row.playerId, attr.key);
         }
       }
-      base.Összeg = row.amount;
-      base.Kamion = row.onTrack;
-      base.Pont = row.resultPoint;
+      base.Összeg = row.hidePoints ? '' : row.amount;
+      base.Kamion = row.hidePoints ? '' : row.onTrack;
+      base.Pont = row.hidePoints ? '' : row.resultPoint;
       if (grouped) base.Létszám = row.memberCount ?? 1;
       return base;
     })

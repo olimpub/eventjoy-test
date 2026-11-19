@@ -96,6 +96,24 @@
             </template>
           </section>
 
+          <section v-else-if="wallState === 'prize'" class="pta-wall__ceremony">
+            <article v-if="prizeCard" class="pta-ceremony is-first">
+              <p class="pta-ceremony__medal">Különdíj</p>
+              <p class="pta-ceremony__kicker">{{ prizeCard.kicker }}</p>
+              <h2
+                :key="prizeFaceName"
+                class="pta-ceremony__name"
+                :class="{ 'is-reel': prizeReelRunning }"
+              >
+                {{ prizeFaceName }}
+              </h2>
+              <p class="pta-ceremony__sub">{{ prizeFaceDetail }}</p>
+            </article>
+            <div v-else class="pta-wall__idle">
+              <p class="pta-wall__idle-title">{{ prizeCardMissing }}</p>
+            </div>
+          </section>
+
           <section v-else-if="wallState === 'ceremony'" class="pta-wall__ceremony">
             <div v-if="!ceremonyRow" class="pta-wall__idle">
               <p class="pta-wall__idle-title">Még nincs lezárt eredmény.</p>
@@ -115,7 +133,7 @@
                 <p class="pta-ceremony__place">{{ ceremonyRow.place }}</p>
                 <h2 class="pta-ceremony__name">{{ ceremonyRow.name }}</h2>
                 <p v-if="ceremonyRow.subLine" class="pta-ceremony__sub">{{ ceremonyRow.subLine }}</p>
-                <div class="pta-ceremony__stats">
+                <div v-if="!ceremonyRow.hidePoints" class="pta-ceremony__stats">
                   <span class="pta-ceremony__stat">
                     <img :src="scoreIcon" alt="" />
                     {{ ceremonyRow.amount }}
@@ -184,22 +202,24 @@
                   </div>
                   <div
                     v-for="row in col"
-                    :key="(groupKey || 'player') + '-' + (row.playerId || row.name) + '-' + row.place"
+                    :key="row.rowKey"
                     class="pta-wall__row"
                     :class="{
-                      'is-first': row.place === 1,
-                      'is-second': row.place === 2,
-                      'is-third': row.place === 3,
+                      'is-first': row.kind !== 'member' && row.place === 1,
+                      'is-second': row.kind !== 'member' && row.place === 2,
+                      'is-third': row.kind !== 'member' && row.place === 3,
+                      'is-group': row.kind === 'group',
+                      'is-member': row.kind === 'member',
                     }"
                   >
-                    <span class="pta-wall__place">{{ row.place }}</span>
+                    <span class="pta-wall__place">{{ row.kind === 'member' ? '' : row.place }}</span>
                     <span class="pta-wall__name">
                       <span class="pta-wall__label">{{ row.name }}</span>
                       <span v-if="row.subLine" class="pta-wall__count">{{ row.subLine }}</span>
                     </span>
-                    <span class="pta-wall__score">{{ row.amount }}</span>
-                    <span class="pta-wall__truck">{{ row.onTrack }}</span>
-                    <span class="pta-wall__points">{{ row.resultPoint }}</span>
+                    <span class="pta-wall__score">{{ row.hidePoints ? '' : row.amount }}</span>
+                    <span class="pta-wall__truck">{{ row.hidePoints ? '' : row.onTrack }}</span>
+                    <span class="pta-wall__points">{{ row.hidePoints ? '' : row.resultPoint }}</span>
                   </div>
                 </div>
               </div>
@@ -225,6 +245,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { eventRoleQuery } from 'src/utils/eventRoleNav';
 import { useEventStore } from 'src/stores/event';
+import { useMasterDataStore } from 'src/stores/masterData';
 import { useAuthStore } from 'src/stores/auth';
 import { readAxiosErrorMessage, nullableNumericId } from 'src/utils/apiPayload';
 import {
@@ -247,6 +268,12 @@ import {
   type PtaDisplayWallState,
 } from 'src/modules/profitability/ptaDisplayApi';
 import {
+  evaluateSpecialPrizes,
+  formatPrizeEuro,
+  storedSpecialPrize,
+  type PrizeKind,
+} from 'src/modules/profitability/specialPrizes';
+import {
   bindSchedulesToRoundDesk,
   ptaDeskNumber,
   ptaEventDeskId,
@@ -256,14 +283,15 @@ import {
   ptaSchedulePlayerId,
   ptaScheduleRoundDeskId,
   resolvePtaSeatName,
+  scoringPlayerPredicate,
   type EventGroupingKey,
 } from 'src/modules/profitability/ptaData';
-import { ptaSeatColorFromRow } from 'src/modules/profitability/drawEngine';
+import { compareSeatRowsByColor, ptaSeatColorFromRow } from 'src/modules/profitability/drawEngine';
 import {
   parseResultsScope,
   usePtaStandings,
 } from 'src/modules/profitability/usePtaStandings';
-import { pickLatestSettledRoundId, pickOpenRoundId, deskHasRecordedResults } from 'src/modules/profitability/standings';
+import { compareStandings, pickLatestSettledRoundId, pickOpenRoundId, deskHasRecordedResults, type StandingRow } from 'src/modules/profitability/standings';
 import '../theme.css';
 import scoreIcon from '../assets/Score.png';
 import scoreTruckIcon from '../assets/ScoreTruck.png';
@@ -282,6 +310,7 @@ const SEAT_HEAD_H = 28;
 const route = useRoute();
 const router = useRouter();
 const eventStore = useEventStore();
+const masterDataStore = useMasterDataStore();
 const authStore = useAuthStore();
 const isFullscreen = ref(false);
 const boardRef = ref<HTMLElement | null>(null);
@@ -295,6 +324,8 @@ const wallState = ref<PtaDisplayWallState>('leaderboard');
 const commandedState = ref<PtaDisplayWallState | null>(null);
 const seatingRoundId = ref<number | null>(null);
 const ceremonyPlace = ref(8);
+const prizeKind = ref<PrizeKind | null>(null);
+const prizeWinnerId = ref<number | null>(null);
 const followRemote = ref(false);
 const bootError = ref('');
 const pinInput = ref('');
@@ -323,33 +354,14 @@ const {
 const isIdle = computed(() => !hasDraw.value || visibleRounds.value.length === 0);
 
 const carouselKey = ref<EventGroupingKey | null>(null);
-const carouselIndex = ref(0);
-let groupTimer: ReturnType<typeof setInterval> | null = null;
 
 scope.value = parseResultsScope(route.query.scope) || 'total';
 groupKey.value = null;
 
-const groupValues = computed(() => {
-  const key = carouselKey.value;
-  if (!key) return [];
-  const values = new Set<string>();
-  for (const row of standings.value) {
-    const value = groupingValueForPlayer(row.playerId, key);
-    if (value && value !== 'Nincs megadva') values.add(value);
-  }
-  return [...values];
-});
-
-const currentGroupValue = computed(() => {
-  if (!groupValues.value.length) return '';
-  return groupValues.value[carouselIndex.value % groupValues.value.length] || '';
-});
-
 const wallGroupingLabel = computed(() => {
   if (!carouselKey.value) return 'Játékos';
   const attr = groupingAttrs.value.find((item) => item.key === carouselKey.value);
-  const prefix = attr?.label || 'Csoport';
-  return currentGroupValue.value ? `${prefix} · ${currentGroupValue.value}` : prefix;
+  return attr?.label || 'Csoport';
 });
 
 const wallCaption = computed(() => {
@@ -362,7 +374,176 @@ const wallCaption = computed(() => {
   if (wallState.value === 'ceremony') {
     return `${standingsCaption.value} · Dobogó`;
   }
+  if (wallState.value === 'prize') {
+    return `Különdíj · ${prizeTitle.value}`;
+  }
   return `${standingsCaption.value} · ${wallGroupingLabel.value}`;
+});
+
+function prizeStatusName(row: Record<string, unknown>): string {
+  const statusId = nullableNumericId(row.EventRoundStatusID);
+  const fromMaster = statusId != null ? masterDataStore.getPtaEventRoundStatusById(statusId)?.SName : '';
+  return String(fromMaster || row.SName || '');
+}
+
+const prizeTitle = computed(() => {
+  const kind = prizeKind.value;
+  if (!kind) return 'Különdíj';
+  const feed = eventStore.ptaDisplayFeed;
+  const rows =
+    feed != null && feed.eventId === eventId.value && feed.specialPrizes.length
+      ? feed.specialPrizes
+      : eventStore.ptaSpecialPrizes;
+  return storedSpecialPrize(rows, eventId.value, kind)?.name || (kind === 'weighted' ? 'Sorsolás' : 'Meglepetés');
+});
+
+function rowsHaveScores(rows: Record<string, unknown>[]): boolean {
+  return rows.some((row) => {
+    const amount = row.Amount ?? row.amount;
+    return amount != null && amount !== '';
+  });
+}
+
+const prizeCard = computed(() => {
+  if (wallState.value !== 'prize' || !prizeKind.value) return null;
+  const feed = eventStore.ptaDisplayFeed;
+  const feedMatches = feed != null && feed.eventId === eventId.value;
+  const storeSchedules = eventStore.getPtaSchedulesForEvent(eventId.value);
+  const useStore = rowsHaveScores(storeSchedules);
+  const useFeed = !useStore && feedMatches && feed != null && rowsHaveScores(feed.schedules);
+  const settings = useFeed && feed ? feed.settings[0] : eventStore.getPtaSettingsForEvent(eventId.value);
+  const players = useFeed && feed ? feed.players : eventStore.getPtaPlayersForEvent(eventId.value);
+  const evaluated = evaluateSpecialPrizes({
+    templates: masterDataStore.getPtaRoundsForGameType(settings?.GameTypeID),
+    rounds: useFeed && feed ? feed.rounds : eventStore.getPtaRoundsForEvent(eventId.value),
+    roundDesks: useFeed && feed ? feed.roundDesks : eventStore.getPtaRoundDesksForEvent(eventId.value),
+    schedules: useFeed && feed ? feed.schedules : storeSchedules,
+    includePlayer: scoringPlayerPredicate(players),
+    statusName: prizeStatusName,
+    playerName: (playerId) =>
+      resolvePtaSeatName({
+        playerId,
+        players,
+        people: [],
+        eventId: eventId.value,
+      }),
+  });
+  if (prizeKind.value === 'surprise') {
+    const prize = evaluated.surprise;
+    if (!prize.ok) return null;
+    const reel = prize.hat.map((row) => ({ playerId: row.playerId, name: row.name }));
+    if (prizeWinnerId.value == null) {
+      return {
+        kicker: prizeTitle.value,
+        name: reel[0]?.name || 'A kalapban',
+        detail: `${prize.hatSize} játékos a mezőny második feléből`,
+        reel,
+      };
+    }
+    return {
+      kicker: prizeTitle.value,
+      name: prize.winner.name,
+      detail: `${formatPrizeEuro(prize.round3Amount)} a 3. fordulóban · kamion ${prize.round3Truck}`,
+      reel,
+    };
+  }
+  const prize = evaluated.weighted;
+  if (!prize.ok) return null;
+  const reel = prize.pool.map((row) => ({ playerId: row.playerId, name: row.name }));
+  if (prizeWinnerId.value == null) {
+    return {
+      kicker: prizeTitle.value,
+      name: reel[0]?.name || 'A kalapban',
+      detail: `${prize.players} név · ${prize.cards} kártya`,
+      reel,
+    };
+  }
+  const winner = prize.pool.find((row) => row.playerId === prizeWinnerId.value);
+  if (!winner) return null;
+  return {
+    kicker: prizeTitle.value,
+    name: winner.name,
+    detail: `${formatPrizeEuro(winner.amount)} · ${winner.tickets} kártya`,
+    reel,
+  };
+});
+
+const prizeFaceOverride = ref('');
+const prizeReelRunning = ref(false);
+let prizeReelTimer: ReturnType<typeof setTimeout> | null = null;
+let prizeReelToken = 0;
+
+function stopPrizeReel() {
+  prizeReelToken += 1;
+  if (prizeReelTimer) clearTimeout(prizeReelTimer);
+  prizeReelTimer = null;
+}
+
+function runPrizeReel() {
+  stopPrizeReel();
+  const card = prizeCard.value;
+  const reel = card?.reel || [];
+  if (!card || reel.length < 2) {
+    prizeReelRunning.value = false;
+    prizeFaceOverride.value = '';
+    return;
+  }
+  const token = ++prizeReelToken;
+  const winnerId = prizeWinnerId.value;
+  if (winnerId == null) {
+    prizeReelRunning.value = true;
+    let index = 0;
+    const tick = () => {
+      if (token !== prizeReelToken) return;
+      prizeFaceOverride.value = reel[index % reel.length].name;
+      index += 1;
+      prizeReelTimer = setTimeout(tick, 240);
+    };
+    tick();
+    return;
+  }
+  const winnerIndex = reel.findIndex((row) => row.playerId === winnerId);
+  const winnerName = winnerIndex >= 0 ? reel[winnerIndex].name : card.name;
+  const length = reel.length;
+  const steps = length * 2 + (winnerIndex >= 0 ? winnerIndex : 0);
+  let index = 0;
+  prizeReelRunning.value = true;
+  const tick = () => {
+    if (token !== prizeReelToken) return;
+    if (index >= steps) {
+      prizeFaceOverride.value = winnerName;
+      prizeReelRunning.value = false;
+      return;
+    }
+    prizeFaceOverride.value = reel[index % length].name;
+    const left = steps - index;
+    index += 1;
+    const delay = left > 10 ? 80 : 80 + (10 - left) * 42;
+    prizeReelTimer = setTimeout(tick, delay);
+  };
+  tick();
+}
+
+const prizeFaceName = computed(() => prizeFaceOverride.value || prizeCard.value?.name || '');
+const prizeFaceDetail = computed(() => {
+  if (prizeReelRunning.value && prizeWinnerId.value != null) return 'Választás…';
+  return prizeCard.value?.detail || '';
+});
+
+watch(
+  () => {
+    if (wallState.value !== 'prize') return '';
+    const card = prizeCard.value;
+    const ids = (card?.reel || []).map((row) => row.playerId).join(',');
+    return `${prizeKind.value ?? ''}|${prizeWinnerId.value ?? ''}|${ids}`;
+  },
+  () => runPrizeReel(),
+  { immediate: true }
+);
+
+const prizeCardMissing = computed(() => {
+  if (prizeWinnerId.value != null) return 'A kihúzott játékos nem található.';
+  return 'A különdíj még nem hirdethető ki.';
 });
 
 type SeatingSeat = {
@@ -496,10 +677,7 @@ const seatingTables = computed<SeatingTable[]>(() => {
       const desk = source.desks.find((row) => ptaEventDeskId(row) === deskId);
       const seats = bindSchedulesToRoundDesk(rd, roundSchedules, roundDesks)
         .slice()
-        .sort(
-          (a, b) =>
-            Number(a.SeatNo ?? a.ColorIndex ?? 0) - Number(b.SeatNo ?? b.ColorIndex ?? 0)
-        )
+        .sort(compareSeatRowsByColor)
         .map((row) => {
           const playerId = ptaSchedulePlayerId(row);
           const teamRaw =
@@ -641,16 +819,89 @@ watch(
 
 const displayRows = computed(() => {
   const key = carouselKey.value;
-  const current = currentGroupValue.value;
-  const source =
-    key && current
-      ? standings.value.filter((row) => groupingValueForPlayer(row.playerId, key) === current)
-      : standings.value;
-  return source.map((row, index) => ({
-    ...row,
-    place: index + 1,
-    subLine: playerGroupLine(row.playerId),
-  }));
+  if (!key) {
+    return standings.value.map((row, index) => ({
+      rowKey: `p-${row.playerId}`,
+      kind: 'player' as const,
+      playerId: row.playerId,
+      name: row.name,
+      amount: row.amount,
+      onTrack: row.onTrack,
+      resultPoint: row.resultPoint,
+      hidePoints: row.hidePoints,
+      place: index + 1,
+      subLine: playerGroupLine(row.playerId),
+    }));
+  }
+  const players = standings.value.filter((row) => !row.hidePoints);
+
+  const buckets = new Map<string, StandingRow[]>();
+  for (const row of players) {
+    const name = groupingValueForPlayer(row.playerId, key) || 'Nincs megadva';
+    const list = buckets.get(name) || [];
+    list.push(row);
+    buckets.set(name, list);
+  }
+  const groups = [...buckets.entries()].map(([name, members]) => {
+    const sorted = [...members].sort(compareStandings);
+    const totals = sorted.reduce(
+      (sum, row) => {
+        sum.amount += row.amount;
+        sum.onTrack += row.onTrack;
+        sum.resultPoint += row.resultPoint;
+        return sum;
+      },
+      { amount: 0, onTrack: 0, resultPoint: 0 }
+    );
+    return { name, members: sorted, ...totals };
+  });
+  groups.sort((a, b) => {
+    if (b.resultPoint !== a.resultPoint) return b.resultPoint - a.resultPoint;
+    if (b.amount !== a.amount) return b.amount - a.amount;
+    if (b.onTrack !== a.onTrack) return b.onTrack - a.onTrack;
+    return a.name.localeCompare(b.name, 'hu');
+  });
+
+  const lines: Array<{
+    rowKey: string;
+    kind: 'group' | 'member';
+    playerId: number;
+    name: string;
+    amount: number;
+    onTrack: number;
+    resultPoint: number;
+    hidePoints?: boolean;
+    place: number;
+    subLine: string;
+  }> = [];
+  groups.forEach((group, index) => {
+    lines.push({
+      rowKey: `g-${group.name}`,
+      kind: 'group',
+      playerId: 0,
+      name: group.name,
+      amount: group.amount,
+      onTrack: group.onTrack,
+      resultPoint: group.resultPoint,
+      place: index + 1,
+      subLine: `${group.members.length} fő`,
+    });
+    for (const member of group.members) {
+      lines.push({
+        rowKey: `m-${group.name}-${member.playerId}`,
+        kind: 'member',
+        playerId: member.playerId,
+        name: member.name,
+        amount: member.amount,
+        onTrack: member.onTrack,
+        resultPoint: member.resultPoint,
+        hidePoints: member.hidePoints,
+        place: 0,
+        subLine: '',
+      });
+    }
+  });
+  return lines;
 });
 
 const ceremonyMax = computed(() => Math.max(0, Math.min(8, displayRows.value.length)));
@@ -750,14 +1001,17 @@ function clampCeremonyPlace() {
 
 function applyRemoteDisplayState(remote: PtaDisplayRemoteState | null, fromGet = false) {
   if (remote) {
-    const keepSeating = commandedState.value === 'seating' && remote.state !== 'idle';
+    const incomingPrize = remote.state === 'prize';
+    const keepSeating = commandedState.value === 'seating' && remote.state !== 'idle' && !incomingPrize;
     const keepRoundstand =
       commandedState.value === 'roundstand' &&
+      !incomingPrize &&
       remote.state !== 'idle' &&
       remote.state !== 'ceremony' &&
       remote.state !== 'seating';
     const keepCeremony =
       commandedState.value === 'ceremony' &&
+      !incomingPrize &&
       remote.state !== 'idle' &&
       remote.state !== 'seating' &&
       remote.state !== 'roundstand';
@@ -768,7 +1022,12 @@ function applyRemoteDisplayState(remote: PtaDisplayRemoteState | null, fromGet =
         : keepCeremony
           ? 'ceremony'
           : remote.state;
+    if (remote.state === 'prize') {
+      prizeKind.value = remote.prizeKind ?? null;
+      prizeWinnerId.value = remote.winnerId ?? null;
+    }
     const appliedRound =
+      remote.state !== 'prize' &&
       remote.roundId != null &&
       (remote.state === wallState.value || wallState.value === 'leaderboard');
     if (appliedRound) {
@@ -798,7 +1057,6 @@ function applyRemoteDisplayState(remote: PtaDisplayRemoteState | null, fromGet =
       groupKey.value = null;
       carouselKey.value = remote.groupKey;
     }
-    carouselIndex.value = 0;
     return;
   }
   if (commandedState.value === 'seating' || commandedState.value === 'roundstand') {
@@ -853,6 +1111,7 @@ function commandFromQueryOrStore(): PtaDisplayRemoteState | null {
       paused: !!stored?.paused,
     };
   }
+  if (view === 'prize') return stored;
   if (view === 'idle') {
     return { state: 'idle', scope: stored?.scope || 'total', roundId, groupKey: null, place: null, paused: false };
   }
@@ -1094,17 +1353,7 @@ function startPager() {
   }, PAGE_MS);
 }
 
-function startGroupPager() {
-  if (groupTimer) clearInterval(groupTimer);
-  groupTimer = setInterval(() => {
-    if (groupValues.value.length <= 1) return;
-    carouselIndex.value = (carouselIndex.value + 1) % groupValues.value.length;
-    pageIndex.value = 0;
-  }, PAGE_MS);
-}
-
 watch(carouselKey, () => {
-  carouselIndex.value = 0;
   pageIndex.value = 0;
 });
 
@@ -1164,7 +1413,6 @@ onMounted(() => {
   document.addEventListener('fullscreenchange', onFullscreenChange);
   onFullscreenChange();
   startPager();
-  startGroupPager();
   syncBoardSize();
   syncFeedPoll();
   void bootDisplay();
@@ -1188,9 +1436,9 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  stopPrizeReel();
   document.removeEventListener('fullscreenchange', onFullscreenChange);
   if (pageTimer) clearInterval(pageTimer);
-  if (groupTimer) clearInterval(groupTimer);
   if (feedPollTimer) clearInterval(feedPollTimer);
   boardObserver?.disconnect();
   stopShowDisplay?.();
@@ -1439,6 +1687,22 @@ onUnmounted(() => {
 
 .pta-wall__row.is-third {
   border-color: rgba(234, 88, 12, 0.28);
+}
+
+.pta-wall__row.is-group {
+  border-color: rgba(56, 189, 248, 0.4);
+  background: rgba(56, 189, 248, 0.1);
+}
+
+.pta-wall__row.is-member {
+  margin-left: clamp(18px, 2.4vw, 36px);
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.05);
+}
+
+.pta-wall__row.is-member .pta-wall__label {
+  font-weight: 700;
+  color: #e2e8f0;
 }
 
 .pta-wall__place {
@@ -1777,6 +2041,21 @@ onUnmounted(() => {
 
 .pta-ceremony.is-first .pta-ceremony__name {
   color: #fff7d6;
+}
+
+.pta-ceremony__name.is-reel {
+  animation: pta-prize-reel 0.16s ease;
+}
+
+@keyframes pta-prize-reel {
+  from {
+    opacity: 0.2;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 .pta-ceremony__sub {

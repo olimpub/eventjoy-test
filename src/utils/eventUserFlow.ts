@@ -479,6 +479,18 @@ function statusBlocksDoorCheckIn(name: string): boolean {
   );
 }
 
+/** Lemondta, elutasította vagy már részt vett: a tömeges beléptetés nem viszi be. */
+export function doorCheckInBlocked(statusName: string): boolean {
+  return statusBlocksDoorCheckIn(statusName);
+}
+
+export function findEnteredEventUserStatusId(eventUserStatuses: unknown[]): number | null {
+  const entered =
+    findEventUserStatusByName(eventUserStatuses, 'Belépett') ||
+    findEventUserStatusByHints(eventUserStatuses, ['belepett']);
+  return nullableNumericId(entered?.id ?? entered?.ID ?? entered?.Id);
+}
+
 function findEventUserStatusByHints(
   eventUserStatuses: unknown[],
   hints: string[]

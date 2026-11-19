@@ -42,6 +42,24 @@
           />
         </label>
 
+        <div v-if="showScoreCount" class="walkin__score">
+          <q-toggle
+            :model-value="scoreCount"
+            label="Pontot kap"
+            :color="variant === 'pta' ? 'brand-primary' : 'info'"
+            dark
+            :disable="busy || scoreCountBusy || !scoreCountEnabled"
+            @update:model-value="emit('score-count', $event === true)"
+          />
+          <p class="walkin__score-hint">
+            {{
+              scoreCountEnabled
+                ? 'Kikapcsolva a pontja nem számít az állásba. Az asztali eredménye megmarad.'
+                : 'A sorsolás után állítható, amikor már van játékos sora.'
+            }}
+          </p>
+        </div>
+
         <p v-if="errorMessage" class="walkin__error">{{ errorMessage }}</p>
 
         <button type="submit" class="walkin__submit" :disabled="busy">
@@ -77,6 +95,10 @@ const props = withDefaults(
     email?: string;
     phone?: string;
     variant?: 'eventjoy' | 'pta';
+    showScoreCount?: boolean;
+    scoreCount?: boolean;
+    scoreCountEnabled?: boolean;
+    scoreCountBusy?: boolean;
   }>(),
   {
     lastName: '',
@@ -84,12 +106,17 @@ const props = withDefaults(
     email: '',
     phone: '',
     variant: 'eventjoy',
+    showScoreCount: false,
+    scoreCount: true,
+    scoreCountEnabled: false,
+    scoreCountBusy: false,
   }
 );
 
 const emit = defineEmits<{
   'update:modelValue': [value: boolean];
   saved: [];
+  'score-count': [value: boolean];
 }>();
 
 const lastName = ref('');
@@ -276,6 +303,20 @@ async function submit() {
 
 .walkin.is-pta .walkin__field input:focus {
   border-color: rgba(246, 139, 41, 0.55);
+}
+
+.walkin__score {
+  padding: 4px 2px 0;
+}
+
+.walkin__score-hint {
+  margin: 0 0 0 42px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0;
+  text-transform: none;
+  color: #94a3b8;
 }
 
 .walkin__error {

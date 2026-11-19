@@ -12,9 +12,11 @@ import {
   normalizePtaEventPlayers,
   ptaPersonDisplayName,
   normalizePtaEventRounds,
+  applyPtaRoundTemplate,
   normalizePtaEventSettings,
   normalizePtaRoundDesks,
   normalizePtaRows,
+  scoringPlayerPredicate,
   ptaDeskNumber,
   ptaEventDeskId,
   ptaEventRoundId,
@@ -26,6 +28,8 @@ import {
   type PtaEventSettings,
 } from 'src/modules/profitability/ptaData';
 import { buildPtaDraw, type PtaDrawBuildResult } from 'src/modules/profitability/buildPtaDraw';
+import { normalizeSpecialPrizeRows } from 'src/modules/profitability/specialPrizes';
+import { eventRoundIsFinal, finalTemplateIdSet } from 'src/modules/profitability/finalRound';
 import { PLAYERS_PER_DESK, normalizePtaSchedules } from 'src/modules/profitability/drawEngine';
 import { isOlimpubEventType, OP_EVENT_TYPE_ID } from 'src/modules/olimpub/constants';
 import { isAxiosNetworkError } from 'src/utils/networkStatus';
@@ -653,6 +657,7 @@ export const useEventStore = defineStore('event', {
     ptaEventPlayers: [] as PtaEventPlayer[],
     ptaGameSchedules: [] as Record<string, unknown>[],
     ptaEventPrizes: [] as Record<string, unknown>[],
+    ptaSpecialPrizes: [] as Record<string, unknown>[],
     /** Játékmester pajzsos foglalás — a GET automatikus kiosztását nem írjuk rá. */
     ptaDeskClaims: {} as Record<number, number | null>,
     /** GET /pta/display — ne keverjük a staff userdata sorsolással. */
@@ -665,6 +670,7 @@ export const useEventStore = defineStore('event', {
       roundDesks: Record<string, unknown>[];
       players: PtaEventPlayer[];
       schedules: Record<string, unknown>[];
+      specialPrizes: Record<string, unknown>[];
     },
   }),
   getters: {
@@ -1483,7 +1489,15 @@ export const useEventStore = defineStore('event', {
           sheetEventId
         ),
         prizes: stampPtaEventId(
-          normalizePtaRows(pickDataset(data, 'EventPrizes', 'eventPrizes')),
+          normalizePtaRows(
+            pickDataset(data, 'EventPrizes', 'eventPrizes', 'PtaEventPrizes', 'PtaPrizes')
+          ),
+          sheetEventId
+        ),
+        specialPrizes: stampPtaEventId(
+          normalizeSpecialPrizeRows(
+            pickDataset(data, 'EventSpecialPrizes', 'eventSpecialPrizes', 'PtaSpecialPrizes', 'SpecialPrizes')
+          ),
           sheetEventId
         ),
       });
@@ -1555,6 +1569,7 @@ export const useEventStore = defineStore('event', {
         players: PtaEventPlayer[];
         schedules: Record<string, unknown>[];
         prizes: Record<string, unknown>[];
+        specialPrizes?: Record<string, unknown>[];
       }
     ) {
       const key = eventId == null || eventId === '' ? null : String(eventId);
@@ -1605,6 +1620,14 @@ export const useEventStore = defineStore('event', {
               ...snapshot.settings,
             ];
           }
+          this.ptaEventPrizes = [
+            ...ptaRowsExceptEvent(this.ptaEventPrizes, key),
+            ...snapshot.prizes,
+          ];
+          this.ptaSpecialPrizes = [
+            ...ptaRowsExceptEvent(this.ptaSpecialPrizes, key),
+            ...(snapshot.specialPrizes || []),
+          ];
           stripAutoAssignedGameMasters(
             ptaRowsForEvent(this.ptaEventDesks, key),
             this.ptaEventRoundDesks.filter((row) => {
@@ -1625,12 +1648,25 @@ export const useEventStore = defineStore('event', {
             ...snapshot.settings,
           ];
         }
+        this.ptaEventPrizes = [
+          ...ptaRowsExceptEvent(this.ptaEventPrizes, key),
+          ...snapshot.prizes,
+        ];
+        this.ptaSpecialPrizes = [
+          ...ptaRowsExceptEvent(this.ptaSpecialPrizes, key),
+          ...(snapshot.specialPrizes || []),
+        ];
         return;
       }
 
       snapshot.roundDesks = normalizePtaRoundDesks(snapshot.roundDesks);
       snapshot.rounds = snapshot.rounds.length
-        ? normalizePtaEventRounds(snapshot.rounds)
+        ? applyPtaRoundTemplate(
+            normalizePtaEventRounds(snapshot.rounds),
+            useMasterDataStore().getPtaRoundsForGameType(
+              nullableNumericId(snapshot.settings[0]?.GameTypeID)
+            )
+          )
         : snapshot.rounds;
       attachPtaDeskNumbers(snapshot.roundDesks, snapshot.desks);
       const hydrated = hydratePtaPlayerGraph({
@@ -1656,6 +1692,7 @@ export const useEventStore = defineStore('event', {
         this.ptaEventPlayers = snapshot.players;
         this.ptaGameSchedules = normalizePtaSchedules(snapshot.schedules);
         this.ptaEventPrizes = snapshot.prizes;
+        this.ptaSpecialPrizes = snapshot.specialPrizes || [];
         this.reapplyPtaDeskClaims();
         return;
       }
@@ -1710,6 +1747,10 @@ export const useEventStore = defineStore('event', {
         ...ptaRowsExceptEvent(this.ptaEventPrizes, key),
         ...snapshot.prizes,
       ];
+      this.ptaSpecialPrizes = [
+        ...ptaRowsExceptEvent(this.ptaSpecialPrizes, key),
+        ...(snapshot.specialPrizes || []),
+      ];
       this.reapplyPtaDeskClaims();
       forgetPtaDraw(key);
     },
@@ -1721,8 +1762,13 @@ export const useEventStore = defineStore('event', {
         pickDataset(data, 'EventSettings', 'eventSettings', 'PtaEventSettings')
       );
       const desks = normalizePtaRows(pickDataset(data, 'EventDesks', 'eventDesks', 'PtaEventDesks'));
-      const rounds = normalizePtaEventRounds(
-        pickDataset(data, 'EventRounds', 'eventRounds', 'PtaEventRounds')
+      const rounds = applyPtaRoundTemplate(
+        normalizePtaEventRounds(
+          pickDataset(data, 'EventRounds', 'eventRounds', 'PtaEventRounds')
+        ),
+        useMasterDataStore().getPtaRoundsForGameType(
+          nullableNumericId(settings[0]?.GameTypeID)
+        )
       );
       const roundDesks = normalizePtaRoundDesks(
         pickFilledDataset(
@@ -1781,7 +1827,22 @@ export const useEventStore = defineStore('event', {
         roundDesks,
         players: hydrated.players,
         schedules: hydrated.schedules,
+        specialPrizes: stampPtaEventId(
+          normalizeSpecialPrizeRows(
+            pickDataset(data, 'EventSpecialPrizes', 'eventSpecialPrizes', 'PtaSpecialPrizes', 'SpecialPrizes')
+          ),
+          key
+        ),
       };
+    },
+
+    rememberSpecialPrizeWinner(eventId: number | string, kind: 'surprise' | 'weighted', winnerId: number) {
+      const key = String(eventId);
+      const row = this.ptaSpecialPrizes.find(
+        (item) => String(item.EventID ?? item.eventID ?? '') === key && String(item.PrizeKind) === kind
+      );
+      if (!row) return;
+      row.WinnerEventPlayerID = winnerId;
     },
 
     clearPtaDisplayFeed() {
@@ -1830,7 +1891,12 @@ export const useEventStore = defineStore('event', {
     applyPtaDrawSnapshot(eventId: number | string, snapshot: LocalPtaDrawSnapshot) {
       const key = String(eventId);
       const desks = snapshot.desks || [];
-      const rounds = normalizePtaEventRounds(snapshot.rounds || []);
+      const rounds = applyPtaRoundTemplate(
+        normalizePtaEventRounds(snapshot.rounds || []),
+        useMasterDataStore().getPtaRoundsForGameType(
+          this.getPtaSettingsForEvent(eventId)?.GameTypeID
+        )
+      );
       const roundDesks = normalizePtaRoundDesks(snapshot.roundDesks || []);
       attachPtaDeskNumbers(roundDesks, desks);
       const hydrated = hydratePtaPlayerGraph({
@@ -2076,6 +2142,16 @@ export const useEventStore = defineStore('event', {
       return built;
     },
 
+    appendPtaSchedules(eventId: number | string, schedules: Record<string, unknown>[]): () => void {
+      const previous = this.ptaGameSchedules;
+      this.ptaGameSchedules = [...previous, ...schedules];
+      this.persistCurrentPtaDraw(eventId);
+      return () => {
+        this.ptaGameSchedules = previous;
+        this.persistCurrentPtaDraw(eventId);
+      };
+    },
+
     applyEventRoundDeskPatch(
       eventId: number | string,
       roundDeskId: number,
@@ -2200,6 +2276,8 @@ export const useEventStore = defineStore('event', {
     refreshPtaPlayerFinals(eventId: number | string) {
       const key = String(eventId);
       const master = useMasterDataStore();
+      const settings = this.getPtaSettingsForEvent(eventId);
+      const finalIds = finalTemplateIdSet(master.getPtaRoundsForGameType(settings?.GameTypeID));
       const rounds = this.getPtaRoundsForEvent(eventId).map((row, index) => {
         const id = nullableNumericId(row.EventRoundID ?? row.id) ?? index + 1;
         const statusId = nullableNumericId(row.EventRoundStatusID);
@@ -2208,13 +2286,16 @@ export const useEventStore = defineStore('event', {
         return {
           id,
           status: String(fromMaster || row.SName || ''),
+          final: eventRoundIsFinal(row, finalIds),
         };
       });
+      const players = this.getPtaPlayersForEvent(eventId);
       const finals = computePublishedPlayerFinals({
         rounds,
         roundDesks: this.getPtaRoundDesksForEvent(eventId),
         schedules: this.getPtaSchedulesForEvent(eventId),
         catalogHasPublished: catalogHasPublishedStatus(master.ptaEventRoundStatuses),
+        includePlayer: scoringPlayerPredicate(players),
       });
       const byId = new Map(finals.map((row) => [row.playerId, row]));
       let changed = false;
@@ -2238,6 +2319,27 @@ export const useEventStore = defineStore('event', {
       if (!changed) return;
       this.ptaEventPlayers = next;
       this.persistCurrentPtaDraw(eventId);
+    },
+
+    setPtaPlayerScoreCount(eventPlayerId: number, scoreCount: boolean) {
+      const target = Number(eventPlayerId);
+      const patch = (row: PtaEventPlayer): PtaEventPlayer => {
+        if (Number(row.EventPlayerID ?? row.id) !== target) return row;
+        return {
+          ...row,
+          ScoreCountFlg: scoreCount,
+          ...(scoreCount
+            ? {}
+            : { FinalPoint: null, FinalTruckPoint: null, FinalPosition: null }),
+        };
+      };
+      this.ptaEventPlayers = this.ptaEventPlayers.map(patch);
+      if (this.ptaDisplayFeed) {
+        this.ptaDisplayFeed = {
+          ...this.ptaDisplayFeed,
+          players: this.ptaDisplayFeed.players.map(patch),
+        };
+      }
     },
 
     applyEventUserContact(

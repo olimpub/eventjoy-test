@@ -90,6 +90,16 @@
               </span>
             </div>
           </div>
+          <button
+            v-if="canSeatFinal"
+            type="button"
+            class="game-ctrl game-ctrl--start game-final"
+            :disabled="drawing"
+            @click="onSeatFinal"
+          >
+            <q-icon name="emoji_events" size="20px" />
+            {{ drawing ? 'Sorsolás…' : 'Döntő sorsolása' }}
+          </button>
         </section>
 
         <button
@@ -111,6 +121,20 @@
           </span>
           <q-icon name="expand_more" size="22px" class="game-rounds-restore__chevron" />
         </button>
+
+        <button
+          v-if="canGenerateRoundResults"
+          type="button"
+          class="game-ctrl game-ctrl--test"
+          :disabled="generatingResults"
+          @click="generateRoundResults"
+        >
+          <q-icon name="auto_fix_high" size="20px" />
+          {{ generatingResults ? 'Generálás…' : `Eredmények generálása · ${currentRound?.label || 'forduló'}` }}
+        </button>
+        <p v-if="canGenerateRoundResults" class="game-hint">
+          Tesztadat a kijelölt forduló nyitott asztalaira. Az éles felületen ez a gomb nincs ott.
+        </p>
 
         <div class="game-toolbar">
           <q-input
@@ -537,7 +561,9 @@ import { useRoute, useRouter } from 'vue-router';
 import { useQuasar } from 'quasar';
 import { eventDatasheetKind, eventRolePath, eventRoleQuery } from 'src/utils/eventRoleNav';
 import { nullableNumericId, readAxiosErrorMessage, readAxiosHttpStatus } from 'src/utils/apiPayload';
-import { claimPtaDesk, closePtaRound, patchPtaDesk, publishPtaRound, replacePtaDraw, setPtaDeskResults, setPtaRoundStatus } from 'src/utils/eventChange';
+import { allowTestTools } from 'src/utils/runtimeSurface';
+import { claimPtaDesk, closePtaRound, patchPtaDesk, publishPtaRound, replacePtaDraw, seatPtaFinal, setPtaDeskResults, setPtaRoundStatus } from 'src/utils/eventChange';
+import { planFinalSeating } from 'src/modules/profitability/finalRound';
 import { uploadPtaDeskPhoto } from 'src/utils/eventMaterials';
 import { pingPtaLiveRoundDisplay } from 'src/modules/profitability/ptaDisplayApi';
 import {
@@ -554,7 +580,7 @@ import PtaBusyOverlay from 'src/modules/profitability/components/PtaBusyOverlay.
 import AppConfirmDialog from 'src/components/ui/AppConfirmDialog.vue';
 import { paintBusy } from 'src/modules/profitability/paintBusy';
 import { pickOpenRoundId, ptaRoundStatusKind, isPublishedStatus, canEnterRoundResults, findPtaRoundStatusIdByNameHints, isLiveStatus as isRoundLiveStatus, isSettledRoundStatus, deskHasRecordedResults } from 'src/modules/profitability/standings';
-import { PLAYERS_PER_DESK, ptaSeatColorFromRow } from 'src/modules/profitability/drawEngine';
+import { PLAYERS_PER_DESK, compareSeatRowsByColor, ptaSeatColorFromRow } from 'src/modules/profitability/drawEngine';
 import {
   bindSchedulesToRoundDesk,
   ptaDeskNumber,
@@ -563,6 +589,7 @@ import {
   ptaRoundDeskId,
   ptaSchedulePlayerId,
   resolvePtaSeatName,
+  scoringPlayerPredicate,
 } from 'src/modules/profitability/ptaData';
 import {
   AMOUNT_MAX,
@@ -624,11 +651,14 @@ const masterDataStore = useMasterDataStore();
 
 const eventId = computed(() => String(route.params.id));
 const drawing = ref(false);
+const generatingResults = ref(false);
 const isDrawSummaryOpen = ref(false);
 const drawSummary = ref<PtaDrawQuality | null>(null);
 const drawSaving = ref(false);
 const workLabel = ref('Sorsolás…');
-const workBusy = computed(() => drawing.value || drawSaving.value || deskSaving.value || roundSaving.value);
+const workBusy = computed(
+  () => drawing.value || drawSaving.value || deskSaving.value || roundSaving.value || generatingResults.value
+);
 const selectedRoundId = ref<number | null>(null);
 const selectedTableId = ref<number | null>(null);
 const roundsPanelOpen = ref(false);
@@ -848,6 +878,22 @@ const canRedraw = computed(
   () => isOrganizerView.value && isDrawStatus.value && hasDraw.value && !hasRecordedResults.value
 );
 const canChangeRoundStatus = computed(() => isOrganizerView.value && eventReachedGame.value);
+
+const finalSeatPlan = computed(() => {
+  if (!isOrganizerView.value) return null;
+  return planFinalSeating({
+    templates: masterDataStore.getPtaRoundsForGameType(
+      eventStore.getPtaSettingsForEvent(eventId.value)?.GameTypeID
+    ),
+    rounds: eventStore.getPtaRoundsForEvent(eventId.value),
+    roundDesks: eventStore.getPtaRoundDesksForEvent(eventId.value),
+    schedules: eventStore.getPtaSchedulesForEvent(eventId.value),
+    statusName: roundStatusName,
+    playerName: (playerId) => playerName(playerId),
+    includePlayer: scoringPlayerPredicate(eventStore.getPtaPlayersForEvent(eventId.value)),
+  });
+});
+const canSeatFinal = computed(() => finalSeatPlan.value?.ok === true);
 const reserveCount = computed(
   () => eventStore.getPtaPlayersForEvent(eventId.value).filter((row) => row.ReserveFlg === true || row.ReserveFlg === 1).length
 );
@@ -868,6 +914,16 @@ const currentRound = computed(() => rounds.value.find((round) => round.id === se
 
 const canEnterResults = computed(
   () => playPhase.value === 'game' && canEnterRoundResults(currentRound.value?.status || '')
+);
+
+const canGenerateRoundResults = computed(
+  () =>
+    allowTestTools() &&
+    isOrganizerView.value &&
+    canEnterResults.value &&
+    currentTables.value.some(
+      (table) => !table.isClosed && table.seats.some((seat) => seat.playerId > 0)
+    )
 );
 
 function canScoreDesk(table: unknown): boolean {
@@ -908,7 +964,7 @@ const currentTables = computed<GameTableRow[]>(() => {
       const desk = desks.find((d) => nullableNumericId(d.EventDeskID ?? d.id) === deskId);
       const seats = bindSchedulesToRoundDesk(rd, schedules, roundDesks)
         .slice()
-        .sort((a, b) => Number(a.SeatNo ?? a.ColorIndex ?? 0) - Number(b.SeatNo ?? b.ColorIndex ?? 0))
+        .sort(compareSeatRowsByColor)
         .map((row) => {
           const playerId = ptaSchedulePlayerId(row);
           return {
@@ -1782,6 +1838,84 @@ async function closeDesk() {
   }
 }
 
+function randomDeskScores(count: number): Array<{ amount: number; onTrack: number }> {
+  const amounts = new Set<number>();
+  while (amounts.size < count) {
+    amounts.add(AMOUNT_MIN + Math.floor(Math.random() * (AMOUNT_MAX - AMOUNT_MIN + 1)));
+  }
+  return [...amounts].map((amount) => ({
+    amount,
+    onTrack: Math.floor(Math.random() * (TRUCK_MAX + 1)),
+  }));
+}
+
+async function generateRoundResults() {
+  if (!allowTestTools() || !canGenerateRoundResults.value || generatingResults.value) return;
+  const id = nullableNumericId(eventId.value);
+  const round = currentRound.value;
+  if (id == null || !round) return;
+  const targets = currentTables.value.filter(
+    (table) => !table.isClosed && table.seats.some((seat) => seat.playerId > 0)
+  );
+  if (!targets.length) return;
+  generatingResults.value = true;
+  workLabel.value = 'Eredmények generálása…';
+  let saved = 0;
+  try {
+    await ensureRoundInProgress();
+    for (const table of targets) {
+      const players = table.seats.filter((seat) => seat.playerId > 0);
+      const scores = players.some((seat) => seat.amount == null) ? randomDeskScores(players.length) : null;
+      const filled = players.map((seat, index) =>
+        scores
+          ? { ...seat, amount: scores[index].amount, onTrack: scores[index].onTrack }
+          : seat
+      );
+      const ranked = rankDeskSeats(filled, ptaSettings.value, false);
+      const prevStatus = table.deskStatus;
+      try {
+        await setPtaDeskResults({
+          eventId: id,
+          eventRoundDeskId: table.id,
+          seats: deskResultPayload(ranked.seats),
+        });
+        eventStore.applyDeskSeatResults(eventId.value, table.id, deskResultPayload(ranked.seats));
+        eventStore.applyEventRoundDeskPatch(eventId.value, table.id, { SName: 'Lezárt' });
+        await patchPtaDesk({
+          eventId: id,
+          eventRoundDeskId: table.id,
+          sName: 'Lezárt',
+          photoUrl: table.photoUrl,
+        });
+        saved += 1;
+      } catch (error) {
+        eventStore.applyEventRoundDeskPatch(eventId.value, table.id, { SName: prevStatus });
+        $q.notify({
+          message: readAxiosErrorMessage(
+            error,
+            saved
+              ? `${saved} asztal megvan. ${table.name} mentése megállt.`
+              : `${table.name} eredménye nem menthető.`
+          ),
+          color: 'dark',
+          textColor: 'red-4',
+          position: 'top',
+        });
+        return;
+      }
+    }
+    $q.notify({
+      message: `${round.label}: ${saved} asztal eredménye megvan.`,
+      color: 'dark',
+      textColor: 'orange-4',
+      position: 'top',
+    });
+    void pingPtaLiveRoundDisplay(id, round.id);
+  } finally {
+    generatingResults.value = false;
+  }
+}
+
 function goBack() {
   const { readonly: _readonly, from: _from, ...query } = route.query;
   router.push({
@@ -1820,6 +1954,36 @@ function notifyDrawFail(message: string) {
 function openDrawSummary() {
   drawSummary.value = summarizePtaDraw(eventId.value);
   isDrawSummaryOpen.value = true;
+}
+
+async function onSeatFinal() {
+  const plan = finalSeatPlan.value;
+  const id = nullableNumericId(eventId.value);
+  if (!plan?.ok || id == null || drawing.value) return;
+  drawing.value = true;
+  workLabel.value = 'Döntő sorsolása…';
+  const rollback = eventStore.appendPtaSchedules(id, plan.schedules);
+  try {
+    await seatPtaFinal({
+      eventId: id,
+      eventRoundId: plan.eventRoundId,
+      eventRoundDeskId: plan.eventRoundDeskId,
+      seats: plan.seats,
+    });
+    selectedRoundId.value = plan.eventRoundId;
+    $q.notify({
+      message: 'A döntő négy játékosa asztalhoz ült.',
+      color: 'dark',
+      textColor: 'orange-4',
+      position: 'top',
+      timeout: 1800,
+    });
+  } catch (error) {
+    rollback();
+    notifyDrawFail(readAxiosErrorMessage(error, 'A döntő sorsolása nem sikerült.'));
+  } finally {
+    drawing.value = false;
+  }
 }
 
 function onStartDraw() {
@@ -2269,6 +2433,18 @@ async function onFinalizeDraw() {
   border-color: rgba(40, 199, 111, 0.4);
   background: rgba(40, 199, 111, 0.16);
   color: #28c76f;
+}
+
+.game-final {
+  margin-top: 12px;
+}
+
+.game-ctrl--test {
+  width: 100%;
+  margin-top: 12px;
+  border-color: rgba(242, 184, 75, 0.55);
+  background: rgba(242, 184, 75, 0.14);
+  color: #f2e74b;
 }
 
 .game-tables-group + .game-tables-group {

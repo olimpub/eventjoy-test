@@ -213,7 +213,7 @@
         </button>
         <div v-if="modelValue.ptaExtraPrizeFlg" class="pta-option__body">
           <q-select
-            :model-value="modelValue.ptaExtraPrizeIds"
+            :model-value="extraPrizeSelection"
             :options="extraPrizeOptions"
             emit-value
             map-options
@@ -224,7 +224,6 @@
             dense
             class="wizard-field wizard-field--chips"
             color="brand-primary"
-            :disable="!extraPrizeOptions.length"
             :hint="extraPrizeHint"
             placeholder="Válassz extra díjakat"
             @update:model-value="onExtraPrizeIds"
@@ -324,22 +323,36 @@ const championshipOptions = computed(() =>
   }))
 );
 
-const extraPrizeOptions = computed(() =>
-  (masterData.ptaExtraPrizes || []).map((row) => ({
+const SPECIAL_PRIZE_OPTIONS = [
+  { label: 'Meglepetés', value: 'surprise' },
+  { label: 'Sorsolás', value: 'weighted' },
+] as const;
+
+const extraPrizeOptions = computed(() => [
+  ...SPECIAL_PRIZE_OPTIONS,
+  ...(masterData.ptaExtraPrizes || []).map((row) => ({
     label: row.PName,
-    value: row.id,
-  }))
-);
+    value: Number(row.id),
+  })),
+]);
+
+const extraPrizeSelection = computed(() => {
+  const selected: Array<number | 'surprise' | 'weighted'> = [];
+  if (String(props.modelValue.ptaSurprisePrizeName || '').trim()) selected.push('surprise');
+  if (String(props.modelValue.ptaWeightedPrizeName || '').trim()) selected.push('weighted');
+  for (const id of props.modelValue.ptaExtraPrizeIds || []) {
+    const n = Number(id);
+    if (Number.isFinite(n) && n > 0) selected.push(n);
+  }
+  return selected;
+});
 
 const championshipHint = computed(() => {
   if (!championshipOptions.value.length) return 'Nincs bajnokság a masterben';
   return 'Egy bajnokságot lehet választani';
 });
 
-const extraPrizeHint = computed(() => {
-  if (!extraPrizeOptions.value.length) return 'Nincs extra díj a masterben';
-  return 'Több díj is kiválasztható';
-});
+const extraPrizeHint = computed(() => 'Több díj is kiválasztható');
 
 const maxPlayersDisplay = computed(() =>
   props.modelValue.ptaMaxParticipants == null ? '' : props.modelValue.ptaMaxParticipants
@@ -378,17 +391,27 @@ function onChampionshipFlg(on: boolean) {
 
 function onExtraPrizeFlg(on: boolean) {
   if (!on) {
-    patch({ ptaExtraPrizeFlg: false, ptaExtraPrizeIds: [] });
+    patch({
+      ptaExtraPrizeFlg: false,
+      ptaExtraPrizeIds: [],
+      ptaSurprisePrizeName: '',
+      ptaWeightedPrizeName: '',
+    });
     return;
   }
   patch({ ptaExtraPrizeFlg: true });
 }
 
 function onExtraPrizeIds(value: unknown) {
-  const ids = Array.isArray(value)
-    ? value.map((v) => toId(v)).filter((n): n is number => n != null)
-    : [];
-  patch({ ptaExtraPrizeIds: ids });
+  const list = Array.isArray(value) ? value : [];
+  const surprise = list.some((item) => item === 'surprise');
+  const weighted = list.some((item) => item === 'weighted');
+  const ids = list.map((item) => toId(item)).filter((n): n is number => n != null);
+  patch({
+    ptaExtraPrizeIds: ids,
+    ptaSurprisePrizeName: surprise ? 'Meglepetés' : '',
+    ptaWeightedPrizeName: weighted ? 'Sorsolás' : '',
+  });
 }
 
 function submit() {
@@ -397,7 +420,12 @@ function submit() {
     let message = 'Válaszd ki a játéktípust, az ültetés módját, a kategóriát és a pontokat.';
     if (b.ptaChampionshipFlg && b.ptaChampionshipId == null) {
       message = 'Válassz egy bajnokságot.';
-    } else if (b.ptaExtraPrizeFlg && !(b.ptaExtraPrizeIds || []).length) {
+    } else if (
+      b.ptaExtraPrizeFlg &&
+      !(b.ptaExtraPrizeIds || []).length &&
+      !String(b.ptaSurprisePrizeName || '').trim() &&
+      !String(b.ptaWeightedPrizeName || '').trim()
+    ) {
       message = 'Válassz legalább egy extra díjat.';
     }
     $q.notify({

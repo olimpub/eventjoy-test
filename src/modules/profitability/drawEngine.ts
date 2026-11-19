@@ -5,6 +5,12 @@ import { nullableNumericId } from 'src/utils/apiPayload';
 /** Asztalonként a négy szín — piros, zöld, kék, sárga */
 export const PTA_SEAT_COLORS = ['#FF6060', '#28C76F', '#2AA9FF', '#F2E74B'] as const;
 
+/**
+ * Megjelenítési sorrend az asztalnál (ültetés, eredményfelvitel): piros, kék, sárga, zöld.
+ * A mentett ColorIndex/SeatNo jelentése (PTA_SEAT_COLORS) nem változik, csak a rendezés.
+ */
+export const PTA_SEAT_DISPLAY_ORDER = ['#FF6060', '#2AA9FF', '#F2E74B', '#28C76F'] as const;
+
 export const PLAYERS_PER_DESK = 4;
 
 export interface DrawPlayer {
@@ -305,6 +311,21 @@ export function ptaSeatColorFromRow(row: Record<string, unknown>): string {
   );
   if (hex) return hex;
   return PTA_SEAT_COLORS[ptaSeatColorIndexFromRow(row)] || PTA_SEAT_COLORS[0];
+}
+
+/** Sorrendi rang a megjelenítési színsorrendben (0 = piros ... 3 = zöld). */
+export function ptaSeatDisplayRank(row: Record<string, unknown>): number {
+  const hex = ptaSeatColorFromRow(row).toUpperCase();
+  const rank = PTA_SEAT_DISPLAY_ORDER.findIndex((item) => item === hex);
+  return rank >= 0 ? rank : PTA_SEAT_DISPLAY_ORDER.length + ptaSeatColorIndexFromRow(row);
+}
+
+/** Asztal ülései: piros, kék, sárga, zöld sorrendbe. */
+export function compareSeatRowsByColor(
+  a: Record<string, unknown>,
+  b: Record<string, unknown>
+): number {
+  return ptaSeatDisplayRank(a) - ptaSeatDisplayRank(b);
 }
 
 function hasPlayColorHex(row: Record<string, unknown>): boolean {

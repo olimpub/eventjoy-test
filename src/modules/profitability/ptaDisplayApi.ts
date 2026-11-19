@@ -9,13 +9,14 @@ import {
 import { changeEvent } from 'src/utils/eventChange';
 import type { EventGroupingKey } from 'src/modules/profitability/ptaData';
 import type { ResultsScope } from 'src/modules/profitability/standings';
+import type { PrizeKind } from 'src/modules/profitability/specialPrizes';
 
 const TOKEN_KEY = (eventId: string | number) => `ptaDisplayToken:${eventId}`;
 const DISPLAY_ID_KEY = (eventId: string | number) => `ptaDisplayId:${eventId}`;
 const PIN_CACHE_KEY = (eventId: string | number) => `ptaDisplayPin:${eventId}`;
 const COMMAND_KEY = (eventId: string | number) => `ptaDisplayCommand:${eventId}`;
 
-export type PtaDisplayWallState = 'idle' | 'leaderboard' | 'seating' | 'ceremony' | 'roundstand';
+export type PtaDisplayWallState = 'idle' | 'leaderboard' | 'seating' | 'ceremony' | 'roundstand' | 'prize';
 
 const WALL_STATES: readonly PtaDisplayWallState[] = [
   'idle',
@@ -23,6 +24,7 @@ const WALL_STATES: readonly PtaDisplayWallState[] = [
   'seating',
   'ceremony',
   'roundstand',
+  'prize',
 ];
 
 export function isPtaDisplayWallState(value: string): value is PtaDisplayWallState {
@@ -55,6 +57,8 @@ export interface PtaDisplayRemoteState {
   groupKey: EventGroupingKey | null;
   place: number | null;
   paused: boolean;
+  prizeKind?: PrizeKind | null;
+  winnerId?: number | null;
 }
 
 export interface PtaDisplayPinCache {
@@ -339,10 +343,16 @@ function parseWallState(source: Record<string, unknown>): PtaDisplayWallState | 
   }
   if (state === 'seating' || view === 'seating') return 'seating';
   if (state === 'idle' || view === 'idle') return 'idle';
+  if (state === 'prize' || view === 'prize') return 'prize';
   if (state === 'leaderboard' || state === 'groups' || view === 'leaderboard' || view === 'groups') {
     return 'leaderboard';
   }
   return null;
+}
+
+function parsePrizeKind(raw: unknown): PrizeKind | null {
+  const value = String(raw ?? '').toLowerCase();
+  return value === 'surprise' || value === 'weighted' ? value : null;
 }
 
 export function parsePtaDisplayState(raw: unknown): PtaDisplayRemoteState | null {
@@ -370,13 +380,23 @@ export function parsePtaDisplayState(raw: unknown): PtaDisplayRemoteState | null
     state === 'ceremony'
       ? parsePaused(source.Paused ?? source.paused ?? data.Paused ?? data.paused)
       : false;
+  const prizeKind =
+    state === 'prize'
+      ? parsePrizeKind(source.GroupKey ?? source.groupKey ?? data.GroupKey ?? data.groupKey)
+      : null;
+  const winnerId =
+    state === 'prize'
+      ? nullableNumericId(source.RoundId ?? source.roundId ?? data.RoundId ?? data.roundId)
+      : null;
   return {
     state,
     scope,
-    roundId,
-    groupKey,
+    roundId: state === 'prize' ? null : roundId,
+    groupKey: state === 'prize' ? null : groupKey,
     place,
     paused,
+    prizeKind,
+    winnerId,
   };
 }
 
@@ -398,24 +418,33 @@ export async function showPtaDisplay(args: {
   groupKey: EventGroupingKey | null;
   place?: number | null;
   paused?: boolean;
+  prizeKind?: PrizeKind | null;
+  winnerId?: number | null;
 }): Promise<void> {
+  const prize = args.state === 'prize';
   const payload: Record<string, unknown> = {
     State: args.state,
     View: args.state,
     Scope: args.scope,
-    RoundId: args.roundId,
-    EventRoundID: args.roundId,
-    GroupKey: isPtaLiveRoundDisplay(args.state) || args.state === 'idle' ? null : args.groupKey,
+    RoundId: prize ? args.winnerId ?? null : args.roundId,
+    EventRoundID: prize ? args.winnerId ?? null : args.roundId,
+    GroupKey: prize
+      ? args.prizeKind ?? null
+      : isPtaLiveRoundDisplay(args.state) || args.state === 'idle'
+        ? null
+        : args.groupKey,
     Place: args.state === 'ceremony' ? args.place ?? null : null,
     Paused: args.state === 'ceremony' ? !!args.paused : false,
   };
   storeDisplayCommand(args.eventId, {
     state: args.state,
     scope: args.scope,
-    roundId: args.roundId,
-    groupKey: isPtaLiveRoundDisplay(args.state) || args.state === 'idle' ? null : args.groupKey,
+    roundId: prize ? null : args.roundId,
+    groupKey: prize ? null : isPtaLiveRoundDisplay(args.state) || args.state === 'idle' ? null : args.groupKey,
     place: args.state === 'ceremony' ? args.place ?? null : null,
     paused: args.state === 'ceremony' ? !!args.paused : false,
+    prizeKind: prize ? args.prizeKind ?? null : null,
+    winnerId: prize ? args.winnerId ?? null : null,
   });
   emitPtaShowDisplayPing(
     {

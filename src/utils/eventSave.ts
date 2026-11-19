@@ -55,6 +55,7 @@ export interface EventSavePayload {
   RoleTickets: Array<{ RoleTempId: string; TicketTempId: string }>;
   PtaSettings: Record<string, unknown> | null;
   PtaPrizes: Array<{ PrizeID: number }>;
+  PtaSpecialPrizes: Array<{ PrizeKind: 'surprise' | 'weighted'; PrizeName: string }>;
   OpSettings: Record<string, unknown> | null;
 }
 
@@ -190,6 +191,13 @@ export function buildEventSavePayload(args: {
     PtaPrizes:
       includePta && basics.ptaExtraPrizeFlg
         ? (basics.ptaExtraPrizeIds || []).map((PrizeID) => ({ PrizeID }))
+        : [],
+    PtaSpecialPrizes:
+      includePta && basics.ptaExtraPrizeFlg
+        ? [
+            { PrizeKind: 'surprise', PrizeName: String(basics.ptaSurprisePrizeName || '').trim() },
+            { PrizeKind: 'weighted', PrizeName: String(basics.ptaWeightedPrizeName || '').trim() },
+          ].filter((row) => row.PrizeName)
         : [],
     OpSettings: opSettings,
   };
