@@ -3,7 +3,7 @@ import { Notify } from 'quasar';
 import { nullableNumericId, throwIfApiFailed } from 'src/utils/apiPayload';
 import { useEventStore } from 'src/stores/event';
 import { useMasterDataStore } from 'src/stores/masterData';
-import { findPtaPlayerForEventUser, pickGroupingText, ptaDeskNumber, ptaEventPlayerId, ptaEventRoundId, ptaRoundDeskId, ptaSchedulePlayerId, ptaScheduleRoundDeskId, scoreCountEnabled } from 'src/modules/profitability/ptaData';
+import { findPtaPlayerForEventUser, pickGroupingText, ptaDeskNumber, ptaEventPlayerId, ptaEventRoundId, ptaRoundDeskId, ptaSchedulePlayerId, ptaScheduleRoundDeskId, scoreCountEnabled, type EventGroupingKey } from 'src/modules/profitability/ptaData';
 import { findEventStatusIdByNameHints } from 'src/utils/eventFlow';
 import type { SignalRLiveRole } from 'src/utils/eventRoleNav';
 import { recordSignalRInbound } from 'src/utils/signalrDebug';
@@ -330,6 +330,33 @@ export async function setPtaScoreCount(args: {
       ScoreCountFlg: args.scoreCount,
     },
   });
+}
+
+const GROUPING_PAYLOAD_FIELDS: Record<EventGroupingKey, string> = {
+  organization: 'OrganizationName',
+  team: 'TeamName',
+  company: 'CompanyName',
+  region: 'RegionName',
+};
+
+export async function setPtaPlayerGrouping(args: {
+  eventId: number;
+  eventUserId: number;
+  groups: Partial<Record<EventGroupingKey, string>>;
+}): Promise<void> {
+  const payload: Record<string, unknown> = {
+    EventUserID: args.eventUserId,
+  };
+  for (const key of Object.keys(GROUPING_PAYLOAD_FIELDS) as EventGroupingKey[]) {
+    if (!(key in args.groups)) continue;
+    payload[GROUPING_PAYLOAD_FIELDS[key]] = String(args.groups[key] || '').trim();
+  }
+  await changeEvent({
+    EventID: args.eventId,
+    Action: 'Pta.SetPlayerGrouping',
+    Payload: payload,
+  });
+  useEventStore().applyPtaPlayerGrouping(args.eventId, args.eventUserId, args.groups);
 }
 
 export async function setPtaSpecialPrizeWinner(args: {
@@ -808,6 +835,30 @@ export function applyLiveChange(
     const id = nullableNumericId(msg.Payload.EventUserID ?? msg.Payload.eventUserID);
     if (id != null) eventStore.removeEventUserLive(id);
     inbound(id != null, `EventUserID=${id}`);
+    return;
+  }
+
+  if (msg.Action === 'Pta.SetPlayerGrouping') {
+    const eventUserId = nullableNumericId(msg.Payload.EventUserID ?? msg.Payload.eventUserID);
+    if (eventId == null || eventUserId == null) {
+      inbound(false, 'skip missing grouping payload');
+      return;
+    }
+    eventStore.applyPtaPlayerGrouping(eventId, eventUserId, {
+      ...(msg.Payload.OrganizationName != null || msg.Payload.organizationName != null
+        ? { organization: String(msg.Payload.OrganizationName ?? msg.Payload.organizationName ?? '') }
+        : {}),
+      ...(msg.Payload.TeamName != null || msg.Payload.teamName != null
+        ? { team: String(msg.Payload.TeamName ?? msg.Payload.teamName ?? '') }
+        : {}),
+      ...(msg.Payload.RegionName != null || msg.Payload.regionName != null
+        ? { region: String(msg.Payload.RegionName ?? msg.Payload.regionName ?? '') }
+        : {}),
+      ...(msg.Payload.CompanyName != null || msg.Payload.companyName != null
+        ? { company: String(msg.Payload.CompanyName ?? msg.Payload.companyName ?? '') }
+        : {}),
+    });
+    inbound(true, `eventUser=${eventUserId}`);
     return;
   }
 

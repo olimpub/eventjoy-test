@@ -168,11 +168,11 @@
             <span class="res-board__points" />
           </div>
           <div
-            v-for="(row, index) in filteredStandings"
+            v-for="row in filteredStandings"
             :key="(groupKey || 'player') + '-' + (row.playerId || row.name)"
             class="res-board__row"
           >
-            <span v-if="showUserPosition" class="res-board__place">{{ index + 1 }}</span>
+            <span v-if="showUserPosition" class="res-board__place">{{ placeOf(row) }}</span>
             <span class="res-board__name">
               <span class="res-board__label">{{ row.name }}</span>
               <span v-if="row.memberCount" class="res-board__count">{{ row.memberCount }} fő</span>
@@ -216,7 +216,9 @@ import {
   pickOpenRoundId,
   projectStandings,
   roundResultsReleased,
+  standingPlace,
   type ResultsScope,
+  type StandingRow,
 } from 'src/modules/profitability/standings';
 import '../theme.css';
 import scoreIcon from '../assets/Score.png';
@@ -438,6 +440,12 @@ const filteredStandings = computed(() => {
   return standings.value.filter((row) => foldText(row.name).includes(q));
 });
 
+function placeOf(row: StandingRow): number {
+  const full = standings.value;
+  const at = full.indexOf(row);
+  return standingPlace(full, at < 0 ? 0 : at);
+}
+
 const standingsCaption = computed(() => {
   const current = currentRound.value;
   if (!current) return '';
@@ -457,9 +465,9 @@ function downloadResultsExcel() {
   downloadExcelSheet(
     `${excelFileBase(eventName.value, scope.value === 'round' ? 'fordulo' : 'osszesitett')}.xlsx`,
     'Eredmények',
-    rows.map((row, index) => {
+    rows.map((row) => {
       const base: Record<string, string | number> = {
-        Helyezés: index + 1,
+        Helyezés: placeOf(row),
         Név: row.name,
       };
       if (grouped && activeGroup) {

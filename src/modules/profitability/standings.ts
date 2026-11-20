@@ -69,6 +69,7 @@ export function deskHasRecordedResults(
   schedules: Record<string, unknown>[],
   roundDesksInRound: Record<string, unknown>[] = []
 ): boolean {
+  if (rd.CompletedAtUtc || rd.completedAtUtc) return true;
   if (isClosedDeskStatus(deskStatusOf(rd, roundStatus))) return true;
   const bound = roundDesksInRound.length
     ? bindSchedulesToRoundDesk(rd, schedules, roundDesksInRound)
@@ -309,20 +310,42 @@ function compareHeadToHead(a: StandingRow, b: StandingRow): number {
 
 /**
  * Elsődleges: összpontszám (fordulópont).
- * Azonos összpontnál: nyers összeg, kocsin maradt áru, helyezési pluszpont,
- * egymás elleni eredmény, majd egy fordulóban elért legnagyobb érték.
+ * Azonos összpontnál: kocsin maradt áru, helyezési pluszpont, egymás elleni eredmény,
+ * egy fordulóban elért legnagyobb érték, és legvégül az eredetileg szerzett nyers összeg.
+ * Ha ezek mind egyeznek, a helyezés közös. Az azonosító csak a lista sorrendje, helyet nem ad.
  */
-export function compareStandings(a: StandingRow, b: StandingRow): number {
+export function compareStandingMerit(a: StandingRow, b: StandingRow): number {
   if (b.resultPoint !== a.resultPoint) return b.resultPoint - a.resultPoint;
-  if (b.amount !== a.amount) return b.amount - a.amount;
   if (b.onTrack !== a.onTrack) return b.onTrack - a.onTrack;
   if (b.bonusPoints !== a.bonusPoints) return b.bonusPoints - a.bonusPoints;
   const head = compareHeadToHead(a, b);
   if (head !== 0) return head;
   if (b.bestRoundPoint !== a.bestRoundPoint) return b.bestRoundPoint - a.bestRoundPoint;
   if (b.bestRoundAmount !== a.bestRoundAmount) return b.bestRoundAmount - a.bestRoundAmount;
+  if (b.amount !== a.amount) return b.amount - a.amount;
+  return 0;
+}
+
+export function compareStandings(a: StandingRow, b: StandingRow): number {
+  const merit = compareStandingMerit(a, b);
+  if (merit !== 0) return merit;
   if (a.playerId !== b.playerId) return a.playerId - b.playerId;
   return a.name.localeCompare(b.name, 'hu', { sensitivity: 'base' });
+}
+
+/** Közös helyezés: 1, 1, 3. A döntő ülései külön helyek maradnak. */
+export function standingPlace(rows: StandingRow[], index: number): number {
+  const row = rows[index];
+  if (!row || row.hidePoints) return index + 1;
+  let cursor = index;
+  while (
+    cursor > 0 &&
+    !rows[cursor - 1]?.hidePoints &&
+    compareStandingMerit(rows[cursor - 1], rows[cursor]) === 0
+  ) {
+    cursor -= 1;
+  }
+  return cursor + 1;
 }
 
 export function buildStandings(opts: {
@@ -576,7 +599,7 @@ export function computePublishedPlayerFinals(opts: {
       playerId: row.playerId,
       FinalPoint: row.resultPoint,
       FinalTruckPoint: row.onTrack,
-      FinalPosition: index + 1,
+      FinalPosition: standingPlace(rows, index),
     }));
   }
   const finalistIds = new Set(ranking.map((row) => row.playerId));
@@ -592,7 +615,7 @@ export function computePublishedPlayerFinals(opts: {
       playerId: row.playerId,
       FinalPoint: row.resultPoint,
       FinalTruckPoint: row.onTrack,
-      FinalPosition: ranking.length + index + 1,
+      FinalPosition: ranking.length + standingPlace(rest, index),
     })),
   ];
 }

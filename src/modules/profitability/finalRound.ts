@@ -6,7 +6,7 @@ import {
   ptaScheduleRoundDeskId,
   type PtaGameTypeRound,
 } from './ptaData';
-import { buildStandings, deskStatusOf, isClosedDeskStatus, isSettledRoundStatus } from './standings';
+import { buildStandings, compareStandingMerit, deskStatusOf, isClosedDeskStatus, isSettledRoundStatus } from './standings';
 
 export function finalTemplateIdSet(templates: PtaGameTypeRound[]): Set<number> {
   return new Set(templates.filter((round) => round.FinalRoundFlg).map((round) => round.id));
@@ -39,7 +39,7 @@ export interface FinalSeatReady {
 
 export interface FinalSeatBlocked {
   ok: false;
-  code: 'no-final' | 'seated' | 'blocked';
+  code: 'no-final' | 'seated' | 'blocked' | 'tie';
   message: string;
 }
 
@@ -145,6 +145,16 @@ export function planFinalSeating(input: {
       ok: false,
       code: 'blocked',
       message: `A döntőhöz ${spots} játékos kell. Az elődöntő állásban ${ranked.length} fő van.`,
+    };
+  }
+
+  const onTheCut = ranked[spots - 1];
+  const nextAfterCut = ranked[spots];
+  if (onTheCut && nextAfterCut && compareStandingMerit(onTheCut, nextAfterCut) === 0) {
+    return {
+      ok: false,
+      code: 'tie',
+      message: 'A 4. hely holtverseny. A döntő nem sorsolható, amíg a továbbjutók nem válnak szét.',
     };
   }
 

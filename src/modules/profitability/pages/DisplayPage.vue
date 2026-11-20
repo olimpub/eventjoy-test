@@ -116,11 +116,13 @@
 
           <section v-else-if="wallState === 'ceremony'" class="pta-wall__ceremony">
             <div v-if="!ceremonyRow" class="pta-wall__idle">
-              <p class="pta-wall__idle-title">Még nincs lezárt eredmény.</p>
+              <p class="pta-wall__idle-title">
+                {{ ceremonyGap ? 'Ezt a helyet a holtverseny kihagyja.' : 'Még nincs lezárt eredmény.' }}
+              </p>
             </div>
             <Transition v-else name="pta-ceremony" mode="out-in">
               <article
-                :key="ceremonyRow.place + '-' + ceremonyRow.name"
+                :key="ceremonyRow.place + '-' + ceremonyTied.map((row) => row.rowKey).join('|')"
                 class="pta-ceremony"
                 :class="{
                   'is-first': ceremonyRow.place === 1,
@@ -131,8 +133,14 @@
                 <p v-if="ceremonyMedal" class="pta-ceremony__medal">{{ ceremonyMedal }}</p>
                 <p class="pta-ceremony__kicker">Dobogó</p>
                 <p class="pta-ceremony__place">{{ ceremonyRow.place }}</p>
-                <h2 class="pta-ceremony__name">{{ ceremonyRow.name }}</h2>
-                <p v-if="ceremonyRow.subLine" class="pta-ceremony__sub">{{ ceremonyRow.subLine }}</p>
+                <h2 class="pta-ceremony__name">
+                  <span v-for="person in ceremonyTied" :key="person.rowKey" class="pta-ceremony__tied">{{
+                    person.name
+                  }}</span>
+                </h2>
+                <p v-if="ceremonyTied.length === 1 && ceremonyRow.subLine" class="pta-ceremony__sub">
+                  {{ ceremonyRow.subLine }}
+                </p>
                 <div v-if="!ceremonyRow.hidePoints" class="pta-ceremony__stats">
                   <span class="pta-ceremony__stat">
                     <img :src="scoreIcon" alt="" />
@@ -291,7 +299,7 @@ import {
   parseResultsScope,
   usePtaStandings,
 } from 'src/modules/profitability/usePtaStandings';
-import { compareStandings, pickLatestSettledRoundId, pickOpenRoundId, deskHasRecordedResults, type StandingRow } from 'src/modules/profitability/standings';
+import { compareStandings, pickLatestSettledRoundId, pickOpenRoundId, deskHasRecordedResults, standingPlace, type StandingRow } from 'src/modules/profitability/standings';
 import '../theme.css';
 import scoreIcon from '../assets/Score.png';
 import scoreTruckIcon from '../assets/ScoreTruck.png';
@@ -304,8 +312,10 @@ const SIZE_SLOP = 16;
 const ROW_MIN = 58;
 const HEAD_H = 28;
 const PAGER_H = 28;
-const SEAT_ROW_MIN = 44;
+const SEAT_ROW_MIN = 52;
+const SEAT_GAP = 6;
 const SEAT_HEAD_H = 28;
+const SEAT_PAGER_H = 36;
 
 const route = useRoute();
 const router = useRouter();
@@ -731,10 +741,22 @@ const seatingColCount = computed(() => {
   return 3;
 });
 
+const seatingMaxRows = computed(() => {
+  const usable = boardHeight.value - SEAT_HEAD_H - SEAT_PAGER_H;
+  const slot = SEAT_ROW_MIN + SEAT_GAP;
+  if (usable < slot * 4) return 6;
+  return Math.max(4, Math.floor(usable / slot));
+});
+
 const seatingRowsPerCol = computed(() => {
-  const usable = boardHeight.value - SEAT_HEAD_H - PAGER_H;
-  if (usable < SEAT_ROW_MIN * 6) return 8;
-  return Math.max(6, Math.floor(usable / SEAT_ROW_MIN));
+  const total = seatingList.value.length;
+  const cols = seatingColCount.value;
+  const maxRows = seatingMaxRows.value;
+  if (total <= 0) return maxRows;
+  if (cols <= 1) return Math.min(total, maxRows);
+  const pages = Math.max(1, Math.ceil(total / (cols * maxRows)));
+  const perPage = Math.ceil(total / pages);
+  return Math.min(maxRows, Math.max(1, Math.ceil(perPage / cols)));
 });
 
 const seatingPageSize = computed(() => Math.max(1, seatingColCount.value * seatingRowsPerCol.value));
@@ -763,22 +785,41 @@ const seatingColumns = computed(() => {
 const roundstandDesks = computed(() => {
   const roundId = effectiveSeatingRoundId.value;
   const source = seatingDataSource();
-  if (roundId == null || !source) return [];
-  const roundDesks = ptaRoundDesksForEventRound(roundId, source.roundDesks, source.schedules);
+  const feed = eventStore.ptaDisplayFeed;
+  const feedRoundDesks =
+    feed && feed.eventId === eventId.value
+      ? ptaRoundDesksForEventRound(roundId, feed.roundDesks, feed.schedules)
+      : [];
+  const feedById = new Map<number, Record<string, unknown>>();
+  for (const row of feedRoundDesks) {
+    const id = ptaRoundDeskId(row);
+    if (id != null) feedById.set(id, row);
+  }
+  if (roundId == null) return [];
+  const roundDesks = source
+    ? ptaRoundDesksForEventRound(roundId, source.roundDesks, source.schedules)
+    : feedRoundDesks;
+  const rows = roundDesks.length ? roundDesks : feedRoundDesks;
+  if (!rows.length) return [];
+  const schedules = source?.schedules?.length ? source.schedules : feed?.schedules || [];
   const round =
     liveRoundRows().find((row) => row.id === roundId) ||
     visibleRounds.value.find((row) => row.id === roundId);
   const status = round?.status || '';
-  return roundDesks
+  return rows
     .map((rd, index) => {
       const deskId = ptaEventDeskId(rd);
-      const desk = source.desks.find((row) => ptaEventDeskId(row) === deskId);
+      const desk = source?.desks.find((row) => ptaEventDeskId(row) === deskId);
       const deskNo = ptaDeskNumber(rd) || ptaDeskNumber(desk) || index + 1;
+      const id = ptaRoundDeskId(rd) ?? deskId ?? index + 1;
+      const fresh = typeof id === 'number' ? feedById.get(id) : undefined;
+      const closedHere = deskHasRecordedResults(rd, status, schedules, rows);
+      const closedFresh = fresh ? deskHasRecordedResults(fresh, status, feed?.schedules || [], feedRoundDesks) : false;
       return {
-        id: ptaRoundDeskId(rd) ?? deskId ?? index + 1,
+        id,
         deskNo,
         name: String(rd.DName || desk?.DName || `${deskNo}. asztal`).trim() || `${deskNo}. asztal`,
-        closed: deskHasRecordedResults(rd, status, source.schedules, roundDesks),
+        closed: closedHere || closedFresh,
       };
     })
     .sort((a, b) => a.deskNo - b.deskNo);
@@ -829,7 +870,7 @@ const displayRows = computed(() => {
       onTrack: row.onTrack,
       resultPoint: row.resultPoint,
       hidePoints: row.hidePoints,
-      place: index + 1,
+      place: standingPlace(standings.value, index),
       subLine: playerGroupLine(row.playerId),
     }));
   }
@@ -857,8 +898,8 @@ const displayRows = computed(() => {
   });
   groups.sort((a, b) => {
     if (b.resultPoint !== a.resultPoint) return b.resultPoint - a.resultPoint;
-    if (b.amount !== a.amount) return b.amount - a.amount;
     if (b.onTrack !== a.onTrack) return b.onTrack - a.onTrack;
+    if (b.amount !== a.amount) return b.amount - a.amount;
     return a.name.localeCompare(b.name, 'hu');
   });
 
@@ -874,6 +915,18 @@ const displayRows = computed(() => {
     place: number;
     subLine: string;
   }> = [];
+  const groupRanks: StandingRow[] = groups.map((group) => ({
+    playerId: 0,
+    name: group.name,
+    color: '',
+    amount: group.amount,
+    onTrack: group.onTrack,
+    resultPoint: group.resultPoint,
+    bonusPoints: 0,
+    bestRoundPoint: 0,
+    bestRoundAmount: 0,
+    meetings: [],
+  }));
   groups.forEach((group, index) => {
     lines.push({
       rowKey: `g-${group.name}`,
@@ -883,7 +936,7 @@ const displayRows = computed(() => {
       amount: group.amount,
       onTrack: group.onTrack,
       resultPoint: group.resultPoint,
-      place: index + 1,
+      place: standingPlace(groupRanks, index),
       subLine: `${group.members.length} fő`,
     });
     for (const member of group.members) {
@@ -906,10 +959,16 @@ const displayRows = computed(() => {
 
 const ceremonyMax = computed(() => Math.max(0, Math.min(8, displayRows.value.length)));
 
-const ceremonyRow = computed(() => {
+const ceremonyTied = computed(() => {
   const place = ceremonyPlace.value;
-  return displayRows.value.find((row) => row.place === place) || null;
+  return displayRows.value.filter((row) => row.kind !== 'member' && row.place === place);
 });
+
+const ceremonyRow = computed(() => ceremonyTied.value[0] || null);
+
+const ceremonyGap = computed(
+  () => !ceremonyRow.value && displayRows.value.some((row) => row.kind !== 'member' && row.place > 0)
+);
 
 const ceremonyMedal = computed(() => {
   const place = ceremonyRow.value?.place;
@@ -1404,6 +1463,7 @@ function syncFeedPoll() {
     feedPollTimer = null;
   }
   if (wallState.value !== 'roundstand') return;
+  refreshLiveRoundWall();
   feedPollTimer = setInterval(() => {
     refreshLiveRoundWall();
   }, FEED_POLL_MS);
@@ -2033,6 +2093,9 @@ onUnmounted(() => {
 
 .pta-ceremony__name {
   margin: 12px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   font-size: clamp(28px, 4.4vw, 56px);
   font-weight: 800;
   color: #f8fafc;
@@ -2158,9 +2221,9 @@ onUnmounted(() => {
 }
 
 .pta-seat-list__row {
-  flex: 1 1 0;
-  min-height: 0;
-  padding: 8px 12px;
+  flex: 1 1 auto;
+  min-height: 52px;
+  padding: 4px 12px;
   border-radius: 12px;
 }
 
@@ -2196,16 +2259,17 @@ onUnmounted(() => {
 .pta-seat-list__meta {
   display: flex;
   align-items: center;
-  align-self: center;
+  align-self: stretch;
   justify-content: center;
   width: 100%;
-  height: 100%;
+  height: auto;
+  min-height: 0;
   flex-shrink: 0;
 }
 
 .pta-seat-list__desk {
   width: 100%;
-  font-size: clamp(24px, 3vw, 42px);
+  font-size: clamp(20px, 2vw, 30px);
   font-weight: 800;
   line-height: 1;
   color: #121416;

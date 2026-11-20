@@ -168,6 +168,8 @@
         </button>
       </div>
 
+      <p v-if="filterResultLabel" class="part-result-count">{{ filterResultLabel }}</p>
+
       <div v-if="filteredParticipants.length === 0" class="part-empty">
         <q-icon name="sym_r_group_off" size="36px" class="text-slate-500" />
         <p class="part-empty__title">{{ participants.length === 0 ? 'Még nincs jelentkező' : 'Nincs találat' }}</p>
@@ -849,6 +851,20 @@ const filteredParticipants = computed(() => {
     });
 });
 
+const listIsFiltered = computed(
+  () =>
+    listFilter.value !== 'registered' ||
+    searchQuery.value.trim().length > 0 ||
+    roleFilterIds.value.length > 0 ||
+    statusFilterIds.value.length > 0
+);
+
+const filterResultLabel = computed(() => {
+  if (!listIsFiltered.value || participants.value.length === 0) return '';
+  const count = filteredParticipants.value.length;
+  return count === 1 ? '1 találat' : `${count} találat`;
+});
+
 const kpiRegistered = computed(() => String(participants.value.length));
 const kpiCheckedIn = computed(() => String(participants.value.filter((row) => row.checkedIn).length));
 const kpiNotEntered = computed(() => String(participants.value.filter((row) => !row.checkedIn).length));
@@ -1319,6 +1335,14 @@ function comingSoon(label: string) {
   font-weight: 900;
   line-height: 18px;
   text-align: center;
+}
+
+.part-result-count {
+  margin: 0 10px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #94a3b8;
 }
 
 .part-active-chips {

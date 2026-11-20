@@ -41,6 +41,21 @@
             @input="onPhoneInput"
           />
         </label>
+        <template v-if="groupingAttrs.length">
+          <p class="walkin__group-label">Csoportosítás</p>
+          <label v-for="attr in groupingAttrs" :key="attr.key" class="walkin__field">
+            <span>{{ attr.label }} *</span>
+            <input
+              v-model="groupingValues[attr.key]"
+              type="text"
+              :list="'contact-group-' + attr.key"
+              :disabled="busy"
+            />
+            <datalist :id="'contact-group-' + attr.key">
+              <option v-for="name in groupingValueNames[attr.key] || []" :key="name" :value="name" />
+            </datalist>
+          </label>
+        </template>
 
         <div v-if="showScoreCount" class="walkin__score">
           <q-toggle
@@ -74,16 +89,29 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue';
+import { computed, nextTick, reactive, ref, watch } from 'vue';
 import { useQuasar } from 'quasar';
 import { AsYouType } from 'libphonenumber-js';
+import { useEventStore, isGameMasterRole } from 'src/stores/event';
+import { useMasterDataStore, ORGANIZER_ROLE_TYPE_ID } from 'src/stores/masterData';
 import { nullableNumericId, readAxiosErrorMessage, readAxiosHttpStatus } from 'src/utils/apiPayload';
+import { membershipRoleKind } from 'src/utils/eventUserStatus';
+import {
+  findPtaPlayerForEventUser,
+  listEnabledGroupingAttrs,
+  pickGroupingText,
+  type EventGroupingKey,
+} from 'src/modules/profitability/ptaData';
+import { listInviteGroupingNames } from 'src/utils/inviteImport';
+import { setPtaPlayerGrouping } from 'src/utils/eventChange';
 import {
   patchEventUserContact,
   validateEventUserContact,
 } from 'src/utils/eventUserContact';
 
 const $q = useQuasar();
+const eventStore = useEventStore();
+const masterDataStore = useMasterDataStore();
 
 const props = withDefaults(
   defineProps<{
@@ -123,17 +151,83 @@ const lastName = ref('');
 const firstName = ref('');
 const email = ref('');
 const phone = ref('');
+const groupingValues = reactive<Partial<Record<EventGroupingKey, string>>>({});
 const busy = ref(false);
 const errorMessage = ref('');
 
+const eventUser = computed(() => {
+  const id = nullableNumericId(props.eventUserId);
+  if (id == null) return null;
+  return (
+    eventStore.eventParticipants.find((row) => Number(row.id) === id) ||
+    eventStore.eventUsers.find((row) => Number(row.id) === id) ||
+    null
+  );
+});
+
+const isPlayer = computed(() => {
+  const eu = eventUser.value;
+  if (!eu) return false;
+  const eventRole = (eventStore.roles || []).find(
+    (row: { id?: number; ID?: number; RoleID?: number; RoleId?: number }) =>
+      Number(row.id ?? row.ID) === Number(eu.EventRoleID)
+  );
+  const masterRoleId = nullableNumericId(
+    eventRole?.RoleID ?? eventRole?.RoleId ?? eu.RoleID ?? eu.RoleId ?? eu.EventRoleID
+  );
+  if (masterRoleId == null) return false;
+  const roleName = masterDataStore.getRoleNameById(masterRoleId);
+  const roleTypeName = masterDataStore.getRoleTypeNameByRoleId(masterRoleId);
+  if (isGameMasterRole(masterRoleId, roleName, roleTypeName)) return false;
+  const typeId = masterDataStore.getRoleTypeIdByRoleId(masterRoleId);
+  if (typeId === ORGANIZER_ROLE_TYPE_ID) return false;
+  if (typeId === 3) return true;
+  return membershipRoleKind({ isOrganizer: false, roleTypeName, roleName }) === 'participant';
+});
+
+const groupingAttrs = computed(() => {
+  if (!isPlayer.value || props.eventId == null || props.eventId === '') return [];
+  return listEnabledGroupingAttrs(eventStore.getPtaSettingsForEvent(props.eventId));
+});
+
+const groupingValueNames = computed(() => {
+  if (props.eventId == null || props.eventId === '' || !groupingAttrs.value.length) return {};
+  return listInviteGroupingNames(props.eventId, groupingAttrs.value, [
+    ...eventStore.getPtaPlayersForEvent(props.eventId),
+    ...(eventStore.eventParticipants || []),
+  ]);
+});
+
+function fillGrouping() {
+  const eu = eventUser.value;
+  const eventUserId = nullableNumericId(props.eventUserId);
+  const userId = nullableNumericId(eu?.UserID ?? eu?.userID ?? eu?.UserId);
+  const player =
+    eventUserId != null && props.eventId != null && props.eventId !== ''
+      ? findPtaPlayerForEventUser(eventStore.ptaEventPlayers, props.eventId, eventUserId, userId)
+      : null;
+  const source: Record<string, unknown> = {
+    ...(player || {}),
+    ...((eu as Record<string, unknown> | null) || {}),
+  };
+  groupingValues.organization = '';
+  groupingValues.team = '';
+  groupingValues.region = '';
+  groupingValues.company = '';
+  for (const attr of groupingAttrs.value) {
+    groupingValues[attr.key] = pickGroupingText(source, attr.key);
+  }
+}
+
 watch(
-  () => [props.modelValue, props.eventUserId] as const,
+  () => [props.modelValue, props.eventUserId, groupingAttrs.value.map((attr) => attr.key).join('|')] as const,
   ([open]) => {
     if (!open) return;
     lastName.value = props.lastName;
     firstName.value = props.firstName;
     email.value = props.email;
     phone.value = props.phone;
+    fillGrouping();
     errorMessage.value = '';
     busy.value = false;
   }
@@ -168,6 +262,11 @@ async function submit() {
     errorMessage.value = invalid;
     return;
   }
+  const missingGroup = groupingAttrs.value.find((attr) => !String(groupingValues[attr.key] || '').trim());
+  if (missingGroup) {
+    errorMessage.value = `Add meg: ${missingGroup.label}.`;
+    return;
+  }
   const numericEventId = nullableNumericId(props.eventId);
   const eventUserId = nullableNumericId(props.eventUserId);
   if (numericEventId == null || eventUserId == null) {
@@ -176,6 +275,17 @@ async function submit() {
   }
   busy.value = true;
   try {
+    if (groupingAttrs.value.length) {
+      const groups: Partial<Record<EventGroupingKey, string>> = {};
+      for (const attr of groupingAttrs.value) {
+        groups[attr.key] = String(groupingValues[attr.key] || '').trim();
+      }
+      await setPtaPlayerGrouping({
+        eventId: numericEventId,
+        eventUserId,
+        groups,
+      });
+    }
     await patchEventUserContact({
       eventId: numericEventId,
       eventUserId,
@@ -265,6 +375,15 @@ async function submit() {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.walkin__group-label {
+  margin: 4px 0 0;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #fdba74;
 }
 
 .walkin__field {

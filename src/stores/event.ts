@@ -2321,6 +2321,40 @@ export const useEventStore = defineStore('event', {
       this.persistCurrentPtaDraw(eventId);
     },
 
+    applyPtaPlayerGrouping(
+      eventId: number | string,
+      eventUserId: number,
+      groups: Partial<Record<'organization' | 'team' | 'region' | 'company', string>>
+    ) {
+      const key = String(eventId);
+      const target = Number(eventUserId);
+      const fields: Array<['organization' | 'team' | 'region' | 'company', 'OrganizationName' | 'TeamName' | 'RegionName' | 'CompanyName']> = [
+        ['organization', 'OrganizationName'],
+        ['team', 'TeamName'],
+        ['region', 'RegionName'],
+        ['company', 'CompanyName'],
+      ];
+      const patch = (row: PtaEventPlayer): PtaEventPlayer => {
+        const rowEvent = String(row.EventID ?? row.eventID ?? row.EventId ?? '');
+        if (rowEvent && rowEvent !== key) return row;
+        const rowEventUserId = nullableNumericId(row.EventUserID ?? row.eventUserID ?? row.EventUserId);
+        if (rowEventUserId !== target) return row;
+        const next = { ...row };
+        for (const [groupKey, field] of fields) {
+          if (!(groupKey in groups)) continue;
+          next[field] = String(groups[groupKey] || '').trim() || null;
+        }
+        return next;
+      };
+      this.ptaEventPlayers = this.ptaEventPlayers.map(patch);
+      if (this.ptaDisplayFeed) {
+        this.ptaDisplayFeed = {
+          ...this.ptaDisplayFeed,
+          players: this.ptaDisplayFeed.players.map(patch),
+        };
+      }
+    },
+
     setPtaPlayerScoreCount(eventPlayerId: number, scoreCount: boolean) {
       const target = Number(eventPlayerId);
       const patch = (row: PtaEventPlayer): PtaEventPlayer => {

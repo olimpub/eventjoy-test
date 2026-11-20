@@ -1,4 +1,4 @@
-import { buildStandings, projectStandings, type StandingRow } from './standings';
+import { buildStandings, projectStandings, standingPlace, type StandingRow } from './standings';
 import { eventRoundIsFinal, finalTemplateIdSet } from './finalRound';
 import { ptaEventRoundId, type PtaGameTypeRound } from './ptaData';
 
@@ -138,16 +138,17 @@ function surprisePrize(
     return { ok: false, message: 'A második forduló után még nincs mezőny.' };
   }
   const cut = Math.ceil(field.length / 2);
-  const bottom = field.slice(cut);
+  const bottom = field.filter((row, index) => standingPlace(field, index) > cut);
   const round3 = new Map(
     buildStandings({ roundIds: [third.id], ...shared }).map((row) => [row.playerId, row])
   );
   const ranked = bottom
-    .map((row, index) => {
+    .map((row) => {
       const score = round3.get(row.playerId);
+      const at = field.indexOf(row);
       return {
         row,
-        placeAfterTwo: cut + index + 1,
+        placeAfterTwo: standingPlace(field, at),
         amount: score?.amount ?? 0,
         onTrack: score?.onTrack ?? 0,
       };
@@ -156,15 +157,24 @@ function surprisePrize(
       if (b.amount !== a.amount) return b.amount - a.amount;
       if (b.onTrack !== a.onTrack) return b.onTrack - a.onTrack;
       if (b.placeAfterTwo !== a.placeAfterTwo) return b.placeAfterTwo - a.placeAfterTwo;
-      return a.row.playerId - b.row.playerId;
+      return a.row.name.localeCompare(b.row.name, 'hu', { sensitivity: 'base' });
     });
   const winner = ranked[0];
+  const rival = ranked[1];
   if (!winner) return { ok: false, message: 'A kalap üres.' };
+  if (
+    rival &&
+    rival.amount === winner.amount &&
+    rival.onTrack === winner.onTrack &&
+    rival.placeAfterTwo === winner.placeAfterTwo
+  ) {
+    return { ok: false, message: 'A meglepetés különdíj holtverseny, nincs egyetlen nyertes.' };
+  }
   return {
     ok: true,
     fieldSize: field.length,
     hatSize: bottom.length,
-    hat: bottom.map((row, index) => contender(row, cut + index + 1)),
+    hat: bottom.map((row) => contender(row, standingPlace(field, field.indexOf(row)))),
     winner: {
       ...contender(winner.row, winner.placeAfterTwo),
       amount: winner.amount,
@@ -198,7 +208,9 @@ function weightedPool(
   if (board.length < 5) {
     return { ok: false, message: 'A sorsoláshoz a négy díjazotton kívül is kell játékos.' };
   }
-  const excluded = new Set(board.slice(0, 4).map((row) => row.playerId));
+  const excluded = new Set(
+    board.filter((row, index) => standingPlace(board, index) <= 4).map((row) => row.playerId)
+  );
   const money = buildStandings({
     roundIds: preliminary.map((round) => round.id),
     ...shared,
@@ -207,7 +219,7 @@ function weightedPool(
     .filter((row) => !excluded.has(row.playerId))
     .map((row) => {
       const place = board.findIndex((item) => item.playerId === row.playerId);
-      return contender(row, place >= 0 ? place + 1 : 0);
+      return contender(row, place >= 0 ? standingPlace(board, place) : 0);
     })
     .filter((row) => row.tickets > 0);
   const cards = pool.reduce((sum, row) => sum + row.tickets, 0);

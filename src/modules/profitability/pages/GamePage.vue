@@ -100,6 +100,7 @@
             <q-icon name="emoji_events" size="20px" />
             {{ drawing ? 'Sorsolás…' : 'Döntő sorsolása' }}
           </button>
+          <p v-else-if="finalTieMessage" class="game-final-tie">{{ finalTieMessage }}</p>
         </section>
 
         <button
@@ -894,6 +895,11 @@ const finalSeatPlan = computed(() => {
   });
 });
 const canSeatFinal = computed(() => finalSeatPlan.value?.ok === true);
+const finalTieMessage = computed(() => {
+  const plan = finalSeatPlan.value;
+  if (!plan || plan.ok || plan.code !== 'tie') return '';
+  return plan.message;
+});
 const reserveCount = computed(
   () => eventStore.getPtaPlayersForEvent(eventId.value).filter((row) => row.ReserveFlg === true || row.ReserveFlg === 1).length
 );
@@ -1197,6 +1203,29 @@ function seatsForCard(table: GameTableRow) {
   });
 }
 
+async function syncRoundStatusForScoring(roundId: number) {
+  try {
+    const availability = await fetchPtaRoundAvailableStatuses(roundId);
+    const statusId = availability.currentStatusId;
+    const statusName =
+      availability.currentStatusName ||
+      (statusId != null ? masterDataStore.getPtaEventRoundStatusById(statusId)?.SName : '') ||
+      '';
+    if (statusId != null || statusName) {
+      eventStore.applyEventRoundStatus(roundId, statusId, statusName || null);
+    }
+  } catch {
+    /* a kihagyott ping után a helyi státusz marad */
+  }
+}
+
+async function syncScoringGates(roundId: number) {
+  if (playPhase.value !== 'game') {
+    await loadDataSheet();
+  }
+  await syncRoundStatusForScoring(roundId);
+}
+
 async function loadRoundStatusAvailability(roundId: number) {
   roundStatusLoading.value = true;
   roundStatusLoadError.value = '';
@@ -1345,6 +1374,8 @@ function onTableClick(tableId: number, event?: Event) {
   selectedTableId.value = tableId;
   hydrateSheetSeats();
   isTableSheetOpen.value = true;
+  const roundId = currentRound.value?.id;
+  if (roundId != null) void syncScoringGates(roundId);
 }
 
 function onClaimPointerDown(table: GameTableRow, event: PointerEvent) {
@@ -2437,6 +2468,14 @@ async function onFinalizeDraw() {
 
 .game-final {
   margin-top: 12px;
+}
+
+.game-final-tie {
+  margin: 12px 0 0;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.4;
+  color: #fdba74;
 }
 
 .game-ctrl--test {
